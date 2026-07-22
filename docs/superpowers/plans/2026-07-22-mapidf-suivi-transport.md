@@ -134,7 +134,7 @@ lombok.anyConstructor.addConstructorProperties = true
 ```yaml
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:18-3.6
     environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
     ports: ["5432:5432"]
     volumes: ["dbdata:/var/lib/postgresql/data"]
@@ -362,7 +362,7 @@ public class TestcontainersConfiguration {
     @ServiceConnection
     PostgreSQLContainer<?> postgresContainer() {
         return new PostgreSQLContainer<>(
-            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
+            DockerImageName.parse("postgis/postgis:18-3.6").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
     }
 }
@@ -2944,7 +2944,7 @@ server {
 ```yaml
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:18-3.6
     environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
     volumes: ["dbdata:/var/lib/postgresql/data"]
   backend:
