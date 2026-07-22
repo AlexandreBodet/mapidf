@@ -4,350 +4,874 @@
 
 **Goal:** Afficher les véhicules de la ligne 9 du métro parisien se déplaçant en quasi temps réel sur une carte interactive.
 
-**Architecture:** Backend Spring Boot qui poll les flux IDFM/PRIM (GTFS statique + GTFS-RT), stocke le réseau en PostGIS, et calcule les positions des véhicules (GPS réel projeté sur le tracé, ou interpolation horaire quand le GPS manque). Le front React+MapLibre poll un snapshot toutes les ~4 s et anime les marqueurs par tween `requestAnimationFrame` le long du tracé connu localement.
+**Architecture:** Backend Spring Boot qui poll les flux IDFM/PRIM (GTFS statique + GTFS-RT), stocke le réseau en PostGIS (types géométriques JTS mappés par Hibernate Spatial), et calcule les positions des véhicules (GPS réel projeté sur le tracé, ou interpolation horaire quand le GPS manque). Le front React+MapLibre poll un snapshot toutes les ~4 s et anime les marqueurs par tween `requestAnimationFrame` le long du tracé connu localement.
 
-**Tech Stack:** Java 21, Spring Boot 3.3.x, PostgreSQL 16 + PostGIS 3.4, Flyway, Hibernate Spatial + JTS, `org.mobilitydata:gtfs-realtime-bindings`, Apache Commons CSV, Testcontainers ; React 18 + Vite + TypeScript, MapLibre GL JS.
+**Tech Stack:** Java 25, Spring Boot 4.1.0, PostgreSQL 16 + PostGIS 3.4, Flyway, Hibernate Spatial + JTS, Lombok, `org.mobilitydata:gtfs-realtime-bindings`, Apache Commons CSV, Testcontainers ; React 18 + Vite + TypeScript, MapLibre GL JS.
 
 ## Global Constraints
 
-- **Java 21**, **Spring Boot 3.3.x**, build **Maven**.
-- **Clé API PRIM** lue exclusivement depuis la variable d'environnement `PRIM_API_KEY` — jamais commitée, jamais renvoyée au front.
-- **Ligne de référence MVP = métro ligne 9** ; l'identifiant de ligne reste paramétrable (`app.line.id`).
-- Le front n'appelle **que** le backend (préfixe `/api`). Aucun appel direct à IDFM depuis le navigateur.
-- Coordonnées : ordre **`[lng, lat]`** dans les payloads GeoJSON-like renvoyés au front (convention MapLibre) ; SRID **4326** en base.
-- Le calcul de position du chemin chaud (`PositionEngine`) est **pur, déterministe** (instant `t` injecté) et **ne touche pas la base**.
+Conventions alignées sur `/home/abodet/workspace/steamulo/spring-boot-starter-v2` (CLAUDE.md) :
+
+- **Java 25**, **Spring Boot 4.1.0**, build **Maven** (parent `spring-boot-starter-parent:4.1.0`).
+- **Package racine** : `com.mapidf`. Structure : `controllers/<feature>/`, `data/entity`, `data/repositories`, `data/enums`, `data/dto`, `configurations/properties`, `exceptions`, `gtfs`, `rt`, `position`.
+- **Lombok partout** : `@Value @Builder` pour DTO réponses (immutables, champs `final`) ; `@Getter @ToString @NoArgsConstructor @AllArgsConstructor @Builder @EqualsAndHashCode` pour entités.
+- **Injection par constructeur** via `@AllArgsConstructor` ; **jamais** `@Autowired` sur un champ.
+- **UUID en PK** (`@GeneratedValue(strategy = GenerationType.UUID)`, `gen_random_uuid()` en base). Les identifiants GTFS sont des colonnes **uniques** (`gtfs_id`), pas des PK ; relations via `@ManyToOne`.
+- **`context-path: /api`** (dans `application.yml`) → les `@RequestMapping` n'incluent **pas** `/api`. API port **8000**, Actuator port **9000**.
+- **`@Transactional`** sur méthodes de service qui écrivent ; `@Transactional(readOnly = true)` sur les lectures ; **jamais** sur un contrôleur.
+- **Enums** : comparaison avec `==`, jamais `.equals()`.
+- **Erreurs** : `throw new ApiException(HttpStatus, ErrorCode[, cause])`. Ne **pas** `log.error` dans un service avant de relancer (`ApiExceptionHandler` logge déjà).
+- **Style** : 4 espaces, accolades **toujours** (même mono-instruction), pas de commentaire sauf si le POURQUOI n'est pas évident.
+- **Clé API PRIM** lue depuis l'environnement `PRIM_API_KEY` — jamais commitée, jamais renvoyée au front.
+- **Ligne de référence MVP = métro ligne 9** ; identifiant paramétrable (`app.line.gtfs-route-id`).
+- **Tests** : annotation composée **`@MapIdfTest`** (`@SpringBootTest` + `@ActiveProfiles("test")` + `@Import(TestcontainersConfiguration.class)` + `@Transactional`). **`@AutoConfigureMockMvc` n'existe pas en Boot 4** → monter MockMvc à la main : `MockMvcBuilders.webAppContextSetup(wac).build()`.
+- Coordonnées : ordre **`[lng, lat]`** dans les payloads (convention MapLibre) ; SRID **4326** en base.
+- Le `PositionEngine` est **pur, déterministe** (instant `t` injecté) et **ne touche pas la base**.
 - TDD strict : test qui échoue → implémentation minimale → test qui passe → commit.
 
 ---
 
-### Task 1: Scaffold backend + infra locale (Postgres/PostGIS, Actuator)
+### Task 1: Scaffold backend + infra + socle technique
 
-Deliverable : l'application démarre, se connecte à une base PostGIS, `/actuator/health` répond `UP`.
+Deliverable : l'app démarre sur PostGIS (Testcontainers en test), `/actuator/health` = `UP`, socle d'exceptions en place.
 
 **Files:**
-- Create: `backend/pom.xml`
+- Create: `backend/pom.xml`, `backend/lombok.config`
 - Create: `backend/src/main/java/com/mapidf/MapIdfApplication.java`
-- Create: `backend/src/main/resources/application.yml`
+- Create: `backend/src/main/resources/application.yml`, `backend/src/main/resources/application-test.yml`
 - Create: `backend/docker-compose.yml`
-- Create: `backend/src/test/java/com/mapidf/SmokeTest.java`
+- Create: `backend/src/main/java/com/mapidf/data/enums/ErrorCode.java`
+- Create: `backend/src/main/java/com/mapidf/data/dto/ErrorResponse.java`
+- Create: `backend/src/main/java/com/mapidf/exceptions/ApiException.java`
+- Create: `backend/src/main/java/com/mapidf/exceptions/ApiExceptionHandler.java`
+- Create: `backend/src/test/java/com/mapidf/MapIdfTest.java`
+- Create: `backend/src/test/java/com/mapidf/TestcontainersConfiguration.java`
+- Create: `backend/src/test/java/com/mapidf/SmokeIT.java`
 
 **Interfaces:**
-- Produces: application Spring Boot bootable ; base `mapidf` accessible via JDBC ; profil de test avec Testcontainers.
+- Produces: `@MapIdfTest`, `TestcontainersConfiguration` (bean `@ServiceConnection` PostGIS), `ApiException(HttpStatus, ErrorCode[, Throwable])`, `ErrorCode`, `ErrorResponse`.
 
-- [ ] **Step 1: `pom.xml` avec les dépendances**
+- [ ] **Step 1: `pom.xml`** (calqué sur le starter, sans les modules auth/mail/quartz)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.3.4</version>
+    <version>4.1.0</version>
     <relativePath/>
   </parent>
   <groupId>com.mapidf</groupId>
   <artifactId>mapidf-backend</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>MapIDF-Backend</name>
   <properties>
-    <java.version>21</java.version>
-    <hibernate-spatial.version>6.5.2.Final</hibernate-spatial.version>
+    <java.version>25</java.version>
   </properties>
   <dependencies>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
-    <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-flyway</artifactId></dependency>
     <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-database-postgresql</artifactId></dependency>
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
-    <dependency><groupId>org.hibernate.orm</groupId><artifactId>hibernate-spatial</artifactId><version>${hibernate-spatial.version}</version></dependency>
-    <dependency><groupId>org.locationtech.jts</groupId><artifactId>jts-core</artifactId><version>1.19.0</version></dependency>
+    <dependency><groupId>org.hibernate.orm</groupId><artifactId>hibernate-spatial</artifactId></dependency>
+    <dependency><groupId>org.locationtech.jts</groupId><artifactId>jts-core</artifactId></dependency>
     <dependency><groupId>org.mobilitydata</groupId><artifactId>gtfs-realtime-bindings</artifactId><version>0.0.8</version></dependency>
     <dependency><groupId>org.apache.commons</groupId><artifactId>commons-csv</artifactId><version>1.11.0</version></dependency>
-    <!-- test -->
+    <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
+
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
-    <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
-    <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-postgresql</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-junit-jupiter</artifactId><scope>test</scope></dependency>
   </dependencies>
   <build>
     <plugins>
-      <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths>
+            <path><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId>
+        <configuration><argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine></configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.15</version>
+        <executions>
+          <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
+          <execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration><excludes><exclude><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></exclude></excludes></configuration>
+      </plugin>
     </plugins>
   </build>
 </project>
 ```
 
-- [ ] **Step 2: `docker-compose.yml` (PostGIS)**
+> Générer le wrapper Maven : `mvn -N wrapper:wrapper -Dmaven=3.9.9` (ou copier `.mvn/`, `mvnw`, `mvnw.cmd` depuis le starter). Toutes les commandes ci-dessous supposent `./mvnw` présent.
+
+- [ ] **Step 2: `lombok.config`** (identique au starter)
+
+```
+config.stopBubbling = true
+lombok.addLombokGeneratedAnnotation = true
+lombok.anyConstructor.addConstructorProperties = true
+```
+
+- [ ] **Step 3: `docker-compose.yml`**
 
 ```yaml
 services:
   db:
     image: postgis/postgis:16-3.4
-    environment:
-      POSTGRES_DB: mapidf
-      POSTGRES_USER: mapidf
-      POSTGRES_PASSWORD: mapidf
+    environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
     ports: ["5432:5432"]
     volumes: ["dbdata:/var/lib/postgresql/data"]
 volumes:
   dbdata:
 ```
 
-- [ ] **Step 3: `application.yml`**
+- [ ] **Step 4: `application.yml` et `application-test.yml`**
 
+`application.yml` :
 ```yaml
+server:
+  servlet:
+    context-path: /api
+  port: 8000
+management:
+  server:
+    port: 9000
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
 spring:
+  threads:
+    virtual:
+      enabled: true
+  application:
+    name: MapIDF
   datasource:
     url: jdbc:postgresql://localhost:5432/mapidf
     username: mapidf
     password: mapidf
   jpa:
-    hibernate.ddl-auto: validate
-    properties.hibernate.dialect: org.hibernate.spatial.dialect.postgis.PostgisPG10Dialect
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
   flyway:
     enabled: true
-management:
-  endpoints.web.exposure.include: health,info,metrics
+    locations: classpath:db/migration
 app:
   line:
-    id: "9"        # métro ligne 9 (identifiant logique interne, mappé sur le route_id réel en Task 2)
+    gtfs-route-id: ""        # route_id réel de la ligne 9 (renseigné en Task 2)
+    color: "#D5C900"
   prim:
     api-key: ${PRIM_API_KEY:}
+    auth-header: "apikey"
+    gtfs-static-url: ""      # renseigné en Task 2
+    vehicle-positions-url: ""
+    trip-updates-url: ""
+    poll-interval: PT10S
 ```
 
-- [ ] **Step 4: classe d'application**
+`application-test.yml` (le datasource est fourni par Testcontainers `@ServiceConnection`, les URLs PRIM restent vides → poller/refresh no-op) :
+```yaml
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+app:
+  line:
+    gtfs-route-id: "TEST9"
+```
+
+- [ ] **Step 5: classe d'application**
 
 ```java
 package com.mapidf;
+
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
+@ConfigurationPropertiesScan
 public class MapIdfApplication {
-    public static void main(String[] args) { SpringApplication.run(MapIdfApplication.class, args); }
+    public static void main(String[] args) {
+        SpringApplication.run(MapIdfApplication.class, args);
+    }
 }
 ```
 
-- [ ] **Step 5: test smoke (contexte se charge sur PostGIS Testcontainers)**
+- [ ] **Step 6: socle d'exceptions** (`ErrorCode`, `ErrorResponse`, `ApiException`, `ApiExceptionHandler`)
+
+```java
+package com.mapidf.data.enums;
+
+import lombok.Getter;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+
+@Getter
+@RequiredArgsConstructor
+public enum ErrorCode {
+    LINE_NOT_FOUND("Line not found"),
+    BAD_REQUEST("Invalid request"),
+    INTERNAL_ERROR("Internal server error");
+
+    @NonNull
+    private final String description;
+}
+```
+
+```java
+package com.mapidf.data.dto;
+
+import java.time.Instant;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.mapidf.data.enums.ErrorCode;
+import lombok.Builder;
+import lombok.Value;
+
+@Value
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ErrorResponse {
+    Instant timestamp;
+    int status;
+    ErrorCode errorCode;
+    String path;
+}
+```
+
+```java
+package com.mapidf.exceptions;
+
+import com.mapidf.data.enums.ErrorCode;
+import lombok.Getter;
+import lombok.NonNull;
+import org.springframework.http.HttpStatus;
+
+@Getter
+public class ApiException extends RuntimeException {
+
+    private final HttpStatus httpStatus;
+    private final ErrorCode errorCode;
+
+    public ApiException(@NonNull HttpStatus httpStatus, @NonNull ErrorCode errorCode) {
+        super(errorCode.getDescription());
+        this.httpStatus = httpStatus;
+        this.errorCode = errorCode;
+    }
+
+    public ApiException(@NonNull HttpStatus httpStatus, @NonNull ErrorCode errorCode, Throwable cause) {
+        super(errorCode.getDescription(), cause);
+        this.httpStatus = httpStatus;
+        this.errorCode = errorCode;
+    }
+}
+```
+
+```java
+package com.mapidf.exceptions;
+
+import java.time.Instant;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import com.mapidf.data.dto.ErrorResponse;
+import com.mapidf.data.enums.ErrorCode;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@Slf4j
+@RestControllerAdvice
+public class ApiExceptionHandler {
+
+    private static ErrorResponse write(HttpServletResponse response, HttpStatus status,
+                                        ErrorCode errorCode, HttpServletRequest request) {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON.toString());
+        return ErrorResponse.builder()
+            .timestamp(Instant.now())
+            .status(status.value())
+            .errorCode(errorCode)
+            .path(request.getRequestURI())
+            .build();
+    }
+
+    @ExceptionHandler(ApiException.class)
+    public ErrorResponse handleApiException(HttpServletRequest request, HttpServletResponse response, ApiException ex) {
+        if (ex.getHttpStatus().is5xxServerError()) {
+            log.error("Server error [{}]: {}", ex.getErrorCode(), ex.getMessage(), ex);
+        } else {
+            log.debug("Client error [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        }
+        return write(response, ex.getHttpStatus(), ex.getErrorCode(), request);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ErrorResponse handleUnexpected(HttpServletRequest request, HttpServletResponse response, Exception ex) {
+        log.error("Unexpected error", ex);
+        return write(response, HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_ERROR, request);
+    }
+}
+```
+
+- [ ] **Step 7: `TestcontainersConfiguration` + `@MapIdfTest`**
 
 ```java
 package com.mapidf;
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest
-@Testcontainers
-class SmokeTest {
-    @Container
-    static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgis/postgis:16-3.4")
-        .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
+@TestConfiguration(proxyBeanMethods = false)
+public class TestcontainersConfiguration {
 
-    @DynamicPropertySource
-    static void props(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", db::getJdbcUrl);
-        r.add("spring.datasource.username", db::getUsername);
-        r.add("spring.datasource.password", db::getPassword);
+    @Bean
+    @ServiceConnection
+    PostgreSQLContainer<?> postgresContainer() {
+        return new PostgreSQLContainer<>(
+            DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres"))
+            .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
     }
-
-    @Test void contextLoads() { }
 }
 ```
 
-- [ ] **Step 6: lancer le test → doit passer**
+```java
+package com.mapidf;
 
-Run: `cd backend && ./mvnw test -Dtest=SmokeTest`
-Expected: PASS (Flyway trouve 0 migration pour l'instant, contexte OK).
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-- [ ] **Step 7: commit**
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Import(TestcontainersConfiguration.class)
+@Transactional
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface MapIdfTest {
+}
+```
+
+- [ ] **Step 8: `SmokeIT`**
+
+```java
+package com.mapidf;
+
+import org.junit.jupiter.api.Test;
+
+@MapIdfTest
+class SmokeIT {
+    @Test
+    void contextLoads() {
+    }
+}
+```
+
+- [ ] **Step 9: run → PASS**
+
+Run: `cd backend && ./mvnw test -Dtest=SmokeIT`
+Expected: PASS (contexte se charge, PostGIS Testcontainers démarré ; aucune migration encore).
+
+- [ ] **Step 10: commit**
 
 ```bash
 git add backend/
-git commit -m "feat(backend): scaffold Spring Boot + PostGIS + Actuator"
+git commit -m "feat(backend): scaffold Boot 4.1/Java 25 + PostGIS + socle exceptions + @MapIdfTest"
 ```
 
 ---
 
-### Task 2: Spike de vérification PRIM (livrable = valeurs réelles vérifiées)
+### Task 2: Spike de vérification PRIM + `@ConfigurationProperties`
 
-Deliverable : un fichier de config documenté contenant les URLs, en-têtes et identifiants **réels** de l'API PRIM et de la ligne 9. Ce n'est pas du code jetable : les tâches suivantes consomment ces valeurs par nom.
+Deliverable : URLs/en-tête/`route_id` réels vérifiés et typés dans des `@ConfigurationProperties`.
 
 **Files:**
 - Create: `backend/docs/prim-integration.md`
+- Create: `backend/src/main/java/com/mapidf/configurations/properties/PrimProperties.java`
+- Create: `backend/src/main/java/com/mapidf/configurations/properties/LineProperties.java`
 - Modify: `backend/src/main/resources/application.yml`
 
-- [ ] **Step 1: créer un compte PRIM et une clé**
+**Interfaces:**
+- Produces: `PrimProperties(apiKey, authHeader, gtfsStaticUrl, vehiclePositionsUrl, tripUpdatesUrl, pollInterval)` ; `LineProperties(gtfsRouteId, color)`. Consommés par Tasks 4/6/8.
 
-Sur `https://prim.iledefrance-mobilites.fr` : créer un compte, générer un jeton API. Le noter dans un gestionnaire de secrets (PAS dans le repo). Exporter : `export PRIM_API_KEY=...`.
+- [ ] **Step 1: créer une clé PRIM** sur `https://prim.iledefrance-mobilites.fr` (compte + jeton). `export PRIM_API_KEY=...` (jamais dans le repo).
 
-- [ ] **Step 2: identifier et vérifier au `curl` les 3 ressources, documenter dans `prim-integration.md`**
+- [ ] **Step 2: vérifier au `curl` et documenter dans `backend/docs/prim-integration.md`**
 
-Renseigner ces 5 valeurs vérifiées (remplacer les `<...>` par ce que retourne le catalogue PRIM) :
+Renseigner ces valeurs vérifiées (remplacer les `<...>` par ce que retourne le catalogue PRIM) :
 
 ```markdown
 # Intégration PRIM — valeurs vérifiées le <date>
 
-- En-tête d'authentification : `apikey: $PRIM_API_KEY`   (confirmer le nom exact de l'en-tête)
-- GTFS statique (zip) — URL de téléchargement : <url>
-- GTFS-RT VehiclePositions — URL : <url>
-- GTFS-RT TripUpdates — URL : <url>
-- GTFS-RT ServiceAlerts — URL : <url>
-- route_id GTFS de la ligne 9 (relevé dans routes.txt du GTFS) : <route_id>
+- En-tête d'auth : `apikey: $PRIM_API_KEY`  (confirmer le nom exact)
+- GTFS statique (zip) : <url>
+- GTFS-RT VehiclePositions : <url>
+- GTFS-RT TripUpdates : <url>
+- route_id GTFS de la ligne 9 (relevé dans routes.txt) : <route_id>
+- Quota d'appels observé : <req/s ou req/j>
 ```
 
 Vérifier chaque URL, ex. :
 `curl -H "apikey: $PRIM_API_KEY" -o /tmp/rt.pb "<url VehiclePositions>" && ls -l /tmp/rt.pb`
 Expected : fichier non vide.
 
-- [ ] **Step 3: reporter les valeurs dans `application.yml`**
+- [ ] **Step 3: `PrimProperties` + `LineProperties`**
 
-```yaml
-app:
-  prim:
-    api-key: ${PRIM_API_KEY:}
-    auth-header: "apikey"                 # nom d'en-tête vérifié en Step 2
-    gtfs-static-url: "<url GTFS zip>"
-    vehicle-positions-url: "<url VP>"
-    trip-updates-url: "<url TU>"
-  line:
-    id: "9"
-    gtfs-route-id: "<route_id relevé>"    # route_id réel de la ligne 9
-    color: "#D5C900"
+```java
+package com.mapidf.configurations.properties;
+
+import java.time.Duration;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "app.prim")
+public record PrimProperties(
+    String apiKey,
+    String authHeader,
+    String gtfsStaticUrl,
+    String vehiclePositionsUrl,
+    String tripUpdatesUrl,
+    Duration pollInterval
+) {
+}
 ```
 
-- [ ] **Step 4: commit (sans secret)**
+```java
+package com.mapidf.configurations.properties;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "app.line")
+public record LineProperties(
+    String gtfsRouteId,
+    String color
+) {
+}
+```
+
+- [ ] **Step 4: reporter les valeurs vérifiées dans `application.yml`** (champs `app.prim.*` et `app.line.gtfs-route-id`), puis commit (sans secret)
 
 ```bash
-git add backend/docs/prim-integration.md backend/src/main/resources/application.yml
-git commit -m "docs(backend): valeurs d'intégration PRIM vérifiées + config ligne 9"
+git add backend/docs/prim-integration.md backend/src/main/java/com/mapidf/configurations backend/src/main/resources/application.yml
+git commit -m "feat(backend): ConfigurationProperties PRIM/ligne + valeurs vérifiées"
 ```
 
 ---
 
-### Task 3: Schéma PostGIS (migration Flyway)
+### Task 3: Schéma PostGIS (Flyway) + entités JPA + repositories
 
-Deliverable : les tables du réseau existent avec colonnes géométriques.
+Deliverable : schéma créé et **validé** par Hibernate contre les entités.
 
 **Files:**
 - Create: `backend/src/main/resources/db/migration/V1__network_schema.sql`
-- Create: `backend/src/test/java/com/mapidf/MigrationTest.java`
+- Create: `backend/src/main/java/com/mapidf/data/entity/{Route,Stop,Trip,StopTime}.java`
+- Create: `backend/src/main/java/com/mapidf/data/repositories/{RouteRepository,StopRepository,TripRepository,StopTimeRepository}.java`
+- Create: `backend/src/test/java/com/mapidf/data/SchemaIT.java`
 
 **Interfaces:**
-- Produces: tables `route`, `stop`, `trip`, `stop_time`, `route_shape` (colonnes ci-dessous, consommées par Task 4).
+- Produces: entités `Route(id, gtfsId, shortName, color, geom:LineString)`, `Stop(id, gtfsId, name, geom:Point)`, `Trip(id, gtfsId, route, headsign, direction)`, `StopTime(id, trip, stop, stopSequence, arrivalSec, departureSec)`. Repositories `JpaRepository`. `RouteRepository.findByGtfsId(String)`, `StopTimeRepository.findScheduleByRouteGtfsId(String)`.
 
-- [ ] **Step 1: migration**
+- [ ] **Step 1: migration `V1__network_schema.sql`**
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 CREATE TABLE route (
-    id          TEXT PRIMARY KEY,      -- route_id GTFS
+    id          UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    gtfs_id     TEXT NOT NULL UNIQUE,
     short_name  TEXT NOT NULL,
     color       TEXT,
-    geom        geometry(LineString, 4326) NOT NULL   -- tracé de la ligne
+    geom        geometry(LineString, 4326) NOT NULL
 );
 
 CREATE TABLE stop (
-    id    TEXT PRIMARY KEY,            -- stop_id GTFS
-    name  TEXT NOT NULL,
-    geom  geometry(Point, 4326) NOT NULL
+    id       UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    gtfs_id  TEXT NOT NULL UNIQUE,
+    name     TEXT NOT NULL,
+    geom     geometry(Point, 4326) NOT NULL
 );
 
 CREATE TABLE trip (
-    id         TEXT PRIMARY KEY,       -- trip_id GTFS
-    route_id   TEXT NOT NULL REFERENCES route(id),
-    headsign   TEXT,
-    direction  SMALLINT
+    id        UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    gtfs_id   TEXT NOT NULL UNIQUE,
+    route_id  UUID NOT NULL REFERENCES route(id),
+    headsign  TEXT,
+    direction SMALLINT
 );
 
 CREATE TABLE stop_time (
-    trip_id        TEXT NOT NULL REFERENCES trip(id),
-    stop_id        TEXT NOT NULL REFERENCES stop(id),
+    id             UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    trip_id        UUID NOT NULL REFERENCES trip(id),
+    stop_id        UUID NOT NULL REFERENCES stop(id),
     stop_sequence  INT  NOT NULL,
-    arrival_sec    INT  NOT NULL,      -- secondes depuis minuit (peut dépasser 86400)
+    arrival_sec    INT  NOT NULL,
     departure_sec  INT  NOT NULL,
-    PRIMARY KEY (trip_id, stop_sequence)
+    UNIQUE (trip_id, stop_sequence)
 );
 
-CREATE INDEX idx_stop_time_trip ON stop_time(trip_id);
 CREATE INDEX idx_trip_route ON trip(route_id);
+CREATE INDEX idx_stop_time_trip ON stop_time(trip_id);
 ```
 
-- [ ] **Step 2: test — la migration s'applique et PostGIS est actif**
+- [ ] **Step 2: entités JPA + Lombok**
 
 ```java
-package com.mapidf;
+package com.mapidf.data.entity;
+
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+import org.locationtech.jts.geom.LineString;
+
+@Getter
+@ToString
+@Entity
+@Table(name = "route")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode
+public class Route {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", columnDefinition = "uuid")
+    private UUID id;
+
+    @Column(name = "gtfs_id")
+    private String gtfsId;
+
+    @Column(name = "short_name")
+    private String shortName;
+
+    @Column(name = "color")
+    private String color;
+
+    @Column(name = "geom", columnDefinition = "geometry(LineString,4326)")
+    private LineString geom;
+}
+```
+
+```java
+package com.mapidf.data.entity;
+
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+import org.locationtech.jts.geom.Point;
+
+@Getter
+@ToString
+@Entity
+@Table(name = "stop")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode
+public class Stop {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", columnDefinition = "uuid")
+    private UUID id;
+
+    @Column(name = "gtfs_id")
+    private String gtfsId;
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "geom", columnDefinition = "geometry(Point,4326)")
+    private Point geom;
+}
+```
+
+```java
+package com.mapidf.data.entity;
+
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+@Getter
+@ToString
+@Entity
+@Table(name = "trip")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode
+public class Trip {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", columnDefinition = "uuid")
+    private UUID id;
+
+    @Column(name = "gtfs_id")
+    private String gtfsId;
+
+    @ManyToOne
+    @JoinColumn(name = "route_id")
+    @ToString.Exclude
+    private Route route;
+
+    @Column(name = "headsign")
+    private String headsign;
+
+    @Column(name = "direction")
+    private Short direction;
+}
+```
+
+```java
+package com.mapidf.data.entity;
+
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+@Getter
+@ToString
+@Entity
+@Table(name = "stop_time")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode
+public class StopTime {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", columnDefinition = "uuid")
+    private UUID id;
+
+    @ManyToOne
+    @JoinColumn(name = "trip_id")
+    @ToString.Exclude
+    private Trip trip;
+
+    @ManyToOne
+    @JoinColumn(name = "stop_id")
+    @ToString.Exclude
+    private Stop stop;
+
+    @Column(name = "stop_sequence")
+    private int stopSequence;
+
+    @Column(name = "arrival_sec")
+    private int arrivalSec;
+
+    @Column(name = "departure_sec")
+    private int departureSec;
+}
+```
+
+- [ ] **Step 3: repositories**
+
+```java
+package com.mapidf.data.repositories;
+
+import java.util.Optional;
+import java.util.UUID;
+
+import com.mapidf.data.entity.Route;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface RouteRepository extends JpaRepository<Route, UUID> {
+    Optional<Route> findByGtfsId(String gtfsId);
+}
+```
+
+```java
+package com.mapidf.data.repositories;
+
+import java.util.UUID;
+
+import com.mapidf.data.entity.Stop;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface StopRepository extends JpaRepository<Stop, UUID> {
+}
+```
+
+```java
+package com.mapidf.data.repositories;
+
+import java.util.UUID;
+
+import com.mapidf.data.entity.Trip;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface TripRepository extends JpaRepository<Trip, UUID> {
+}
+```
+
+```java
+package com.mapidf.data.repositories;
+
+import java.util.List;
+import java.util.UUID;
+
+import com.mapidf.data.entity.StopTime;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface StopTimeRepository extends JpaRepository<StopTime, UUID> {
+
+    @Query("""
+        SELECT st FROM StopTime st
+        JOIN FETCH st.trip t
+        JOIN FETCH st.stop s
+        WHERE t.route.gtfsId = :routeId
+        ORDER BY t.gtfsId, st.stopSequence
+        """)
+    List<StopTime> findScheduleByRouteGtfsId(@Param("routeId") String routeId);
+}
+```
+
+- [ ] **Step 4: test qui échoue puis passe — schéma validé + repositories câblés**
+
+```java
+package com.mapidf.data;
+
+import com.mapidf.MapIdfTest;
+import com.mapidf.data.repositories.RouteRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@Testcontainers
-class MigrationTest {
-    @Container static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgis/postgis:16-3.4")
-        .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
-    @DynamicPropertySource static void p(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", db::getJdbcUrl);
-        r.add("spring.datasource.username", db::getUsername);
-        r.add("spring.datasource.password", db::getPassword);
-    }
-    @Autowired JdbcTemplate jdbc;
+@MapIdfTest
+class SchemaIT {
 
-    @Test void tablesExist() {
-        Integer n = jdbc.queryForObject(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('route','stop','trip','stop_time')",
-            Integer.class);
-        assertThat(n).isEqualTo(4);
+    @Autowired
+    RouteRepository routeRepository;
+
+    @Test
+    void schemaValidatesAndRepositoryWorks() {
+        assertThat(routeRepository.findByGtfsId("UNKNOWN")).isEmpty();
     }
 }
 ```
 
-- [ ] **Step 3: run → PASS**
+Run: `cd backend && ./mvnw test -Dtest=SchemaIT`
+Expected: PASS (si le contexte échoue sur la validation de la géométrie, forcer `columnDefinition` — déjà fait — et vérifier que `hibernate-spatial` est bien au classpath).
 
-Run: `cd backend && ./mvnw test -Dtest=MigrationTest`
-Expected: PASS.
-
-- [ ] **Step 4: commit**
+- [ ] **Step 5: commit**
 
 ```bash
-git add backend/src/main/resources/db/migration backend/src/test/java/com/mapidf/MigrationTest.java
-git commit -m "feat(backend): schéma PostGIS du réseau (Flyway V1)"
+git add backend/src/main/resources/db backend/src/main/java/com/mapidf/data backend/src/test/java/com/mapidf/data
+git commit -m "feat(backend): schéma PostGIS + entités JPA (Hibernate Spatial) + repositories"
 ```
 
 ---
 
-### Task 4: Chargement du GTFS statique de la ligne 9 dans PostGIS
+### Task 4: Chargement du GTFS statique de la ligne 9
 
-Deliverable : `GtfsStaticService.load()` parse un zip GTFS, filtre la ligne 9, et peuple les 5 tables.
+Deliverable : `GtfsStaticLoader.loadFromZip(in, routeId)` peuple les tables ; `GtfsStaticService` cache le `LineString` du tracé.
 
 **Files:**
-- Create: `backend/src/main/java/com/mapidf/gtfs/GtfsStaticService.java`
 - Create: `backend/src/main/java/com/mapidf/gtfs/GtfsStaticLoader.java`
-- Create: `backend/src/test/java/com/mapidf/gtfs/GtfsStaticLoaderTest.java`
-- Create: `backend/src/test/resources/gtfs-mini.zip` (fixture : 1 route, 3 stops, 1 shape, 1 trip, 3 stop_times)
+- Create: `backend/src/main/java/com/mapidf/gtfs/GtfsStaticService.java`
+- Create: `backend/src/test/resources/gtfs-mini.zip`
+- Create: `backend/src/test/java/com/mapidf/gtfs/GtfsStaticLoaderIT.java`
 
 **Interfaces:**
-- Consumes: `app.line.gtfs-route-id`, `app.prim.gtfs-static-url` (Task 2).
-- Produces: `GtfsStaticLoader.loadFromZip(InputStream, String routeId)` peuple la base ; `GtfsStaticService` cache en mémoire le `LineString` du tracé (JTS) exposé par `getRouteGeometry()` → utilisé par Task 7.
+- Consumes: repositories (Task 3), `PrimProperties`, `LineProperties`.
+- Produces: `GtfsStaticLoader.loadFromZip(InputStream, String routeId)` ; `GtfsStaticService.getRouteGeometry()` → `LineString` (cache mémoire), `GtfsStaticService.cacheGeometry()`.
 
-- [ ] **Step 1: fixture GTFS minimale**
+- [ ] **Step 1: fixture `gtfs-mini.zip`**
 
-Créer `gtfs-mini.zip` contenant `routes.txt`, `stops.txt`, `shapes.txt`, `trips.txt`, `stop_times.txt`. Contenu (route_id `TEST9`, tracé rectiligne ouest→est sur 3 points, 3 arrêts, 1 trip partant à 08:00:00) :
+Créer le zip avec 5 fichiers (route_id `TEST9`, tracé ouest→est 3 points, 3 arrêts, 1 trip à 08:00) :
 
 ```
 # routes.txt
@@ -373,136 +897,188 @@ T1,S2,2,08:05:00,08:05:00
 T1,S3,3,08:10:00,08:10:00
 ```
 
-- [ ] **Step 2: test qui échoue — le loader peuple la base**
+Commande de création (depuis un dossier temporaire contenant les 5 `.txt`) :
+`zip gtfs-mini.zip routes.txt stops.txt shapes.txt trips.txt stop_times.txt` puis copier dans `src/test/resources/`.
+
+- [ ] **Step 2: test qui échoue**
 
 ```java
 package com.mapidf.gtfs;
-import com.mapidf.MapIdfApplication;
+
+import com.mapidf.MapIdfTest;
+import com.mapidf.data.entity.Route;
+import com.mapidf.data.repositories.RouteRepository;
+import com.mapidf.data.repositories.StopRepository;
+import com.mapidf.data.repositories.StopTimeRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = MapIdfApplication.class)
-@Testcontainers
-class GtfsStaticLoaderTest {
-    @Container static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgis/postgis:16-3.4")
-        .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
-    @DynamicPropertySource static void p(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", db::getJdbcUrl);
-        r.add("spring.datasource.username", db::getUsername);
-        r.add("spring.datasource.password", db::getPassword);
-    }
-    @Autowired GtfsStaticLoader loader;
-    @Autowired JdbcTemplate jdbc;
+@MapIdfTest
+class GtfsStaticLoaderIT {
 
-    @Test void loadsLineIntoDb() throws Exception {
+    @Autowired GtfsStaticLoader loader;
+    @Autowired RouteRepository routeRepository;
+    @Autowired StopRepository stopRepository;
+    @Autowired StopTimeRepository stopTimeRepository;
+
+    @Test
+    void loadsLineIntoDb() throws Exception {
         try (var in = getClass().getResourceAsStream("/gtfs-mini.zip")) {
             loader.loadFromZip(in, "TEST9");
         }
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM stop", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM stop_time WHERE trip_id='T1'", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("SELECT ST_NumPoints(geom) FROM route WHERE id='TEST9'", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("SELECT arrival_sec FROM stop_time WHERE trip_id='T1' AND stop_sequence=2", Integer.class)).isEqualTo(8*3600 + 5*60);
+        Route route = routeRepository.findByGtfsId("TEST9").orElseThrow();
+        assertThat(route.getGeom().getNumPoints()).isEqualTo(3);
+        assertThat(stopRepository.count()).isEqualTo(3);
+        assertThat(stopTimeRepository.findScheduleByRouteGtfsId("TEST9")).hasSize(3);
     }
 }
 ```
 
-- [ ] **Step 3: run → FAIL** (`GtfsStaticLoader` n'existe pas)
+Run: `cd backend && ./mvnw test -Dtest=GtfsStaticLoaderIT`
+Expected: FAIL (bean absent).
 
-Run: `cd backend && ./mvnw test -Dtest=GtfsStaticLoaderTest`
-Expected: FAIL (compilation / bean manquant).
-
-- [ ] **Step 4: implémenter `GtfsStaticLoader`**
+- [ ] **Step 3: implémenter `GtfsStaticLoader`**
 
 ```java
 package com.mapidf.gtfs;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVRecord;
-import org.locationtech.jts.geom.*;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
-import java.io.*;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipInputStream;
 
-@Component
-public class GtfsStaticLoader {
-    private final JdbcTemplate jdbc;
-    private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
+import com.mapidf.data.entity.Route;
+import com.mapidf.data.entity.Stop;
+import com.mapidf.data.entity.StopTime;
+import com.mapidf.data.entity.Trip;
+import com.mapidf.data.repositories.RouteRepository;
+import com.mapidf.data.repositories.StopRepository;
+import com.mapidf.data.repositories.StopTimeRepository;
+import com.mapidf.data.repositories.TripRepository;
+import lombok.AllArgsConstructor;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVRecord;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.PrecisionModel;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
-    public GtfsStaticLoader(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+@Component
+@AllArgsConstructor
+public class GtfsStaticLoader {
+
+    private static final int SRID = 4326;
+
+    private final RouteRepository routeRepository;
+    private final StopRepository stopRepository;
+    private final TripRepository tripRepository;
+    private final StopTimeRepository stopTimeRepository;
+    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), SRID);
 
     @Transactional
     public void loadFromZip(InputStream zipIn, String routeId) throws IOException {
         Map<String, List<CSVRecord>> files = readZip(zipIn);
-        // routes
-        CSVRecord route = files.get("routes.txt").stream()
-            .filter(r -> r.get("route_id").equals(routeId)).findFirst()
+
+        stopTimeRepository.deleteAllInBatch();
+        tripRepository.deleteAllInBatch();
+        stopRepository.deleteAllInBatch();
+        routeRepository.deleteAllInBatch();
+
+        CSVRecord routeRecord = files.get("routes.txt").stream()
+            .filter(r -> r.get("route_id").equals(routeId))
+            .findFirst()
             .orElseThrow(() -> new IllegalStateException("route absente: " + routeId));
-        // shape via trip.shape_id
-        List<CSVRecord> trips = files.get("trips.txt").stream()
-            .filter(r -> r.get("route_id").equals(routeId)).toList();
-        String shapeId = trips.get(0).get("shape_id");
-        LineString line = buildShape(files.get("shapes.txt"), shapeId);
 
-        jdbc.update("DELETE FROM stop_time"); jdbc.update("DELETE FROM trip");
-        jdbc.update("DELETE FROM stop"); jdbc.update("DELETE FROM route");
+        List<CSVRecord> tripRecords = files.get("trips.txt").stream()
+            .filter(r -> r.get("route_id").equals(routeId))
+            .toList();
+        String shapeId = tripRecords.getFirst().get("shape_id");
 
-        jdbc.update("INSERT INTO route(id,short_name,color,geom) VALUES (?,?,?,ST_GeomFromText(?,4326))",
-            routeId, route.get("route_short_name"), safe(route, "route_color"), line.toText());
+        Route route = routeRepository.save(Route.builder()
+            .gtfsId(routeId)
+            .shortName(routeRecord.get("route_short_name"))
+            .color(safe(routeRecord, "route_color"))
+            .geom(buildShape(files.get("shapes.txt"), shapeId))
+            .build());
 
-        Set<String> tripIds = new HashSet<>();
-        for (CSVRecord t : trips) {
-            tripIds.add(t.get("trip_id"));
-            jdbc.update("INSERT INTO trip(id,route_id,headsign,direction) VALUES (?,?,?,?)",
-                t.get("trip_id"), routeId, safe(t, "trip_headsign"),
-                Integer.parseInt(safe(t, "direction_id", "0")));
+        Map<String, Trip> tripsByGtfsId = new HashMap<>();
+        for (CSVRecord t : tripRecords) {
+            Trip trip = tripRepository.save(Trip.builder()
+                .gtfsId(t.get("trip_id"))
+                .route(route)
+                .headsign(safe(t, "trip_headsign"))
+                .direction(Short.parseShort(safe(t, "direction_id", "0")))
+                .build());
+            tripsByGtfsId.put(trip.getGtfsId(), trip);
         }
-        // stops référencés par les stop_times de ces trips
-        List<CSVRecord> stopTimes = files.get("stop_times.txt").stream()
-            .filter(r -> tripIds.contains(r.get("trip_id"))).toList();
-        Set<String> stopIds = new HashSet<>();
-        stopTimes.forEach(r -> stopIds.add(r.get("stop_id")));
+
+        List<CSVRecord> stopTimeRecords = files.get("stop_times.txt").stream()
+            .filter(r -> tripsByGtfsId.containsKey(r.get("trip_id")))
+            .toList();
+
+        Map<String, Stop> stopsByGtfsId = new HashMap<>();
         for (CSVRecord s : files.get("stops.txt")) {
-            if (!stopIds.contains(s.get("stop_id"))) continue;
-            jdbc.update("INSERT INTO stop(id,name,geom) VALUES (?,?,ST_SetSRID(ST_MakePoint(?,?),4326))",
-                s.get("stop_id"), s.get("stop_name"),
-                Double.parseDouble(s.get("stop_lon")), Double.parseDouble(s.get("stop_lat")));
+            String stopId = s.get("stop_id");
+            boolean referenced = stopTimeRecords.stream().anyMatch(r -> r.get("stop_id").equals(stopId));
+            if (!referenced) {
+                continue;
+            }
+            Stop stop = stopRepository.save(Stop.builder()
+                .gtfsId(stopId)
+                .name(s.get("stop_name"))
+                .geom(geometryFactory.createPoint(new Coordinate(
+                    Double.parseDouble(s.get("stop_lon")), Double.parseDouble(s.get("stop_lat")))))
+                .build());
+            stopsByGtfsId.put(stopId, stop);
         }
-        for (CSVRecord r : stopTimes) {
-            jdbc.update("INSERT INTO stop_time(trip_id,stop_id,stop_sequence,arrival_sec,departure_sec) VALUES (?,?,?,?,?)",
-                r.get("trip_id"), r.get("stop_id"), Integer.parseInt(r.get("stop_sequence")),
-                toSec(r.get("arrival_time")), toSec(r.get("departure_time")));
+
+        for (CSVRecord r : stopTimeRecords) {
+            stopTimeRepository.save(StopTime.builder()
+                .trip(tripsByGtfsId.get(r.get("trip_id")))
+                .stop(stopsByGtfsId.get(r.get("stop_id")))
+                .stopSequence(Integer.parseInt(r.get("stop_sequence")))
+                .arrivalSec(toSeconds(r.get("arrival_time")))
+                .departureSec(toSeconds(r.get("departure_time")))
+                .build());
         }
     }
 
     private LineString buildShape(List<CSVRecord> shapes, String shapeId) {
-        List<CSVRecord> pts = new ArrayList<>(shapes.stream()
-            .filter(r -> r.get("shape_id").equals(shapeId)).toList());
-        pts.sort(Comparator.comparingInt(r -> Integer.parseInt(r.get("shape_pt_sequence"))));
-        Coordinate[] cs = pts.stream()
-            .map(r -> new Coordinate(Double.parseDouble(r.get("shape_pt_lon")),
-                                     Double.parseDouble(r.get("shape_pt_lat"))))
+        List<CSVRecord> points = new ArrayList<>(shapes.stream()
+            .filter(r -> r.get("shape_id").equals(shapeId))
+            .toList());
+        points.sort(Comparator.comparingInt(r -> Integer.parseInt(r.get("shape_pt_sequence"))));
+        Coordinate[] coordinates = points.stream()
+            .map(r -> new Coordinate(
+                Double.parseDouble(r.get("shape_pt_lon")), Double.parseDouble(r.get("shape_pt_lat"))))
             .toArray(Coordinate[]::new);
-        return gf.createLineString(cs);
+        return geometryFactory.createLineString(coordinates);
     }
 
-    static int toSec(String hms) {
-        String[] p = hms.split(":");
-        return Integer.parseInt(p[0]) * 3600 + Integer.parseInt(p[1]) * 60 + Integer.parseInt(p[2]);
+    static int toSeconds(String hms) {
+        String[] parts = hms.split(":");
+        return Integer.parseInt(parts[0]) * 3600 + Integer.parseInt(parts[1]) * 60 + Integer.parseInt(parts[2]);
     }
-    private static String safe(CSVRecord r, String col) { return safe(r, col, null); }
-    private static String safe(CSVRecord r, String col, String def) {
-        return r.isMapped(col) && !r.get(col).isBlank() ? r.get(col) : def;
+
+    private static String safe(CSVRecord record, String column) {
+        return safe(record, column, null);
+    }
+
+    private static String safe(CSVRecord record, String column, String defaultValue) {
+        if (record.isMapped(column) && !record.get(column).isBlank()) {
+            return record.get(column);
+        }
+        return defaultValue;
     }
 
     private Map<String, List<CSVRecord>> readZip(InputStream zipIn) throws IOException {
@@ -510,13 +1086,13 @@ public class GtfsStaticLoader {
         try (ZipInputStream zis = new ZipInputStream(zipIn)) {
             var entry = zis.getNextEntry();
             while (entry != null) {
-                String name = entry.getName();
-                if (name.endsWith(".txt")) {
+                if (entry.getName().endsWith(".txt")) {
                     byte[] bytes = zis.readAllBytes();
                     try (var reader = new InputStreamReader(new ByteArrayInputStream(bytes), StandardCharsets.UTF_8)) {
-                        var parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
-                            .setTrim(true).build().parse(reader);
-                        out.put(name, parser.getRecords());
+                        var parser = CSVFormat.DEFAULT.builder()
+                            .setHeader().setSkipHeaderRecord(true).setTrim(true).build()
+                            .parse(reader);
+                        out.put(entry.getName(), parser.getRecords());
                     }
                 }
                 entry = zis.getNextEntry();
@@ -527,203 +1103,274 @@ public class GtfsStaticLoader {
 }
 ```
 
-- [ ] **Step 5: run → PASS**
+- [ ] **Step 4: run → PASS**
 
-Run: `cd backend && ./mvnw test -Dtest=GtfsStaticLoaderTest`
+Run: `cd backend && ./mvnw test -Dtest=GtfsStaticLoaderIT`
 Expected: PASS.
 
-- [ ] **Step 6: `GtfsStaticService` — orchestration (download + cache tracé)**
+- [ ] **Step 5: `GtfsStaticService` (download + cache tracé, no-op si URL vide)**
 
 ```java
 package com.mapidf.gtfs;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+import com.mapidf.configurations.properties.LineProperties;
+import com.mapidf.configurations.properties.PrimProperties;
+import com.mapidf.data.repositories.RouteRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.io.WKTReader;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import java.net.URI;
-import java.net.http.*;
 
+@Slf4j
 @Service
 public class GtfsStaticService {
+
     private final GtfsStaticLoader loader;
-    private final JdbcTemplate jdbc;
-    private final String staticUrl, routeId, apiKey, authHeader;
+    private final RouteRepository routeRepository;
+    private final PrimProperties prim;
+    private final LineProperties line;
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+
     private volatile LineString routeGeometry;
 
-    public GtfsStaticService(GtfsStaticLoader loader, JdbcTemplate jdbc,
-            @Value("${app.prim.gtfs-static-url:}") String staticUrl,
-            @Value("${app.line.gtfs-route-id:}") String routeId,
-            @Value("${app.prim.api-key:}") String apiKey,
-            @Value("${app.prim.auth-header:apikey}") String authHeader) {
-        this.loader = loader; this.jdbc = jdbc; this.staticUrl = staticUrl;
-        this.routeId = routeId; this.apiKey = apiKey; this.authHeader = authHeader;
+    public GtfsStaticService(GtfsStaticLoader loader, RouteRepository routeRepository,
+                             PrimProperties prim, LineProperties line) {
+        this.loader = loader;
+        this.routeRepository = routeRepository;
+        this.prim = prim;
+        this.line = line;
     }
 
-    @Scheduled(initialDelay = 0, fixedRateString = "PT24H")
+    @Scheduled(initialDelay = 0, fixedRateString = "P1D")
     public void refresh() {
+        if (prim.gtfsStaticUrl() == null || prim.gtfsStaticUrl().isBlank()) {
+            log.info("[GTFS] URL statique non configurée, refresh ignoré");
+            return;
+        }
         try {
-            var req = HttpRequest.newBuilder(URI.create(staticUrl)).header(authHeader, apiKey).GET().build();
-            var resp = HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofInputStream());
-            loader.loadFromZip(resp.body(), routeId);
+            HttpRequest request = HttpRequest.newBuilder(URI.create(prim.gtfsStaticUrl()))
+                .header(prim.authHeader(), prim.apiKey())
+                .GET()
+                .build();
+            HttpResponse<java.io.InputStream> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            loader.loadFromZip(response.body(), line.gtfsRouteId());
             cacheGeometry();
+            log.info("[GTFS] Réseau ligne {} rechargé", line.gtfsRouteId());
         } catch (Exception e) {
-            throw new IllegalStateException("Échec refresh GTFS statique", e);
+            log.error("[GTFS] Échec du refresh statique", e);
         }
     }
 
-    void cacheGeometry() throws Exception {
-        String wkt = jdbc.queryForObject("SELECT ST_AsText(geom) FROM route WHERE id=?", String.class, routeId);
-        this.routeGeometry = (LineString) new WKTReader().read(wkt);
+    public void cacheGeometry() {
+        this.routeGeometry = routeRepository.findByGtfsId(line.gtfsRouteId())
+            .map(r -> r.getGeom())
+            .orElse(null);
     }
 
-    public LineString getRouteGeometry() { return routeGeometry; }
+    public LineString getRouteGeometry() {
+        return routeGeometry;
+    }
 }
 ```
 
-- [ ] **Step 7: commit**
+- [ ] **Step 6: commit**
 
 ```bash
-git add backend/src/main/java/com/mapidf/gtfs backend/src/test
-git commit -m "feat(backend): chargement GTFS statique ligne 9 vers PostGIS + cache tracé JTS"
+git add backend/src/main/java/com/mapidf/gtfs backend/src/test/java/com/mapidf/gtfs backend/src/test/resources/gtfs-mini.zip
+git commit -m "feat(backend): chargement GTFS statique ligne 9 + cache tracé JTS"
 ```
 
 ---
 
 ### Task 5: Endpoint `GET /api/lines/{id}/shape`
 
-Deliverable : le front peut récupérer le tracé + arrêts.
+Deliverable : le front récupère tracé + arrêts.
 
 **Files:**
-- Create: `backend/src/main/java/com/mapidf/api/LineController.java`
-- Create: `backend/src/main/java/com/mapidf/api/dto/ShapeResponse.java`
-- Create: `backend/src/main/java/com/mapidf/api/NetworkQueryService.java`
-- Create: `backend/src/test/java/com/mapidf/api/LineControllerShapeTest.java`
+- Create: `backend/src/main/java/com/mapidf/controllers/lines/ShapeResponse.java`
+- Create: `backend/src/main/java/com/mapidf/controllers/lines/LineController.java`
+- Create: `backend/src/main/java/com/mapidf/services/NetworkQueryService.java`
+- Create: `backend/src/test/java/com/mapidf/controllers/lines/LineControllerShapeIT.java`
 
 **Interfaces:**
-- Consumes: base peuplée (Task 4), `app.line.color`.
-- Produces: `NetworkQueryService.getShape(lineId)` → `ShapeResponse(lineId, color, double[][] shape, List<StopDto> stops)`. `StopDto(id, name, lat, lng)`.
+- Consumes: repositories, `LineProperties`.
+- Produces: `NetworkQueryService.getShape(String gtfsRouteId)` → `ShapeResponse`. `ShapeResponse(lineId, color, double[][] shape, List<StopDto> stops)` avec `StopDto(id, name, lat, lng)`.
 
-- [ ] **Step 1: DTOs**
+- [ ] **Step 1: DTO `ShapeResponse` (`@Value @Builder`)**
 
 ```java
-package com.mapidf.api.dto;
+package com.mapidf.controllers.lines;
+
 import java.util.List;
-public record ShapeResponse(String lineId, String color, double[][] shape, List<StopDto> stops) {
-    public record StopDto(String id, String name, double lat, double lng) {}
+
+import lombok.Builder;
+import lombok.Value;
+
+@Value
+@Builder
+public class ShapeResponse {
+
+    String lineId;
+    String color;
+    double[][] shape;
+    List<StopDto> stops;
+
+    @Value
+    @Builder
+    public static class StopDto {
+        String id;
+        String name;
+        double lat;
+        double lng;
+    }
 }
 ```
 
-- [ ] **Step 2: test d'intégration qui échoue**
+- [ ] **Step 2: test qui échoue** (MockMvc monté à la main — pas de `@AutoConfigureMockMvc`)
 
 ```java
-package com.mapidf.api;
-import com.mapidf.MapIdfApplication;
+package com.mapidf.controllers.lines;
+
+import com.mapidf.MapIdfTest;
 import com.mapidf.gtfs.GtfsStaticLoader;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.*;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.*;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(classes = MapIdfApplication.class)
-@AutoConfigureMockMvc
-@Testcontainers
-class LineControllerShapeTest {
-    @Container static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgis/postgis:16-3.4")
-        .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
-    @DynamicPropertySource static void p(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", db::getJdbcUrl);
-        r.add("spring.datasource.username", db::getUsername);
-        r.add("spring.datasource.password", db::getPassword);
-        r.add("app.line.id", () -> "TEST9");
-        r.add("app.line.gtfs-route-id", () -> "TEST9");
-    }
+@MapIdfTest
+class LineControllerShapeIT {
+
+    @Autowired WebApplicationContext wac;
     @Autowired GtfsStaticLoader loader;
-    @Autowired MockMvc mvc;
+    MockMvc mockMvc;
 
-    @BeforeEach void seed() throws Exception {
-        try (var in = getClass().getResourceAsStream("/gtfs-mini.zip")) { loader.loadFromZip(in, "TEST9"); }
+    @BeforeEach
+    void setup() throws Exception {
+        mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
+        try (var in = getClass().getResourceAsStream("/gtfs-mini.zip")) {
+            loader.loadFromZip(in, "TEST9");
+        }
     }
 
-    @Test void returnsShapeAndStops() throws Exception {
-        mvc.perform(get("/api/lines/TEST9/shape"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.lineId").value("TEST9"))
-           .andExpect(jsonPath("$.shape.length()").value(3))
-           .andExpect(jsonPath("$.stops.length()").value(3))
-           .andExpect(jsonPath("$.stops[0].name").value("Alpha"));
+    @Test
+    void returnsShapeAndStops() throws Exception {
+        mockMvc.perform(get("/lines/TEST9/shape"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lineId").value("TEST9"))
+            .andExpect(jsonPath("$.shape.length()").value(3))
+            .andExpect(jsonPath("$.stops.length()").value(3));
     }
 }
 ```
 
-- [ ] **Step 3: run → FAIL**
+> Note : `context-path=/api` n'est **pas** appliqué par MockMvc `webAppContextSetup` → on cible `/lines/...` (sans `/api`).
 
-Run: `cd backend && ./mvnw test -Dtest=LineControllerShapeTest`
-Expected: FAIL (404 / beans manquants).
+Run: `cd backend && ./mvnw test -Dtest=LineControllerShapeIT`
+Expected: FAIL.
 
-- [ ] **Step 4: `NetworkQueryService`**
+- [ ] **Step 3: `NetworkQueryService`**
 
 ```java
-package com.mapidf.api;
-import com.mapidf.api.dto.ShapeResponse;
-import com.mapidf.api.dto.ShapeResponse.StopDto;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
+package com.mapidf.services;
+
 import java.util.List;
+
+import com.mapidf.controllers.lines.ShapeResponse;
+import com.mapidf.controllers.lines.ShapeResponse.StopDto;
+import com.mapidf.data.entity.Route;
+import com.mapidf.data.entity.StopTime;
+import com.mapidf.data.enums.ErrorCode;
+import com.mapidf.data.repositories.RouteRepository;
+import com.mapidf.data.repositories.StopTimeRepository;
+import com.mapidf.exceptions.ApiException;
+import lombok.AllArgsConstructor;
+import org.locationtech.jts.geom.Coordinate;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@AllArgsConstructor
 public class NetworkQueryService {
-    private final JdbcTemplate jdbc;
-    private final String color;
-    public NetworkQueryService(JdbcTemplate jdbc, @Value("${app.line.color:#000000}") String color) {
-        this.jdbc = jdbc; this.color = color;
-    }
-    public ShapeResponse getShape(String lineId) {
-        List<double[]> pts = jdbc.query(
-            "SELECT ST_X((d).geom) x, ST_Y((d).geom) y FROM " +
-            "(SELECT ST_DumpPoints(geom) d FROM route WHERE id=?) s ORDER BY (d).path[1]",
-            (rs, i) -> new double[]{ rs.getDouble("x"), rs.getDouble("y") }, lineId);
-        double[][] shape = pts.toArray(double[][]::new);
-        List<StopDto> stops = jdbc.query(
-            "SELECT id,name,ST_Y(geom) lat,ST_X(geom) lng FROM stop ORDER BY name",
-            (rs, i) -> new StopDto(rs.getString("id"), rs.getString("name"),
-                                   rs.getDouble("lat"), rs.getDouble("lng")));
-        return new ShapeResponse(lineId, color, shape, stops);
+
+    private final RouteRepository routeRepository;
+    private final StopTimeRepository stopTimeRepository;
+
+    @Transactional(readOnly = true)
+    public ShapeResponse getShape(String gtfsRouteId) {
+        Route route = routeRepository.findByGtfsId(gtfsRouteId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ErrorCode.LINE_NOT_FOUND));
+
+        double[][] shape = new double[route.getGeom().getNumPoints()][];
+        Coordinate[] coordinates = route.getGeom().getCoordinates();
+        for (int i = 0; i < coordinates.length; i++) {
+            shape[i] = new double[]{coordinates[i].x, coordinates[i].y};
+        }
+
+        List<StopDto> stops = stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId).stream()
+            .map(StopTime::getStop)
+            .distinct()
+            .map(s -> StopDto.builder()
+                .id(s.getGtfsId())
+                .name(s.getName())
+                .lat(s.getGeom().getY())
+                .lng(s.getGeom().getX())
+                .build())
+            .toList();
+
+        return ShapeResponse.builder()
+            .lineId(gtfsRouteId)
+            .color(route.getColor())
+            .shape(shape)
+            .stops(stops)
+            .build();
     }
 }
 ```
 
-- [ ] **Step 5: `LineController`**
+- [ ] **Step 4: `LineController`**
 
 ```java
-package com.mapidf.api;
-import com.mapidf.api.dto.ShapeResponse;
-import org.springframework.web.bind.annotation.*;
+package com.mapidf.controllers.lines;
+
+import com.mapidf.services.NetworkQueryService;
+import lombok.AllArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/lines")
+@RequestMapping("/lines")
+@AllArgsConstructor
 public class LineController {
-    private final NetworkQueryService network;
-    public LineController(NetworkQueryService network) { this.network = network; }
+
+    private final NetworkQueryService networkQueryService;
 
     @GetMapping("/{id}/shape")
-    public ShapeResponse shape(@PathVariable String id) { return network.getShape(id); }
+    public ShapeResponse shape(@PathVariable String id) {
+        return networkQueryService.getShape(id);
+    }
 }
 ```
 
-- [ ] **Step 6: run → PASS ; commit**
+- [ ] **Step 5: run → PASS ; commit**
 
-Run: `cd backend && ./mvnw test -Dtest=LineControllerShapeTest` → PASS
+Run: `cd backend && ./mvnw test -Dtest=LineControllerShapeIT` → PASS
 ```bash
-git add backend/src/main/java/com/mapidf/api backend/src/test/java/com/mapidf/api
+git add backend/src/main/java/com/mapidf/controllers backend/src/main/java/com/mapidf/services backend/src/test/java/com/mapidf/controllers
 git commit -m "feat(backend): endpoint GET /api/lines/{id}/shape"
 ```
 
@@ -731,147 +1378,210 @@ git commit -m "feat(backend): endpoint GET /api/lines/{id}/shape"
 
 ### Task 6: Poller GTFS-RT (snapshot temps réel en mémoire)
 
-Deliverable : `RealtimePoller` récupère et parse les feeds protobuf, expose un snapshot immuable thread-safe.
+Deliverable : `RealtimePoller` parse les feeds protobuf et expose un snapshot immuable thread-safe.
 
 **Files:**
 - Create: `backend/src/main/java/com/mapidf/rt/RtSnapshot.java`
 - Create: `backend/src/main/java/com/mapidf/rt/RealtimePoller.java`
 - Create: `backend/src/test/java/com/mapidf/rt/RealtimePollerParseTest.java`
-- Create: `backend/src/test/resources/vehicle-positions.pb` (fixture protobuf générée en Step 1)
+- Create: `backend/src/test/java/com/mapidf/rt/RtFixtures.java`
 
 **Interfaces:**
-- Consumes: `app.prim.vehicle-positions-url`, `app.prim.trip-updates-url` (Task 2).
-- Produces: `RtSnapshot` = `record RtSnapshot(Instant asOf, Map<String,VehiclePos> positions, Map<String,Integer> delaysByTrip)` avec `record VehiclePos(String tripId, double lat, double lng, Float bearing)`. `RealtimePoller.current()` → `RtSnapshot` (jamais null, snapshot vide au démarrage). Consommé par Task 7/8.
+- Consumes: `PrimProperties`.
+- Produces: `RtSnapshot(Instant asOf, Map<String,VehiclePos> positions, Map<String,Integer> delaysByTrip)`, `RtSnapshot.VehiclePos(String tripId, double lat, double lng, Float bearing)`, `RtSnapshot.empty()`. `RealtimePoller.current()` (jamais null), `RealtimePoller.parse(byte[] vp, byte[] tu, Instant)`.
 
-- [ ] **Step 1: générer la fixture protobuf**
-
-Écrire un petit main jetable (ou test `@Disabled`) qui sérialise un `FeedMessage` GTFS-RT avec 1 entité VehiclePosition (trip `T1`, position `lat=48.850,lng=2.305`, bearing 90) vers `src/test/resources/vehicle-positions.pb`. Utiliser `com.google.transit.realtime.GtfsRealtime`.
+- [ ] **Step 1: helper de fixtures protobuf (test)**
 
 ```java
-// utilitaire de génération (à exécuter une fois, puis supprimer)
-var fm = GtfsRealtime.FeedMessage.newBuilder();
-fm.getHeaderBuilder().setGtfsRealtimeVersion("2.0")
-  .setIncrementality(GtfsRealtime.FeedHeader.Incrementality.FULL_DATASET).setTimestamp(1_600_000_000L);
-var e = fm.addEntityBuilder().setId("v1");
-var vp = e.getVehicleBuilder();
-vp.getTripBuilder().setTripId("T1");
-vp.getPositionBuilder().setLatitude(48.850f).setLongitude(2.305f).setBearing(90f);
-Files.write(Path.of("src/test/resources/vehicle-positions.pb"), fm.build().toByteArray());
+package com.mapidf.rt;
+
+import com.google.transit.realtime.GtfsRealtime.FeedHeader;
+import com.google.transit.realtime.GtfsRealtime.FeedMessage;
+
+final class RtFixtures {
+
+    private RtFixtures() {
+    }
+
+    static byte[] vehiclePositionsForT1() {
+        FeedMessage.Builder feed = FeedMessage.newBuilder();
+        feed.getHeaderBuilder()
+            .setGtfsRealtimeVersion("2.0")
+            .setIncrementality(FeedHeader.Incrementality.FULL_DATASET)
+            .setTimestamp(1_600_000_000L);
+        var vehicle = feed.addEntityBuilder().setId("v1").getVehicleBuilder();
+        vehicle.getTripBuilder().setTripId("T1");
+        vehicle.getPositionBuilder().setLatitude(48.850f).setLongitude(2.305f).setBearing(90f);
+        return feed.build().toByteArray();
+    }
+}
 ```
 
 - [ ] **Step 2: test de parsing qui échoue**
 
 ```java
 package com.mapidf.rt;
+
+import java.time.Instant;
+
+import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RealtimePollerParseTest {
-    @Test void parsesVehiclePositions() throws Exception {
-        byte[] vp = getClass().getResourceAsStream("/vehicle-positions.pb").readAllBytes();
-        RtSnapshot snap = RealtimePoller.parse(vp, new byte[0], java.time.Instant.ofEpochSecond(1_600_000_000L));
-        assertThat(snap.positions()).containsKey("T1");
-        assertThat(snap.positions().get("T1").lat()).isEqualTo(48.850, org.assertj.core.data.Offset.offset(1e-4));
-        assertThat(snap.positions().get("T1").bearing()).isEqualTo(90f);
+
+    @Test
+    void parsesVehiclePositions() throws Exception {
+        RtSnapshot snapshot = RealtimePoller.parse(
+            RtFixtures.vehiclePositionsForT1(), new byte[0], Instant.ofEpochSecond(1_600_000_000L));
+
+        assertThat(snapshot.positions()).containsKey("T1");
+        assertThat(snapshot.positions().get("T1").lat()).isEqualTo(48.850, Offset.offset(1e-4));
+        assertThat(snapshot.positions().get("T1").bearing()).isEqualTo(90f);
     }
 }
 ```
-
-- [ ] **Step 3: run → FAIL**
 
 Run: `cd backend && ./mvnw test -Dtest=RealtimePollerParseTest`
 Expected: FAIL.
 
-- [ ] **Step 4: implémenter `RtSnapshot` + `RealtimePoller`**
+- [ ] **Step 3: `RtSnapshot` + `RealtimePoller`**
 
 ```java
 package com.mapidf.rt;
+
 import java.time.Instant;
 import java.util.Map;
+
 public record RtSnapshot(Instant asOf, Map<String, VehiclePos> positions, Map<String, Integer> delaysByTrip) {
-    public record VehiclePos(String tripId, double lat, double lng, Float bearing) {}
-    public static RtSnapshot empty() { return new RtSnapshot(Instant.EPOCH, Map.of(), Map.of()); }
+
+    public record VehiclePos(String tripId, double lat, double lng, Float bearing) {
+    }
+
+    public static RtSnapshot empty() {
+        return new RtSnapshot(Instant.EPOCH, Map.of(), Map.of());
+    }
 }
 ```
 
 ```java
 package com.mapidf.rt;
-import com.google.transit.realtime.GtfsRealtime.*;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
+
 import java.net.URI;
-import java.net.http.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.transit.realtime.GtfsRealtime.FeedEntity;
+import com.google.transit.realtime.GtfsRealtime.FeedMessage;
+import com.google.transit.realtime.GtfsRealtime.Position;
+import com.google.transit.realtime.GtfsRealtime.TripUpdate;
+import com.google.transit.realtime.GtfsRealtime.VehiclePosition;
+import com.mapidf.configurations.properties.PrimProperties;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Slf4j
 @Component
 public class RealtimePoller {
-    private final String vpUrl, tuUrl, apiKey, authHeader;
-    private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
-    private final HttpClient http = HttpClient.newHttpClient();
 
-    public RealtimePoller(@Value("${app.prim.vehicle-positions-url:}") String vpUrl,
-                          @Value("${app.prim.trip-updates-url:}") String tuUrl,
-                          @Value("${app.prim.api-key:}") String apiKey,
-                          @Value("${app.prim.auth-header:apikey}") String authHeader) {
-        this.vpUrl = vpUrl; this.tuUrl = tuUrl; this.apiKey = apiKey; this.authHeader = authHeader;
+    @FunctionalInterface
+    public interface Fetcher {
+        byte[] get(String url) throws Exception;
     }
 
-    public RtSnapshot current() { return snapshot.get(); }
+    private final PrimProperties prim;
+    private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
-    @Scheduled(fixedRateString = "${app.prim.poll-interval:PT10S}")
+    public RealtimePoller(PrimProperties prim) {
+        this.prim = prim;
+    }
+
+    public RtSnapshot current() {
+        return snapshot.get();
+    }
+
+    void setSnapshot(RtSnapshot value) {
+        snapshot.set(value);
+    }
+
+    @Scheduled(fixedRateString = "${app.prim.poll-interval}")
     public void poll() {
+        if (prim.vehiclePositionsUrl() == null || prim.vehiclePositionsUrl().isBlank()) {
+            return;
+        }
+        pollOnce(this::fetch, Instant.now());
+    }
+
+    void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
-            byte[] vp = fetch(vpUrl);
-            byte[] tu = fetch(tuUrl);
-            snapshot.set(parse(vp, tu, Instant.now()));
+            byte[] vehiclePositions = fetcher.get(prim.vehiclePositionsUrl());
+            byte[] tripUpdates = fetcher.get(prim.tripUpdatesUrl());
+            snapshot.set(parse(vehiclePositions, tripUpdates, asOf));
         } catch (Exception e) {
-            // dégradation gracieuse : on conserve le dernier snapshot (voir Task 9)
+            log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
         }
     }
 
     private byte[] fetch(String url) throws Exception {
-        var req = HttpRequest.newBuilder(URI.create(url)).header(authHeader, apiKey).GET().build();
-        return http.send(req, HttpResponse.BodyHandlers.ofByteArray()).body();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            .header(prim.authHeader(), prim.apiKey())
+            .GET()
+            .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray()).body();
     }
 
-    static RtSnapshot parse(byte[] vpBytes, byte[] tuBytes, Instant asOf) throws Exception {
+    static RtSnapshot parse(byte[] vehicleBytes, byte[] tripUpdateBytes, Instant asOf) throws Exception {
         Map<String, RtSnapshot.VehiclePos> positions = new HashMap<>();
-        if (vpBytes.length > 0) {
-            for (FeedEntity e : FeedMessage.parseFrom(vpBytes).getEntityList()) {
-                if (!e.hasVehicle()) continue;
-                VehiclePosition v = e.getVehicle();
-                if (!v.hasTrip() || !v.hasPosition()) continue;
-                String tripId = v.getTrip().getTripId();
-                Position p = v.getPosition();
-                Float bearing = p.hasBearing() ? p.getBearing() : null;
-                positions.put(tripId, new RtSnapshot.VehiclePos(tripId, p.getLatitude(), p.getLongitude(), bearing));
+        if (vehicleBytes.length > 0) {
+            for (FeedEntity entity : FeedMessage.parseFrom(vehicleBytes).getEntityList()) {
+                if (!entity.hasVehicle()) {
+                    continue;
+                }
+                VehiclePosition vehicle = entity.getVehicle();
+                if (!vehicle.hasTrip() || !vehicle.hasPosition()) {
+                    continue;
+                }
+                String tripId = vehicle.getTrip().getTripId();
+                Position position = vehicle.getPosition();
+                Float bearing = position.hasBearing() ? position.getBearing() : null;
+                positions.put(tripId, new RtSnapshot.VehiclePos(
+                    tripId, position.getLatitude(), position.getLongitude(), bearing));
             }
         }
+
         Map<String, Integer> delays = new HashMap<>();
-        if (tuBytes.length > 0) {
-            for (FeedEntity e : FeedMessage.parseFrom(tuBytes).getEntityList()) {
-                if (!e.hasTripUpdate()) continue;
-                TripUpdate tu = e.getTripUpdate();
-                int delay = tu.getStopTimeUpdateList().stream()
+        if (tripUpdateBytes.length > 0) {
+            for (FeedEntity entity : FeedMessage.parseFrom(tripUpdateBytes).getEntityList()) {
+                if (!entity.hasTripUpdate()) {
+                    continue;
+                }
+                TripUpdate tripUpdate = entity.getTripUpdate();
+                int delay = tripUpdate.getStopTimeUpdateList().stream()
                     .filter(TripUpdate.StopTimeUpdate::hasArrival)
-                    .mapToInt(s -> s.getArrival().getDelay()).findFirst()
-                    .orElse(tu.hasDelay() ? tu.getDelay() : 0);
-                delays.put(tu.getTrip().getTripId(), delay);
+                    .mapToInt(s -> s.getArrival().getDelay())
+                    .findFirst()
+                    .orElse(tripUpdate.hasDelay() ? tripUpdate.getDelay() : 0);
+                delays.put(tripUpdate.getTrip().getTripId(), delay);
             }
         }
+
         return new RtSnapshot(asOf, positions, delays);
     }
 }
 ```
 
-- [ ] **Step 5: run → PASS ; commit**
+- [ ] **Step 4: run → PASS ; commit**
 
 Run: `cd backend && ./mvnw test -Dtest=RealtimePollerParseTest` → PASS
 ```bash
-git add backend/src/main/java/com/mapidf/rt backend/src/test/java/com/mapidf/rt backend/src/test/resources/vehicle-positions.pb
+git add backend/src/main/java/com/mapidf/rt backend/src/test/java/com/mapidf/rt
 git commit -m "feat(backend): poller GTFS-RT + snapshot temps réel thread-safe"
 ```
 
@@ -879,7 +1589,7 @@ git commit -m "feat(backend): poller GTFS-RT + snapshot temps réel thread-safe"
 
 ### Task 7: `PositionEngine` — calcul pur des positions (cœur, sans DB)
 
-Deliverable : fonction déterministe qui produit les positions des véhicules à un instant `t`.
+Deliverable : fonction déterministe produisant les positions à un instant `t`.
 
 **Files:**
 - Create: `backend/src/main/java/com/mapidf/position/TripSchedule.java`
@@ -888,195 +1598,216 @@ Deliverable : fonction déterministe qui produit les positions des véhicules à
 - Create: `backend/src/test/java/com/mapidf/position/PositionEngineTest.java`
 
 **Interfaces:**
-- Consumes: `LineString` (Task 4 `getRouteGeometry()`), `RtSnapshot` (Task 6), horaires.
+- Consumes: `LineString` (Task 4), `RtSnapshot` (Task 6).
 - Produces:
-  - `record TripSchedule(String tripId, String headsign, List<StopPassage> passages)` ; `record StopPassage(String stopId, String stopName, int departureSec, double distanceAlongLine)`.
+  - `record TripSchedule(String tripId, String headsign, List<StopPassage> passages)` ; `record StopPassage(String stopName, int departureSec, double distanceAlongLine)`.
   - `record Vehicle(String tripId, double lat, double lng, double bearing, int delaySec, String headsign, String nextStop, Source source)` ; `enum Source { REALTIME, INTERPOLATED }`.
   - `PositionEngine.computeAll(LineString line, List<TripSchedule> trips, RtSnapshot rt, int nowSecOfDay)` → `List<Vehicle>`.
 
-- [ ] **Step 1: records `TripSchedule`, `StopPassage`, `Vehicle`**
+- [ ] **Step 1: records**
 
 ```java
 package com.mapidf.position;
+
 import java.util.List;
+
 public record TripSchedule(String tripId, String headsign, List<StopPassage> passages) {
-    public record StopPassage(String stopId, String stopName, int departureSec, double distanceAlongLine) {}
+
+    public record StopPassage(String stopName, int departureSec, double distanceAlongLine) {
+    }
 }
 ```
 
 ```java
 package com.mapidf.position;
+
 public record Vehicle(String tripId, double lat, double lng, double bearing,
                       int delaySec, String headsign, String nextStop, Source source) {
-    public enum Source { REALTIME, INTERPOLATED }
+
+    public enum Source {
+        REALTIME, INTERPOLATED
+    }
 }
 ```
 
-- [ ] **Step 2: tests qui échouent (interpolation, hors service, snap GPS)**
+- [ ] **Step 2: tests qui échouent** (interpolation, hors service, retard, snap GPS)
 
 ```java
 package com.mapidf.position;
-import com.mapidf.position.TripSchedule.StopPassage;
-import com.mapidf.rt.RtSnapshot;
-import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.*;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+
+import com.mapidf.position.TripSchedule.StopPassage;
+import com.mapidf.rt.RtSnapshot;
+import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.PrecisionModel;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 class PositionEngineTest {
-    // ligne horizontale de (2.30,48.85) à (2.32,48.85) ; longueur ~0.02° en lon
-    static LineString line() {
-        var gf = new GeometryFactory(new PrecisionModel(), 4326);
+
+    private final PositionEngine engine = new PositionEngine();
+
+    private static LineString line() {
+        GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
         return gf.createLineString(new Coordinate[]{
             new Coordinate(2.300, 48.850), new Coordinate(2.310, 48.850), new Coordinate(2.320, 48.850)});
     }
-    // trip: S1@08:00 (dist 0), S2@08:10 (dist 0.010), S3@08:20 (dist 0.020) en degrés-lon
-    static TripSchedule trip() {
-        return new TripSchedule("T1", "Gamma", List.of(
-            new StopPassage("S1", "Alpha", 8*3600,       0.000),
-            new StopPassage("S2", "Beta",  8*3600+600,   0.010),
-            new StopPassage("S3", "Gamma", 8*3600+1200,  0.020)));
-    }
-    PositionEngine engine = new PositionEngine();
 
-    @Test void interpolatesHalfwayBetweenStops() {
-        // 08:05 : mi-chemin S1→S2 → lon ≈ 2.305
-        var vs = engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 8*3600+300);
-        assertThat(vs).hasSize(1);
-        Vehicle v = vs.get(0);
+    private static TripSchedule trip() {
+        return new TripSchedule("T1", "Gamma", List.of(
+            new StopPassage("Alpha", 8 * 3600, 0.000),
+            new StopPassage("Beta", 8 * 3600 + 600, 0.010),
+            new StopPassage("Gamma", 8 * 3600 + 1200, 0.020)));
+    }
+
+    @Test
+    void interpolatesHalfwayBetweenStops() {
+        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 8 * 3600 + 300);
+
+        assertThat(vehicles).hasSize(1);
+        Vehicle v = vehicles.getFirst();
         assertThat(v.source()).isEqualTo(Vehicle.Source.INTERPOLATED);
         assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
         assertThat(v.lat()).isCloseTo(48.850, within(1e-4));
         assertThat(v.nextStop()).isEqualTo("Beta");
-        assertThat(v.bearing()).isCloseTo(90.0, within(5.0)); // plein est
+        assertThat(v.bearing()).isCloseTo(90.0, within(5.0));
     }
 
-    @Test void excludesTripOutsideServiceWindow() {
-        var before = engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 7*3600);   // avant départ
-        var after  = engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 9*3600);   // après arrivée
-        assertThat(before).isEmpty();
-        assertThat(after).isEmpty();
+    @Test
+    void excludesTripOutsideServiceWindow() {
+        assertThat(engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 7 * 3600)).isEmpty();
+        assertThat(engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 9 * 3600)).isEmpty();
     }
 
-    @Test void appliesDelayShiftingPositionBackward() {
-        // retard 300s : à 08:05 le véhicule est "en retard" → position d'un véhicule qui serait à 08:00 → au départ S1
-        var rt = new RtSnapshot(Instant.EPOCH, Map.of(), Map.of("T1", 300));
-        var vs = engine.computeAll(line(), List.of(trip()), rt, 8*3600+300);
-        assertThat(vs.get(0).lng()).isCloseTo(2.300, within(1e-3));
-        assertThat(vs.get(0).delaySec()).isEqualTo(300);
+    @Test
+    void appliesDelayShiftingPositionBackward() {
+        RtSnapshot rt = new RtSnapshot(Instant.EPOCH, Map.of(), Map.of("T1", 300));
+
+        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), rt, 8 * 3600 + 300);
+
+        assertThat(vehicles.getFirst().lng()).isCloseTo(2.300, within(1e-3));
+        assertThat(vehicles.getFirst().delaySec()).isEqualTo(300);
     }
 
-    @Test void usesRealGpsSnappedToLineWhenAvailable() {
-        // GPS un peu au nord de la ligne, vers lon 2.315 → snap sur la ligne à lat 48.850
-        var rt = new RtSnapshot(Instant.EPOCH,
+    @Test
+    void usesRealGpsSnappedToLineWhenAvailable() {
+        RtSnapshot rt = new RtSnapshot(Instant.EPOCH,
             Map.of("T1", new RtSnapshot.VehiclePos("T1", 48.851, 2.315, 80f)), Map.of());
-        var vs = engine.computeAll(line(), List.of(trip()), rt, 8*3600+300);
-        assertThat(vs.get(0).source()).isEqualTo(Vehicle.Source.REALTIME);
-        assertThat(vs.get(0).lat()).isCloseTo(48.850, within(1e-4)); // projeté sur la ligne
-        assertThat(vs.get(0).lng()).isCloseTo(2.315, within(1e-3));
+
+        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), rt, 8 * 3600 + 300);
+
+        assertThat(vehicles.getFirst().source()).isEqualTo(Vehicle.Source.REALTIME);
+        assertThat(vehicles.getFirst().lat()).isCloseTo(48.850, within(1e-4));
+        assertThat(vehicles.getFirst().lng()).isCloseTo(2.315, within(1e-3));
     }
 }
 ```
 
-- [ ] **Step 3: run → FAIL**
-
 Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest`
 Expected: FAIL.
 
-- [ ] **Step 4: implémenter `PositionEngine` (JTS `LengthIndexedLine`)**
+- [ ] **Step 3: `PositionEngine` (JTS `LengthIndexedLine`)**
 
 ```java
 package com.mapidf.position;
+
+import java.util.ArrayList;
+import java.util.List;
+
 import com.mapidf.position.TripSchedule.StopPassage;
 import com.mapidf.rt.RtSnapshot;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.springframework.stereotype.Component;
-import java.util.ArrayList;
-import java.util.List;
 
 @Component
 public class PositionEngine {
 
+    private static final double BEARING_EPSILON = 1e-5;
+
     public List<Vehicle> computeAll(LineString line, List<TripSchedule> trips,
                                     RtSnapshot rt, int nowSecOfDay) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
-        double geomLength = line.getLength();               // longueur en degrés (cohérent avec distanceAlongLine)
+        double geometryLength = line.getLength();
         List<Vehicle> out = new ArrayList<>();
         for (TripSchedule trip : trips) {
-            Vehicle v = compute(indexed, geomLength, trip, rt, nowSecOfDay);
-            if (v != null) out.add(v);
+            Vehicle vehicle = compute(indexed, geometryLength, trip, rt, nowSecOfDay);
+            if (vehicle != null) {
+                out.add(vehicle);
+            }
         }
         return out;
     }
 
-    private Vehicle compute(LengthIndexedLine indexed, double geomLength, TripSchedule trip,
+    private Vehicle compute(LengthIndexedLine indexed, double geometryLength, TripSchedule trip,
                             RtSnapshot rt, int nowSecOfDay) {
         int delay = rt.delaysByTrip().getOrDefault(trip.tripId(), 0);
-        int effectiveNow = nowSecOfDay - delay;             // retard => on "recule" l'horloge du véhicule
-        List<StopPassage> ps = trip.passages();
-        int first = ps.get(0).departureSec();
-        int last = ps.get(ps.size() - 1).departureSec();
-        if (effectiveNow < first || effectiveNow > last) return null;   // hors fenêtre de service
+        int effectiveNow = nowSecOfDay - delay;
+        List<StopPassage> passages = trip.passages();
+        int firstDeparture = passages.getFirst().departureSec();
+        int lastDeparture = passages.getLast().departureSec();
+        if (effectiveNow < firstDeparture || effectiveNow > lastDeparture) {
+            return null;
+        }
 
-        // GPS réel prioritaire
         RtSnapshot.VehiclePos gps = rt.positions().get(trip.tripId());
         if (gps != null) {
-            double idx = indexed.project(new Coordinate(gps.lng(), gps.lat()));
-            Coordinate snapped = indexed.extractPoint(idx);
-            double bearing = gps.bearing() != null ? gps.bearing() : bearingAt(indexed, geomLength, idx);
+            double index = indexed.project(new Coordinate(gps.lng(), gps.lat()));
+            Coordinate snapped = indexed.extractPoint(index);
+            double bearing = gps.bearing() != null ? gps.bearing() : bearingAt(indexed, geometryLength, index);
             return new Vehicle(trip.tripId(), snapped.y, snapped.x, bearing, delay,
-                trip.headsign(), nextStopName(ps, distToStopIndex(ps, idx)), Vehicle.Source.REALTIME);
+                trip.headsign(), nextStopName(passages, index), Vehicle.Source.REALTIME);
         }
 
-        // interpolation le long du tracé
-        double dist = interpolateDistance(ps, effectiveNow);
-        Coordinate pos = indexed.extractPoint(dist);
-        double bearing = bearingAt(indexed, geomLength, dist);
-        String next = nextStopName(ps, dist);
-        return new Vehicle(trip.tripId(), pos.y, pos.x, bearing, delay,
-            trip.headsign(), next, Vehicle.Source.INTERPOLATED);
+        double distance = interpolateDistance(passages, effectiveNow);
+        Coordinate position = indexed.extractPoint(distance);
+        double bearing = bearingAt(indexed, geometryLength, distance);
+        return new Vehicle(trip.tripId(), position.y, position.x, bearing, delay,
+            trip.headsign(), nextStopName(passages, distance), Vehicle.Source.INTERPOLATED);
     }
 
-    private double interpolateDistance(List<StopPassage> ps, int t) {
-        for (int i = 0; i < ps.size() - 1; i++) {
-            StopPassage a = ps.get(i), b = ps.get(i + 1);
-            if (t >= a.departureSec() && t <= b.departureSec()) {
-                double frac = (double) (t - a.departureSec()) / (b.departureSec() - a.departureSec());
-                return a.distanceAlongLine() + frac * (b.distanceAlongLine() - a.distanceAlongLine());
+    private double interpolateDistance(List<StopPassage> passages, int time) {
+        for (int i = 0; i < passages.size() - 1; i++) {
+            StopPassage from = passages.get(i);
+            StopPassage to = passages.get(i + 1);
+            if (time >= from.departureSec() && time <= to.departureSec()) {
+                double fraction = (double) (time - from.departureSec()) / (to.departureSec() - from.departureSec());
+                return from.distanceAlongLine() + fraction * (to.distanceAlongLine() - from.distanceAlongLine());
             }
         }
-        return ps.get(ps.size() - 1).distanceAlongLine();
+        return passages.getLast().distanceAlongLine();
     }
 
-    private String nextStopName(List<StopPassage> ps, double dist) {
-        for (StopPassage p : ps) if (p.distanceAlongLine() > dist + 1e-9) return p.stopName();
-        return ps.get(ps.size() - 1).stopName();
+    private String nextStopName(List<StopPassage> passages, double distance) {
+        for (StopPassage passage : passages) {
+            if (passage.distanceAlongLine() > distance + BEARING_EPSILON) {
+                return passage.stopName();
+            }
+        }
+        return passages.getLast().stopName();
     }
 
-    private double distToStopIndex(List<StopPassage> ps, double dist) { return dist; } // alias lisibilité
-
-    private double bearingAt(LengthIndexedLine indexed, double geomLength, double dist) {
-        double d1 = Math.max(0, dist - 1e-5);
-        double d2 = Math.min(geomLength, dist + 1e-5);
-        Coordinate a = indexed.extractPoint(d1), b = indexed.extractPoint(d2);
-        double angle = Math.toDegrees(Math.atan2(b.x - a.x, b.y - a.y)); // 0=Nord, 90=Est
+    private double bearingAt(LengthIndexedLine indexed, double geometryLength, double distance) {
+        double before = Math.max(0, distance - BEARING_EPSILON);
+        double after = Math.min(geometryLength, distance + BEARING_EPSILON);
+        Coordinate a = indexed.extractPoint(before);
+        Coordinate b = indexed.extractPoint(after);
+        double angle = Math.toDegrees(Math.atan2(b.x - a.x, b.y - a.y));
         return (angle + 360) % 360;
     }
 }
 ```
 
-- [ ] **Step 5: run → PASS**
+- [ ] **Step 4: run → PASS ; commit**
 
-Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest`
-Expected: PASS (les 4 cas).
-
-- [ ] **Step 6: commit**
-
+Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest` → PASS (les 4 cas)
 ```bash
 git add backend/src/main/java/com/mapidf/position backend/src/test/java/com/mapidf/position
 git commit -m "feat(backend): PositionEngine pur (interpolation + snap GPS, JTS)"
@@ -1086,179 +1817,235 @@ git commit -m "feat(backend): PositionEngine pur (interpolation + snap GPS, JTS)
 
 ### Task 8: Endpoint `GET /api/lines/{id}/vehicles`
 
-Deliverable : le front reçoit la liste des véhicules calculés à l'instant courant.
+Deliverable : le front reçoit les véhicules calculés à l'instant courant.
 
 **Files:**
-- Create: `backend/src/main/java/com/mapidf/api/dto/VehiclesResponse.java`
 - Create: `backend/src/main/java/com/mapidf/position/ScheduleProvider.java`
-- Modify: `backend/src/main/java/com/mapidf/api/LineController.java`
-- Create: `backend/src/test/java/com/mapidf/api/LineControllerVehiclesTest.java`
+- Create: `backend/src/main/java/com/mapidf/controllers/lines/VehicleResponse.java`
+- Create: `backend/src/main/java/com/mapidf/controllers/lines/VehiclesResponse.java`
+- Modify: `backend/src/main/java/com/mapidf/controllers/lines/LineController.java`
+- Create: `backend/src/test/java/com/mapidf/controllers/lines/LineControllerVehiclesIT.java`
 
 **Interfaces:**
-- Consumes: `PositionEngine` (Task 7), `GtfsStaticService.getRouteGeometry()` (Task 4), `RealtimePoller.current()` (Task 6).
-- Produces: `ScheduleProvider.getSchedules(routeId)` → `List<TripSchedule>` (lit la base, calcule `distanceAlongLine` de chaque arrêt via `ST_LineLocatePoint`). `VehiclesResponse(Instant asOf, List<Vehicle> vehicles)`.
+- Consumes: `StopTimeRepository`, `GtfsStaticService.getRouteGeometry()`, `PositionEngine`, `RealtimePoller.current()`, `LineProperties`.
+- Produces: `ScheduleProvider.getSchedules(LineString line, String gtfsRouteId)` → `List<TripSchedule>` (projette chaque arrêt sur le tracé via JTS). `VehicleResponse` (`@Value @Builder`, `from(Vehicle)`), `VehiclesResponse(Instant asOf, List<VehicleResponse> vehicles)`.
 
-- [ ] **Step 1: `VehiclesResponse`**
-
-```java
-package com.mapidf.api.dto;
-import com.mapidf.position.Vehicle;
-import java.time.Instant;
-import java.util.List;
-public record VehiclesResponse(Instant asOf, List<Vehicle> vehicles) {}
-```
-
-- [ ] **Step 2: test d'intégration qui échoue**
-
-```java
-package com.mapidf.api;
-import com.mapidf.MapIdfApplication;
-import com.mapidf.gtfs.GtfsStaticService;
-import com.mapidf.gtfs.GtfsStaticLoader;
-import org.junit.jupiter.api.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.*;
-import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-@SpringBootTest(classes = MapIdfApplication.class)
-@AutoConfigureMockMvc
-@Testcontainers
-class LineControllerVehiclesTest {
-    @Container static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgis/postgis:16-3.4")
-        .withDatabaseName("mapidf").withUsername("mapidf").withPassword("mapidf");
-    @DynamicPropertySource static void p(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", db::getJdbcUrl);
-        r.add("spring.datasource.username", db::getUsername);
-        r.add("spring.datasource.password", db::getPassword);
-        r.add("app.line.id", () -> "TEST9");
-        r.add("app.line.gtfs-route-id", () -> "TEST9");
-    }
-    @Autowired GtfsStaticLoader loader;
-    @Autowired GtfsStaticService staticService;
-    @Autowired MockMvc mvc;
-
-    @BeforeEach void seed() throws Exception {
-        try (var in = getClass().getResourceAsStream("/gtfs-mini.zip")) { loader.loadFromZip(in, "TEST9"); }
-        staticService.cacheGeometry();
-    }
-
-    @Test void returnsVehiclesEnvelope() throws Exception {
-        // sans forcer l'instant, on vérifie surtout la forme de la réponse (peut être 0 véhicule hors 08:00-08:20)
-        mvc.perform(get("/api/lines/TEST9/vehicles"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.asOf").exists())
-           .andExpect(jsonPath("$.vehicles").isArray());
-    }
-}
-```
-
-- [ ] **Step 3: run → FAIL**
-
-Run: `cd backend && ./mvnw test -Dtest=LineControllerVehiclesTest`
-Expected: FAIL.
-
-- [ ] **Step 4: `ScheduleProvider` (distance de chaque arrêt le long du tracé)**
+- [ ] **Step 1: `ScheduleProvider` (projection JTS des arrêts, sans SQL natif)**
 
 ```java
 package com.mapidf.position;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.mapidf.data.entity.StopTime;
+import com.mapidf.data.repositories.StopTimeRepository;
 import com.mapidf.position.TripSchedule.StopPassage;
-import org.springframework.jdbc.core.JdbcTemplate;
+import lombok.AllArgsConstructor;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.springframework.stereotype.Service;
-import java.util.*;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@AllArgsConstructor
 public class ScheduleProvider {
-    private final JdbcTemplate jdbc;
-    public ScheduleProvider(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    public List<TripSchedule> getSchedules(String routeId) {
-        // distanceAlongLine : fraction [0..1] de ST_LineLocatePoint × longueur du tracé (en degrés) pour rester
-        // cohérent avec PositionEngine qui indexe par longueur géométrique.
-        List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT st.trip_id, t.headsign, st.stop_id, s.name, st.stop_sequence, st.departure_sec, " +
-            "       ST_LineLocatePoint(r.geom, s.geom) * ST_Length(r.geom) AS dist " +
-            "FROM stop_time st " +
-            "JOIN trip t ON t.id = st.trip_id " +
-            "JOIN route r ON r.id = t.route_id " +
-            "JOIN stop s ON s.id = st.stop_id " +
-            "WHERE t.route_id = ? ORDER BY st.trip_id, st.stop_sequence", routeId);
+    private final StopTimeRepository stopTimeRepository;
 
-        Map<String, List<StopPassage>> byTrip = new LinkedHashMap<>();
-        Map<String, String> headsigns = new HashMap<>();
-        for (Map<String, Object> row : rows) {
-            String tripId = (String) row.get("trip_id");
-            headsigns.putIfAbsent(tripId, (String) row.get("headsign"));
-            byTrip.computeIfAbsent(tripId, k -> new ArrayList<>()).add(new StopPassage(
-                (String) row.get("stop_id"), (String) row.get("name"),
-                ((Number) row.get("departure_sec")).intValue(),
-                ((Number) row.get("dist")).doubleValue()));
+    @Transactional(readOnly = true)
+    public List<TripSchedule> getSchedules(LineString line, String gtfsRouteId) {
+        LengthIndexedLine indexed = new LengthIndexedLine(line);
+        Map<String, List<StopPassage>> passagesByTrip = new LinkedHashMap<>();
+        Map<String, String> headsignByTrip = new LinkedHashMap<>();
+
+        for (StopTime stopTime : stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId)) {
+            String tripId = stopTime.getTrip().getGtfsId();
+            headsignByTrip.putIfAbsent(tripId, stopTime.getTrip().getHeadsign());
+            double distance = indexed.project(stopTime.getStop().getGeom().getCoordinate());
+            passagesByTrip.computeIfAbsent(tripId, key -> new ArrayList<>())
+                .add(new StopPassage(stopTime.getStop().getName(), stopTime.getDepartureSec(), distance));
         }
-        List<TripSchedule> out = new ArrayList<>();
-        byTrip.forEach((tripId, passages) -> out.add(new TripSchedule(tripId, headsigns.get(tripId), passages)));
-        return out;
+
+        List<TripSchedule> schedules = new ArrayList<>();
+        passagesByTrip.forEach((tripId, passages) ->
+            schedules.add(new TripSchedule(tripId, headsignByTrip.get(tripId), passages)));
+        return schedules;
     }
 }
 ```
 
-- [ ] **Step 5: étendre `LineController` avec `/vehicles`**
+- [ ] **Step 2: DTOs réponses (`@Value @Builder`)**
 
 ```java
-package com.mapidf.api;
-import com.mapidf.api.dto.ShapeResponse;
-import com.mapidf.api.dto.VehiclesResponse;
-import com.mapidf.gtfs.GtfsStaticService;
-import com.mapidf.position.*;
-import com.mapidf.rt.RealtimePoller;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.bind.annotation.*;
-import java.time.*;
+package com.mapidf.controllers.lines;
+
+import com.mapidf.position.Vehicle;
+import lombok.Builder;
+import lombok.Value;
+
+@Value
+@Builder
+public class VehicleResponse {
+
+    String tripId;
+    double lat;
+    double lng;
+    double bearing;
+    int delaySec;
+    String headsign;
+    String nextStop;
+    String source;
+
+    public static VehicleResponse from(Vehicle vehicle) {
+        return VehicleResponse.builder()
+            .tripId(vehicle.tripId())
+            .lat(vehicle.lat())
+            .lng(vehicle.lng())
+            .bearing(vehicle.bearing())
+            .delaySec(vehicle.delaySec())
+            .headsign(vehicle.headsign())
+            .nextStop(vehicle.nextStop())
+            .source(vehicle.source().name())
+            .build();
+    }
+}
+```
+
+```java
+package com.mapidf.controllers.lines;
+
+import java.time.Instant;
 import java.util.List;
 
-@RestController
-@RequestMapping("/api/lines")
-public class LineController {
-    private final NetworkQueryService network;
-    private final ScheduleProvider schedules;
-    private final PositionEngine engine;
-    private final GtfsStaticService staticService;
-    private final RealtimePoller poller;
-    private final String routeId;
-    private final ZoneId zone = ZoneId.of("Europe/Paris");
+import lombok.Builder;
+import lombok.Value;
 
-    public LineController(NetworkQueryService network, ScheduleProvider schedules, PositionEngine engine,
-                          GtfsStaticService staticService, RealtimePoller poller,
-                          @Value("${app.line.gtfs-route-id:}") String routeId) {
-        this.network = network; this.schedules = schedules; this.engine = engine;
-        this.staticService = staticService; this.poller = poller; this.routeId = routeId;
+@Value
+@Builder
+public class VehiclesResponse {
+
+    Instant asOf;
+    List<VehicleResponse> vehicles;
+}
+```
+
+- [ ] **Step 3: test qui échoue**
+
+```java
+package com.mapidf.controllers.lines;
+
+import com.mapidf.MapIdfTest;
+import com.mapidf.gtfs.GtfsStaticLoader;
+import com.mapidf.gtfs.GtfsStaticService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@MapIdfTest
+class LineControllerVehiclesIT {
+
+    @Autowired WebApplicationContext wac;
+    @Autowired GtfsStaticLoader loader;
+    @Autowired GtfsStaticService staticService;
+    MockMvc mockMvc;
+
+    @BeforeEach
+    void setup() throws Exception {
+        mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
+        try (var in = getClass().getResourceAsStream("/gtfs-mini.zip")) {
+            loader.loadFromZip(in, "TEST9");
+        }
+        staticService.cacheGeometry();
     }
 
+    @Test
+    void returnsVehiclesEnvelope() throws Exception {
+        mockMvc.perform(get("/lines/TEST9/vehicles"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.asOf").exists())
+            .andExpect(jsonPath("$.vehicles").isArray());
+    }
+}
+```
+
+Run: `cd backend && ./mvnw test -Dtest=LineControllerVehiclesIT`
+Expected: FAIL.
+
+- [ ] **Step 4: étendre `LineController` avec `/vehicles`**
+
+```java
+package com.mapidf.controllers.lines;
+
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.List;
+
+import com.mapidf.configurations.properties.LineProperties;
+import com.mapidf.gtfs.GtfsStaticService;
+import com.mapidf.position.PositionEngine;
+import com.mapidf.position.ScheduleProvider;
+import com.mapidf.position.Vehicle;
+import com.mapidf.rt.RealtimePoller;
+import com.mapidf.services.NetworkQueryService;
+import lombok.AllArgsConstructor;
+import org.locationtech.jts.geom.LineString;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/lines")
+@AllArgsConstructor
+public class LineController {
+
+    private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
+
+    private final NetworkQueryService networkQueryService;
+    private final ScheduleProvider scheduleProvider;
+    private final PositionEngine positionEngine;
+    private final GtfsStaticService staticService;
+    private final RealtimePoller poller;
+    private final LineProperties lineProperties;
+
     @GetMapping("/{id}/shape")
-    public ShapeResponse shape(@PathVariable String id) { return network.getShape(id); }
+    public ShapeResponse shape(@PathVariable String id) {
+        return networkQueryService.getShape(id);
+    }
 
     @GetMapping("/{id}/vehicles")
     public VehiclesResponse vehicles(@PathVariable String id) {
-        var line = staticService.getRouteGeometry();
-        var trips = schedules.getSchedules(routeId);
-        var rt = poller.current();
-        LocalTime now = LocalTime.now(zone);
-        int secOfDay = now.toSecondOfDay();
-        List<Vehicle> vs = (line == null) ? List.of() : engine.computeAll(line, trips, rt, secOfDay);
-        return new VehiclesResponse(Instant.now(), vs);
+        LineString line = staticService.getRouteGeometry();
+        List<VehicleResponse> vehicles = List.of();
+        if (line != null) {
+            int nowSecOfDay = LocalTime.now(PARIS).toSecondOfDay();
+            List<Vehicle> computed = positionEngine.computeAll(
+                line, scheduleProvider.getSchedules(line, id), poller.current(), nowSecOfDay);
+            vehicles = computed.stream().map(VehicleResponse::from).toList();
+        }
+        return VehiclesResponse.builder()
+            .asOf(Instant.now())
+            .vehicles(vehicles)
+            .build();
     }
 }
 ```
 
-- [ ] **Step 6: run → PASS ; commit**
+- [ ] **Step 5: run → PASS ; commit**
 
-Run: `cd backend && ./mvnw test -Dtest=LineControllerVehiclesTest` → PASS
+Run: `cd backend && ./mvnw test -Dtest=LineControllerVehiclesIT` → PASS
 ```bash
-git add backend/src/main/java/com/mapidf backend/src/test/java/com/mapidf/api/LineControllerVehiclesTest.java
+git add backend/src/main/java/com/mapidf backend/src/test/java/com/mapidf/controllers/lines/LineControllerVehiclesIT.java
 git commit -m "feat(backend): endpoint GET /api/lines/{id}/vehicles + ScheduleProvider"
 ```
 
@@ -1266,131 +2053,120 @@ git commit -m "feat(backend): endpoint GET /api/lines/{id}/vehicles + SchedulePr
 
 ### Task 9: Résilience du poller + métriques Actuator
 
-Deliverable : en cas d'échec IDFM, le dernier snapshot est conservé ; l'âge du snapshot et le nb de véhicules sont exposés en métriques.
+Deliverable : un échec IDFM conserve le dernier snapshot ; métriques d'âge de snapshot et d'échecs exposées.
 
 **Files:**
 - Modify: `backend/src/main/java/com/mapidf/rt/RealtimePoller.java`
-- Create: `backend/src/main/java/com/mapidf/rt/RtMetrics.java`
 - Create: `backend/src/test/java/com/mapidf/rt/RealtimePollerResilienceTest.java`
 
 **Interfaces:**
-- Consumes: `RtSnapshot`, Micrometer `MeterRegistry`.
-- Produces: métriques `mapidf.rt.snapshot.age.seconds` (gauge), `mapidf.rt.poll.failures` (counter). `RealtimePoller.pollOnce(fetcher)` testable (injection d'un fetcher).
+- Consumes: Micrometer `MeterRegistry`.
+- Produces: métriques `mapidf.rt.poll.failures` (counter), `mapidf.rt.snapshot.age.seconds` (gauge). `RealtimePoller.attachMetrics(MeterRegistry)`.
 
-- [ ] **Step 1: test qui échoue — un échec de fetch ne remplace pas le snapshot**
+- [ ] **Step 1: test qui échoue — un échec de fetch conserve le snapshot + incrémente le compteur**
 
 ```java
 package com.mapidf.rt;
+
+import java.time.Instant;
+
+import com.mapidf.configurations.properties.PrimProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RealtimePollerResilienceTest {
-    @Test void keepsLastSnapshotOnFetchFailure() throws Exception {
-        var reg = new SimpleMeterRegistry();
-        var poller = new RealtimePoller("", "", "", "apikey");
-        poller.attachMetrics(reg);
-        // 1er poll OK via fetcher injecté : renvoie un snapshot avec T1
-        byte[] vp = RealtimePollerParseTestData.vehiclePositionsForT1();
-        poller.pollOnce((url) -> vp.length == 0 ? new byte[0] : vp, Instant.ofEpochSecond(100));
+
+    private static PrimProperties props() {
+        return new PrimProperties("", "apikey", "", "http://vp", "http://tu", java.time.Duration.ofSeconds(10));
+    }
+
+    @Test
+    void keepsLastSnapshotOnFetchFailure() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RealtimePoller poller = new RealtimePoller(props());
+        poller.attachMetrics(registry);
+
+        byte[] vp = RtFixtures.vehiclePositionsForT1();
+        poller.pollOnce(url -> vp, Instant.ofEpochSecond(100));
         assertThat(poller.current().positions()).containsKey("T1");
-        // 2e poll : le fetcher jette → snapshot conservé, compteur d'échec incrémenté
-        poller.pollOnce((url) -> { throw new RuntimeException("IDFM down"); }, Instant.ofEpochSecond(200));
+
+        poller.pollOnce(url -> {
+            throw new RuntimeException("IDFM down");
+        }, Instant.ofEpochSecond(200));
+
         assertThat(poller.current().positions()).containsKey("T1");
-        assertThat(reg.counter("mapidf.rt.poll.failures").count()).isEqualTo(1.0);
+        assertThat(registry.counter("mapidf.rt.poll.failures").count()).isEqualTo(1.0);
     }
 }
 ```
-
-Ajouter le helper de test `backend/src/test/java/com/mapidf/rt/RealtimePollerParseTestData.java` :
-
-```java
-package com.mapidf.rt;
-import com.google.transit.realtime.GtfsRealtime.*;
-class RealtimePollerParseTestData {
-    static byte[] vehiclePositionsForT1() {
-        var fm = FeedMessage.newBuilder();
-        fm.getHeaderBuilder().setGtfsRealtimeVersion("2.0")
-          .setIncrementality(FeedHeader.Incrementality.FULL_DATASET).setTimestamp(100L);
-        var e = fm.addEntityBuilder().setId("v1");
-        var vp = e.getVehicleBuilder();
-        vp.getTripBuilder().setTripId("T1");
-        vp.getPositionBuilder().setLatitude(48.850f).setLongitude(2.305f).setBearing(90f);
-        return fm.build().toByteArray();
-    }
-}
-```
-
-- [ ] **Step 2: run → FAIL** (`attachMetrics`, `pollOnce`, `Fetcher` absents)
 
 Run: `cd backend && ./mvnw test -Dtest=RealtimePollerResilienceTest`
-Expected: FAIL.
+Expected: FAIL (`attachMetrics` absent).
 
-- [ ] **Step 3: refactorer `RealtimePoller` pour l'injection + métriques**
+- [ ] **Step 2: ajouter les métriques à `RealtimePoller`**
 
-Remplacer le corps de `poll()`/`fetch()` par une abstraction `Fetcher` testable et un snapshot conservé en cas d'échec :
+Ajouter le champ, la méthode `attachMetrics` (appelée par Spring via l'injection du `MeterRegistry`), et incrémenter dans le `catch`. Modifs :
 
 ```java
-    // dans RealtimePoller :
-    @FunctionalInterface public interface Fetcher { byte[] get(String url) throws Exception; }
+    // nouveaux imports
+import java.time.Duration;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
+```
 
-    private io.micrometer.core.instrument.Counter failures;
+```java
+    // champ
+    private Counter pollFailures;
+```
 
-    public void attachMetrics(io.micrometer.core.instrument.MeterRegistry reg) {
-        this.failures = reg.counter("mapidf.rt.poll.failures");
-        reg.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
-            ref -> java.time.Duration.between(ref.get().asOf(), java.time.Instant.now()).getSeconds());
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    void bindMetrics(io.micrometer.core.instrument.MeterRegistry reg) { attachMetrics(reg); }
-
-    @Scheduled(fixedRateString = "${app.prim.poll-interval:PT10S}")
-    public void poll() {
-        pollOnce(this::fetch, java.time.Instant.now());
-    }
-
-    void pollOnce(Fetcher fetcher, java.time.Instant asOf) {
-        try {
-            byte[] vp = fetcher.get(vpUrl);
-            byte[] tu = fetcher.get(tuUrl);
-            snapshot.set(parse(vp, tu, asOf));
-        } catch (Exception e) {
-            if (failures != null) failures.increment();   // dégradation gracieuse : dernier snapshot conservé
-        }
+```java
+    // méthode publique testable + binding Spring
+    @Autowired
+    public void attachMetrics(MeterRegistry registry) {
+        this.pollFailures = registry.counter("mapidf.rt.poll.failures");
+        registry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
+            ref -> Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
     }
 ```
 
-(Le `fetch(String)` existant reste comme implémentation de `Fetcher` : `private byte[] fetch(String url) throws Exception {...}` inchangé.)
+```java
+    // dans le catch de pollOnce, avant le log :
+        } catch (Exception e) {
+            if (pollFailures != null) {
+                pollFailures.increment();
+            }
+            log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
+        }
+```
 
-- [ ] **Step 4: run → PASS**
+- [ ] **Step 3: run → PASS**
 
 Run: `cd backend && ./mvnw test -Dtest=RealtimePollerResilienceTest`
 Expected: PASS.
 
-- [ ] **Step 5: vérifier l'ensemble de la suite backend + commit**
+- [ ] **Step 4: suite complète + commit**
 
 Run: `cd backend && ./mvnw test`
 Expected: PASS (toutes classes).
 ```bash
 git add backend/src
-git commit -m "feat(backend): résilience poller (dernier snapshot conservé) + métriques Actuator"
+git commit -m "feat(backend): résilience poller + métriques Actuator"
 ```
 
 ---
 
 ### Task 10: Scaffold frontend (Vite + React + TS + MapLibre)
 
-Deliverable : carte MapLibre centrée sur Paris s'affiche, proxy `/api` vers le backend.
+Deliverable : carte MapLibre centrée sur Paris, proxy `/api` → backend `:8000`.
 
 **Files:**
 - Create: `frontend/package.json`, `frontend/vite.config.ts`, `frontend/tsconfig.json`, `frontend/index.html`
-- Create: `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/map/MapView.tsx`
-- Create: `frontend/src/api/config.ts`
+- Create: `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/map/MapView.tsx`, `frontend/src/api/config.ts`
 
 **Interfaces:**
-- Produces: composant `<MapView>` montant une carte MapLibre ; base URL API = `/api` (proxy Vite en dev).
+- Produces: `useMap(container)` montant une carte MapLibre ; base API `/api`.
 
 - [ ] **Step 1: `package.json`**
 
@@ -1408,14 +2184,15 @@ Deliverable : carte MapLibre centrée sur Paris s'affiche, proxy `/api` vers le 
 }
 ```
 
-- [ ] **Step 2: `vite.config.ts` (proxy /api)**
+- [ ] **Step 2: `vite.config.ts` (proxy /api → 8000)**
 
 ```ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: { "/api": "http://localhost:8080" } },
+  server: { proxy: { "/api": "http://localhost:8000" } },
 });
 ```
 
@@ -1423,17 +2200,35 @@ export default defineConfig({
 
 `index.html` :
 ```html
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>MapIDF — Ligne 9</title></head>
-<body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MapIDF — Ligne 9</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
 ```
 
 `tsconfig.json` :
 ```json
-{ "compilerOptions": { "target": "ES2020", "lib": ["ES2020","DOM","DOM.Iterable"],
-  "module": "ESNext", "moduleResolution": "bundler", "jsx": "react-jsx",
-  "strict": true, "noEmit": true, "skipLibCheck": true }, "include": ["src"] }
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
 ```
 
 `src/api/config.ts` :
@@ -1449,10 +2244,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "maplibre-gl/dist/maplibre-gl.css";
 import App from "./App";
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
 ```
 
-- [ ] **Step 4: `MapView.tsx` (carte de base) + `App.tsx`**
+- [ ] **Step 4: `MapView.tsx` + `App.tsx`**
 
 `src/map/MapView.tsx` :
 ```tsx
@@ -1462,14 +2262,19 @@ import maplibregl, { Map as MlMap } from "maplibre-gl";
 export function useMap(container: React.RefObject<HTMLDivElement>) {
   const mapRef = useRef<MlMap | null>(null);
   useEffect(() => {
-    if (!container.current || mapRef.current) return;
+    if (!container.current || mapRef.current) {
+      return;
+    }
     mapRef.current = new maplibregl.Map({
       container: container.current,
-      style: "https://demotiles.maplibre.org/style.json", // fond de démo ; remplacer par un fond vectoriel dédié en prod
+      style: "https://demotiles.maplibre.org/style.json",
       center: [2.34, 48.86],
       zoom: 11,
     });
-    return () => { mapRef.current?.remove(); mapRef.current = null; };
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
   }, [container]);
   return mapRef;
 }
@@ -1479,6 +2284,7 @@ export function useMap(container: React.RefObject<HTMLDivElement>) {
 ```tsx
 import { useRef } from "react";
 import { useMap } from "./map/MapView";
+
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   useMap(container);
@@ -1486,7 +2292,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 5: lancer et vérifier visuellement**
+- [ ] **Step 5: vérifier visuellement**
 
 Run: `cd frontend && npm install && npm run dev`
 Expected: `http://localhost:5173` affiche une carte centrée sur Paris.
@@ -1502,54 +2308,65 @@ git commit -m "feat(frontend): scaffold Vite+React+TS+MapLibre, carte de base"
 
 ### Task 11: Affichage du tracé et des arrêts (`useLineShape`)
 
-Deliverable : la ligne 9 et ses arrêts sont dessinés sur la carte.
+Deliverable : la ligne 9 et ses arrêts sont dessinés.
 
 **Files:**
-- Create: `frontend/src/api/types.ts`
-- Create: `frontend/src/api/lines.ts`
-- Create: `frontend/src/map/useLineShape.ts`
+- Create: `frontend/src/api/types.ts`, `frontend/src/api/lines.ts`, `frontend/src/map/useLineShape.ts`
 - Modify: `frontend/src/App.tsx`
 
 **Interfaces:**
 - Consumes: `GET /api/lines/{id}/shape`.
-- Produces: `fetchShape(lineId): Promise<ShapeResponse>` ; `useLineShape(map, lineId)` dessine une couche ligne `line-shape` + une couche cercles `stops`.
+- Produces: `fetchShape(lineId)`, `fetchVehicles(lineId)` ; `useLineShape(map, lineId)`.
 
-- [ ] **Step 1: types**
+- [ ] **Step 1: `types.ts`**
 
 ```ts
 export interface ShapeResponse {
-  lineId: string; color: string;
-  shape: [number, number][];               // [lng,lat]
+  lineId: string;
+  color: string;
+  shape: [number, number][];
   stops: { id: string; name: string; lat: number; lng: number }[];
 }
+
 export interface VehiclesResponse {
   asOf: string;
   vehicles: {
-    tripId: string; lat: number; lng: number; bearing: number;
-    delaySec: number; headsign: string; nextStop: string;
+    tripId: string;
+    lat: number;
+    lng: number;
+    bearing: number;
+    delaySec: number;
+    headsign: string;
+    nextStop: string;
     source: "REALTIME" | "INTERPOLATED";
   }[];
 }
 ```
 
-- [ ] **Step 2: client API**
+- [ ] **Step 2: `lines.ts`**
 
 ```ts
 import { API_BASE } from "./config";
 import type { ShapeResponse, VehiclesResponse } from "./types";
+
 export async function fetchShape(lineId: string): Promise<ShapeResponse> {
-  const r = await fetch(`${API_BASE}/lines/${lineId}/shape`);
-  if (!r.ok) throw new Error(`shape ${r.status}`);
-  return r.json();
+  const response = await fetch(`${API_BASE}/lines/${lineId}/shape`);
+  if (!response.ok) {
+    throw new Error(`shape ${response.status}`);
+  }
+  return response.json();
 }
+
 export async function fetchVehicles(lineId: string): Promise<VehiclesResponse> {
-  const r = await fetch(`${API_BASE}/lines/${lineId}/vehicles`);
-  if (!r.ok) throw new Error(`vehicles ${r.status}`);
-  return r.json();
+  const response = await fetch(`${API_BASE}/lines/${lineId}/vehicles`);
+  if (!response.ok) {
+    throw new Error(`vehicles ${response.status}`);
+  }
+  return response.json();
 }
 ```
 
-- [ ] **Step 3: `useLineShape`**
+- [ ] **Step 3: `useLineShape.ts`**
 
 ```ts
 import { useEffect } from "react";
@@ -1558,32 +2375,64 @@ import { fetchShape } from "../api/lines";
 
 export function useLineShape(map: MlMap | null, lineId: string) {
   useEffect(() => {
-    if (!map) return;
+    if (!map) {
+      return;
+    }
     let cancelled = false;
     fetchShape(lineId).then((shape) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const draw = () => {
-        if (map.getSource("line-shape")) return;
+        if (map.getSource("line-shape")) {
+          return;
+        }
         map.addSource("line-shape", {
           type: "geojson",
-          data: { type: "Feature", properties: {},
-            geometry: { type: "LineString", coordinates: shape.shape } },
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: shape.shape },
+          },
         });
-        map.addLayer({ id: "line-shape", type: "line", source: "line-shape",
-          paint: { "line-color": shape.color, "line-width": 4 } });
+        map.addLayer({
+          id: "line-shape",
+          type: "line",
+          source: "line-shape",
+          paint: { "line-color": shape.color, "line-width": 4 },
+        });
         map.addSource("stops", {
           type: "geojson",
-          data: { type: "FeatureCollection", features: shape.stops.map((s) => ({
-            type: "Feature", properties: { name: s.name },
-            geometry: { type: "Point", coordinates: [s.lng, s.lat] } })) },
+          data: {
+            type: "FeatureCollection",
+            features: shape.stops.map((s) => ({
+              type: "Feature",
+              properties: { name: s.name },
+              geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+            })),
+          },
         });
-        map.addLayer({ id: "stops", type: "circle", source: "stops",
-          paint: { "circle-radius": 5, "circle-color": "#fff",
-            "circle-stroke-color": shape.color, "circle-stroke-width": 2 } });
+        map.addLayer({
+          id: "stops",
+          type: "circle",
+          source: "stops",
+          paint: {
+            "circle-radius": 5,
+            "circle-color": "#fff",
+            "circle-stroke-color": shape.color,
+            "circle-stroke-width": 2,
+          },
+        });
       };
-      if (map.isStyleLoaded()) draw(); else map.once("load", draw);
+      if (map.isStyleLoaded()) {
+        draw();
+      } else {
+        map.once("load", draw);
+      }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [map, lineId]);
 }
 ```
@@ -1595,6 +2444,7 @@ import { useRef } from "react";
 import { useMap } from "./map/MapView";
 import { useLineShape } from "./map/useLineShape";
 import { LINE_ID } from "./api/config";
+
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
@@ -1603,109 +2453,159 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 5: vérifier visuellement (backend lancé + base chargée)**
+- [ ] **Step 5: vérifier visuellement** (backend lancé avec `PRIM_API_KEY`, base chargée)
 
-Run: backend démarré (`./mvnw spring-boot:run` avec `PRIM_API_KEY` défini) puis `cd frontend && npm run dev`.
-Expected: le tracé de la ligne 9 et ses arrêts s'affichent.
+Run: backend `./mvnw spring-boot:run` puis `cd frontend && npm run dev`.
+Expected: tracé + arrêts de la ligne 9 affichés.
 
 - [ ] **Step 6: commit**
 
 ```bash
 git add frontend/src
-git commit -m "feat(frontend): affichage tracé + arrêts de la ligne (useLineShape)"
+git commit -m "feat(frontend): affichage tracé + arrêts (useLineShape)"
 ```
 
 ---
 
 ### Task 12: Véhicules animés (`useVehicles` + tween RAF)
 
-Deliverable : des marqueurs glissent le long du tracé, mis à jour toutes les ~4 s, orientés selon le cap.
+Deliverable : marqueurs qui glissent le long du tracé, MAJ ~4 s, orientés selon le cap.
 
 **Files:**
-- Create: `frontend/src/map/VehicleLayer.ts`
-- Create: `frontend/src/map/useVehicles.ts`
+- Create: `frontend/src/map/VehicleLayer.ts`, `frontend/src/map/useVehicles.ts`
 - Modify: `frontend/src/App.tsx`
 
 **Interfaces:**
-- Consumes: `fetchVehicles` (Task 11), couche carte.
-- Produces: `useVehicles(map, lineId)` qui poll et anime. Animation par interpolation linéaire lat/lng entre position affichée et nouvelle cible sur `VEHICLE_POLL_MS`.
+- Consumes: `fetchVehicles`.
+- Produces: `useVehicles(map, lineId)`. `VehicleLayer.update(vehicles, now)`, `VehicleLayer.destroy()`.
 
-- [ ] **Step 1: `VehicleLayer` — source GeoJSON de points + tween**
+- [ ] **Step 1: `VehicleLayer.ts`**
 
 ```ts
 import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
 import type { VehiclesResponse } from "../api/types";
 
 type V = VehiclesResponse["vehicles"][number];
-interface Anim { from: [number, number]; to: [number, number]; bearing: number; start: number; v: V; }
+
+interface Anim {
+  from: [number, number];
+  to: [number, number];
+  bearing: number;
+  start: number;
+  vehicle: V;
+}
 
 export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
-  constructor(private map: MlMap, private durationMs: number) { this.ensureLayer(); }
+
+  constructor(
+    private map: MlMap,
+    private durationMs: number,
+  ) {
+    this.ensureLayer();
+  }
 
   private ensureLayer() {
     const add = () => {
-      if (this.map.getSource("vehicles")) return;
-      this.map.addSource("vehicles", { type: "geojson", data: this.fc([]) });
+      if (this.map.getSource("vehicles")) {
+        return;
+      }
+      this.map.addSource("vehicles", { type: "geojson", data: this.featureCollection([]) });
       this.map.addLayer({
-        id: "vehicles", type: "circle", source: "vehicles",
+        id: "vehicles",
+        type: "circle",
+        source: "vehicles",
         paint: {
           "circle-radius": 7,
           "circle-color": ["case", ["==", ["get", "source"], "REALTIME"], "#e30613", "#f7a600"],
-          "circle-stroke-color": "#fff", "circle-stroke-width": 2,
+          "circle-stroke-color": "#fff",
+          "circle-stroke-width": 2,
           "circle-opacity": ["case", ["==", ["get", "source"], "INTERPOLATED"], 0.7, 1.0],
         },
       });
     };
-    if (this.map.isStyleLoaded()) add(); else this.map.once("load", add);
+    if (this.map.isStyleLoaded()) {
+      add();
+    } else {
+      this.map.once("load", add);
+    }
   }
 
-  private fc(features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
+  private featureCollection(features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
     return { type: "FeatureCollection", features };
   }
 
   update(vehicles: V[], now: number) {
     const seen = new Set<string>();
-    for (const v of vehicles) {
-      seen.add(v.tripId);
-      const prev = this.anims.get(v.tripId);
-      const current = prev ? this.pointAt(prev, now) : [v.lng, v.lat] as [number, number];
-      this.anims.set(v.tripId, { from: current, to: [v.lng, v.lat], bearing: v.bearing, start: now, v });
+    for (const vehicle of vehicles) {
+      seen.add(vehicle.tripId);
+      const prev = this.anims.get(vehicle.tripId);
+      const current = prev ? this.pointAt(prev, now) : ([vehicle.lng, vehicle.lat] as [number, number]);
+      this.anims.set(vehicle.tripId, {
+        from: current,
+        to: [vehicle.lng, vehicle.lat],
+        bearing: vehicle.bearing,
+        start: now,
+        vehicle,
+      });
     }
-    for (const id of [...this.anims.keys()]) if (!seen.has(id)) this.anims.delete(id);
+    for (const id of [...this.anims.keys()]) {
+      if (!seen.has(id)) {
+        this.anims.delete(id);
+      }
+    }
     this.startLoop();
   }
 
-  private pointAt(a: Anim, now: number): [number, number] {
-    const t = Math.min(1, (now - a.start) / this.durationMs);
-    return [a.from[0] + (a.to[0] - a.from[0]) * t, a.from[1] + (a.to[1] - a.from[1]) * t];
+  private pointAt(anim: Anim, now: number): [number, number] {
+    const t = Math.min(1, (now - anim.start) / this.durationMs);
+    return [
+      anim.from[0] + (anim.to[0] - anim.from[0]) * t,
+      anim.from[1] + (anim.to[1] - anim.from[1]) * t,
+    ];
   }
 
   private startLoop() {
-    if (this.raf) return;
+    if (this.raf) {
+      return;
+    }
     const step = (now: number) => {
-      const src = this.map.getSource("vehicles") as GeoJSONSource | undefined;
-      if (src) {
-        const features = [...this.anims.values()].map((a) => {
-          const [lng, lat] = this.pointAt(a, now);
-          return { type: "Feature", properties: {
-            tripId: a.v.tripId, source: a.v.source, bearing: a.bearing,
-            headsign: a.v.headsign, nextStop: a.v.nextStop, delaySec: a.v.delaySec },
-            geometry: { type: "Point", coordinates: [lng, lat] } } as GeoJSON.Feature;
+      const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
+      if (source) {
+        const features = [...this.anims.values()].map((anim) => {
+          const [lng, lat] = this.pointAt(anim, now);
+          return {
+            type: "Feature",
+            properties: {
+              tripId: anim.vehicle.tripId,
+              source: anim.vehicle.source,
+              bearing: anim.bearing,
+              headsign: anim.vehicle.headsign,
+              nextStop: anim.vehicle.nextStop,
+              delaySec: anim.vehicle.delaySec,
+            },
+            geometry: { type: "Point", coordinates: [lng, lat] },
+          } as GeoJSON.Feature;
         });
-        src.setData(this.fc(features));
+        source.setData(this.featureCollection(features));
       }
       this.raf = requestAnimationFrame(step);
     };
     this.raf = requestAnimationFrame(step);
   }
 
-  destroy() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; this.anims.clear(); }
+  destroy() {
+    if (this.raf) {
+      cancelAnimationFrame(this.raf);
+    }
+    this.raf = 0;
+    this.anims.clear();
+  }
 }
 ```
 
-- [ ] **Step 2: `useVehicles`**
+- [ ] **Step 2: `useVehicles.ts`**
 
 ```ts
 import { useEffect } from "react";
@@ -1716,30 +2616,35 @@ import { VehicleLayer } from "./VehicleLayer";
 
 export function useVehicles(map: MlMap | null, lineId: string) {
   useEffect(() => {
-    if (!map) return;
+    if (!map) {
+      return;
+    }
     const layer = new VehicleLayer(map, VEHICLE_POLL_MS);
     let timer: number;
     const tick = async () => {
       try {
-        const res = await fetchVehicles(lineId);
-        layer.update(res.vehicles, performance.now());
-      } catch { /* on garde l'affichage courant */ }
+        const response = await fetchVehicles(lineId);
+        layer.update(response.vehicles, performance.now());
+      } catch {
+        // on conserve l'affichage courant
+      }
       timer = window.setTimeout(tick, VEHICLE_POLL_MS);
     };
     tick();
-    return () => { window.clearTimeout(timer); layer.destroy(); };
+    return () => {
+      window.clearTimeout(timer);
+      layer.destroy();
+    };
   }, [map, lineId]);
 }
 ```
 
-- [ ] **Step 3: brancher dans `App.tsx`**
-
-Ajouter `useVehicles(map.current, LINE_ID);` après `useLineShape(...)`.
+- [ ] **Step 3: brancher dans `App.tsx`** — ajouter `useVehicles(map.current, LINE_ID);` après `useLineShape(...)`.
 
 - [ ] **Step 4: vérifier visuellement**
 
 Run: backend + `npm run dev`.
-Expected: des points glissent le long de la ligne 9 ; rouges = position GPS réelle, orange semi-transparent = interpolé.
+Expected: des points glissent le long de la ligne 9 ; rouge = GPS réel, orange semi-transparent = interpolé.
 
 - [ ] **Step 5: commit**
 
@@ -1760,25 +2665,43 @@ Deliverable : cliquer un véhicule affiche destination, prochain arrêt, retard,
 
 **Interfaces:**
 - Consumes: événement `click` sur la couche `vehicles`.
-- Produces: `<VehiclePanel vehicle={...} onClose={...}/>`.
+- Produces: `<VehiclePanel vehicle={...} onClose={...} />`.
 
-- [ ] **Step 1: `VehiclePanel`**
+- [ ] **Step 1: `VehiclePanel.tsx`**
 
 ```tsx
 interface Props {
   vehicle: { headsign: string; nextStop: string; delaySec: number; source: string } | null;
   onClose: () => void;
 }
+
 export function VehiclePanel({ vehicle, onClose }: Props) {
-  if (!vehicle) return null;
-  const delay = Math.round(vehicle.delaySec / 60);
+  if (!vehicle) {
+    return null;
+  }
+  const delayMin = Math.round(vehicle.delaySec / 60);
   return (
-    <div style={{ position: "absolute", top: 12, right: 12, width: 260, padding: 16,
-      background: "#fff", borderRadius: 8, boxShadow: "0 2px 12px rgba(0,0,0,.2)", font: "14px sans-serif" }}>
-      <button onClick={onClose} style={{ float: "right", border: "none", background: "none", cursor: "pointer" }}>✕</button>
+    <div
+      style={{
+        position: "absolute",
+        top: 12,
+        right: 12,
+        width: 260,
+        padding: 16,
+        background: "#fff",
+        borderRadius: 8,
+        boxShadow: "0 2px 12px rgba(0,0,0,.2)",
+        font: "14px sans-serif",
+      }}
+    >
+      <button onClick={onClose} style={{ float: "right", border: "none", background: "none", cursor: "pointer" }}>
+        ✕
+      </button>
       <h3 style={{ margin: "0 0 8px" }}>→ {vehicle.headsign}</h3>
-      <p style={{ margin: "4px 0" }}>Prochain arrêt : <b>{vehicle.nextStop}</b></p>
-      <p style={{ margin: "4px 0" }}>Retard : {delay > 0 ? `+${delay} min` : "à l'heure"}</p>
+      <p style={{ margin: "4px 0" }}>
+        Prochain arrêt : <b>{vehicle.nextStop}</b>
+      </p>
+      <p style={{ margin: "4px 0" }}>Retard : {delayMin > 0 ? `+${delayMin} min` : "à l'heure"}</p>
       <p style={{ margin: "4px 0", color: "#666" }}>
         Position : {vehicle.source === "REALTIME" ? "GPS temps réel" : "estimée (horaire)"}
       </p>
@@ -1790,26 +2713,36 @@ export function VehiclePanel({ vehicle, onClose }: Props) {
 - [ ] **Step 2: gérer le clic dans `App.tsx`**
 
 ```tsx
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMap } from "./map/MapView";
 import { useLineShape } from "./map/useLineShape";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { LINE_ID } from "./api/config";
 
+type Selected = { headsign: string; nextStop: string; delaySec: number; source: string } | null;
+
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
-  const [selected, setSelected] = useState<any>(null);
+  const [selected, setSelected] = useState<Selected>(null);
   useLineShape(map.current, LINE_ID);
   useVehicles(map.current, LINE_ID);
 
   useEffect(() => {
-    const m = map.current; if (!m) return;
-    const onClick = (e: any) => { setSelected(e.features?.[0]?.properties ?? null); };
-    m.on("click", "vehicles", onClick);
-    return () => { m.off("click", "vehicles", onClick); };
-  }, [map.current]);
+    const instance = map.current;
+    if (!instance) {
+      return;
+    }
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const props = e.features?.[0]?.properties;
+      setSelected(props ? (props as Selected) : null);
+    };
+    instance.on("click", "vehicles", onClick);
+    return () => {
+      instance.off("click", "vehicles", onClick);
+    };
+  }, [map]);
 
   return (
     <>
@@ -1820,10 +2753,12 @@ export default function App() {
 }
 ```
 
+> `maplibregl` doit être importé pour le type de l'événement : ajouter `import maplibregl from "maplibre-gl";` en tête de `App.tsx`.
+
 - [ ] **Step 3: vérifier visuellement**
 
 Run: backend + `npm run dev`.
-Expected: clic sur un véhicule → panneau avec destination/prochain arrêt/retard/source.
+Expected: clic sur un véhicule → panneau destination/prochain arrêt/retard/source.
 
 - [ ] **Step 4: commit**
 
@@ -1834,34 +2769,29 @@ git commit -m "feat(frontend): panneau de détails véhicule au clic"
 
 ---
 
-### Task 14: Packaging & déploiement (Docker, front servi, monitoring)
+### Task 14: Packaging & déploiement (Docker full-stack, monitoring)
 
-Deliverable : `docker compose up` lance PostGIS + backend ; le front buildé est servi ; healthcheck OK.
+Deliverable : `docker compose up` lance PostGIS + backend + front ; healthcheck OK.
 
 **Files:**
-- Create: `backend/Dockerfile`
-- Create: `frontend/Dockerfile`
-- Create: `docker-compose.yml` (racine, full stack)
-- Create: `README.md` (racine)
-
-**Interfaces:**
-- Consumes: artefacts des tâches précédentes, `PRIM_API_KEY` d'environnement.
+- Create: `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`
+- Create: `docker-compose.yml` (racine), `README.md` (racine)
 
 - [ ] **Step 1: `backend/Dockerfile`**
 
 ```dockerfile
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /app
 COPY . .
 RUN ./mvnw -q -DskipTests package
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java","-jar","app.jar"]
+EXPOSE 8000 9000
+ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
-- [ ] **Step 2: `frontend/Dockerfile` (build statique servi par nginx, proxy /api)**
+- [ ] **Step 2: `frontend/Dockerfile` + `frontend/nginx.conf`**
 
 ```dockerfile
 FROM node:20 AS build
@@ -1876,14 +2806,20 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 ```
 
-Créer `frontend/nginx.conf` :
 ```nginx
 server {
   listen 80;
-  location /api/ { proxy_pass http://backend:8080; }
-  location / { root /usr/share/nginx/html; try_files $uri /index.html; }
+  location /api/ {
+    proxy_pass http://backend:8000;
+  }
+  location / {
+    root /usr/share/nginx/html;
+    try_files $uri /index.html;
+  }
 }
 ```
+
+> `context-path=/api` côté backend + `location /api/` côté nginx : les requêtes `/api/lines/...` arrivent bien sur le backend qui les sert sous `/api`.
 
 - [ ] **Step 3: `docker-compose.yml` racine**
 
@@ -1901,16 +2837,16 @@ services:
       SPRING_DATASOURCE_PASSWORD: mapidf
       PRIM_API_KEY: ${PRIM_API_KEY}
     depends_on: [db]
-    ports: ["8080:8080"]
+    ports: ["8000:8000", "9000:9000"]
   frontend:
     build: ./frontend
     depends_on: [backend]
-    ports: ["8081:80"]
+    ports: ["8080:80"]
 volumes:
   dbdata:
 ```
 
-- [ ] **Step 4: `README.md` (racine) — démarrage**
+- [ ] **Step 4: `README.md` racine**
 
 ```markdown
 # MapIDF — suivi temps réel de la ligne 9
@@ -1918,19 +2854,19 @@ volumes:
 ## Démarrage
 1. `export PRIM_API_KEY=<votre clé PRIM>`
 2. `docker compose up --build`
-3. Front : http://localhost:8081 — API : http://localhost:8080/api/lines/9/vehicles
-4. Santé backend : http://localhost:8080/actuator/health
+3. Front : http://localhost:8080 — API : http://localhost:8000/api/lines/9/vehicles
+4. Santé backend : http://localhost:9000/actuator/health
 
 ## Développement
-- Backend : `cd backend && ./mvnw spring-boot:run`
-- Front : `cd frontend && npm run dev` (proxy /api → :8080)
-- Tests backend : `cd backend && ./mvnw test`
+- Backend : `cd backend && ./mvnw spring-boot:run` (API :8000, Actuator :9000)
+- Front : `cd frontend && npm run dev` (proxy /api → :8000)
+- Tests : `cd backend && ./mvnw test`
 ```
 
 - [ ] **Step 5: vérifier le stack complet**
 
 Run: `export PRIM_API_KEY=... && docker compose up --build`
-Expected: `curl localhost:8080/actuator/health` → `{"status":"UP"}` ; front sur :8081 affiche la carte animée.
+Expected: `curl localhost:9000/actuator/health` → `{"status":"UP"}` ; front sur :8080 avec carte animée.
 
 - [ ] **Step 6: commit**
 
@@ -1943,6 +2879,9 @@ git commit -m "chore: packaging Docker full-stack + README"
 
 ## Notes de fin
 
-- **Fond de carte** : `demotiles.maplibre.org` est un fond de démonstration. Pour la prod, prévoir un fond vectoriel dédié (ex. clé MapTiler ou tuiles auto-hébergées) — ne change que le champ `style` de `MapView.tsx`.
-- **Fréquences de poll** : front 4 s (`VEHICLE_POLL_MS`), backend 10 s (`app.prim.poll-interval`) — à ajuster selon les quotas réels PRIM relevés en Task 2.
+- **Fond de carte** : `demotiles.maplibre.org` est un fond de démonstration. En prod, prévoir un fond vectoriel dédié (clé MapTiler ou tuiles auto-hébergées) — ne change que le champ `style` de `MapView.tsx`.
+- **Fréquences de poll** : front 4 s (`VEHICLE_POLL_MS`), backend `app.prim.poll-interval` (10 s) — à ajuster selon les quotas PRIM relevés en Task 2.
+- **`@Scheduled` vs multi-instance** : le poller `@Scheduled` tourne sur chaque instance. Pour un déploiement multi-instances, passer le poll sous **Quartz clusterisé** (déjà dans la boîte à outils Steamulo, cf. starter) pour qu'un seul nœud interroge IDFM. Hors périmètre MVP.
+- **Validation géométrie / `ddl-auto: validate`** : si Hibernate rejette la colonne `geometry(...)` au démarrage, vérifier que `hibernate-spatial` est au classpath (il l'est via le pom) ; le `columnDefinition` explicite sur les entités aligne la validation.
 - **Évolutions post-MVP** (spec §10) : multi-lignes, bascule SSE, historisation. L'archi PostGIS et le `PositionEngine` pur y sont prêts.
+```
