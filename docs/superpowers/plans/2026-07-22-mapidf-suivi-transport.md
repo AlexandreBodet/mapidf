@@ -104,6 +104,20 @@ Deliverable : l'app démarre sur PostGIS (Testcontainers en test), `/actuator/he
         <configuration><argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine></configuration>
       </plugin>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+          <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
+        </configuration>
+        <executions>
+          <execution>
+            <id>failsafe-integration-tests</id>
+            <phase>integration-test</phase>
+            <goals><goal>integration-test</goal><goal>verify</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.15</version>
         <executions>
           <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
