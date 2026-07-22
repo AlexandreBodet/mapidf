@@ -1,0 +1,43 @@
+server:
+  servlet:
+    context-path: /api
+  port: 8000
+management:
+  server:
+    port: 9000
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+spring:
+  threads:
+    virtual:
+      enabled: true
+  application:
+    name: MapIDF
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mapidf
+    username: mapidf
+    password: mapidf
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+app:
+  line:
+    gtfs-route-id: ""        # route_id GTFS ligne 9 (probable "IDFM:C01379"), renseigné en Task 2
+    siri-line-ref: "STIF:Line::C01379:"   # LineRef SIRI de la ligne 9 (confirmé en Task 2)
+    color: "#D5C900"
+  prim:
+    api-key: ${PRIM_API_KEY:}
+    auth-header: "apikey"
+    gtfs-static-url: ""      # dataset open data offre-horaires-tc-gtfs-idfm (renseigné en Task 2)
+    realtime-base-url: "https://prim.iledefrance-mobilites.fr/marketplace/requete-ligne"
+    poll-interval: PT10S
