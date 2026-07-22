@@ -8,8 +8,8 @@ Application web affichant les véhicules de transport en commun d'Île-de-France
 qui **se déplacent en quasi temps réel sur une carte interactive**.
 
 - **Effet visé** : voir les rames/véhicules glisser le long des lignes.
-- **MVP** : une seule ligne (métro L1 comme référence, mais l'identifiant de ligne
-  reste paramétrable).
+- **MVP** : une seule ligne — **métro ligne 9** (Pont de Sèvres ↔ Mairie de
+  Montreuil) comme référence, mais l'identifiant de ligne reste paramétrable.
 - **Finalité** : vrai produit destiné à être déployé. On pense donc cache,
   résilience, monitoring et coûts dès l'architecture — sans sur-ingénierie
   prématurée sur le périmètre MVP.
@@ -95,17 +95,17 @@ Clé PRIM et paramètres via configuration (variables d'environnement).
 ## 5. Contrat d'API (front ↔ backend)
 
 ```jsonc
-// GET /api/lines/1/shape        (une fois au chargement)
-{ "lineId":"1", "color":"#FFCD00",
-  "shape":[[2.29,48.87], ...],            // polyligne [lng,lat]
+// GET /api/lines/9/shape        (une fois au chargement)
+{ "lineId":"9", "color":"#D5C900",         // couleur issue du route_color GTFS
+  "shape":[[2.23,48.83], ...],            // polyligne [lng,lat]
   "stops":[{ "id":"...", "name":"...", "lat":48.87, "lng":2.30 }] }
 
-// GET /api/lines/1/vehicles     (toutes les ~4s)
+// GET /api/lines/9/vehicles     (toutes les ~4s)
 { "asOf":"2026-07-22T10:15:03Z",
   "vehicles":[
-    { "tripId":"...", "lat":48.87, "lng":2.30, "bearing":92,
-      "delaySec":45, "headsign":"Château de Vincennes",
-      "nextStop":"Bastille", "source":"INTERPOLATED" } ] }
+    { "tripId":"...", "lat":48.87, "lng":2.34, "bearing":92,
+      "delaySec":45, "headsign":"Mairie de Montreuil",
+      "nextStop":"République", "source":"INTERPOLATED" } ] }
 ```
 
 `source` (`REALTIME` / `INTERPOLATED`) → stylisation différenciée côté front
