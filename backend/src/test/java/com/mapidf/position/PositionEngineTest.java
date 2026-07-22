@@ -1,0 +1,105 @@
+package com.mapidf.position;
+
+import java.time.Instant;
+import java.util.List;
+
+import com.mapidf.rt.RtSnapshot;
+import com.mapidf.rt.RtSnapshot.LiveJourney;
+import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.PrecisionModel;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
+
+class PositionEngineTest {
+
+    private static final Instant NOW = Instant.parse("2026-07-22T08:05:00Z");
+    private static final int NOW_SOD = 8 * 3600 + 300; // 08:05:00
+
+    private final PositionEngine engine = new PositionEngine();
+
+    private static LineString line() {
+        GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
+        return gf.createLineString(new Coordinate[]{
+            new Coordinate(2.300, 48.850), new Coordinate(2.310, 48.850), new Coordinate(2.320, 48.850)});
+    }
+
+    // sens "Gamma" : Alpha(0) → Beta(0.010) → Gamma(0.020), départs 08:00 / 08:10 / 08:20
+    private static LineSchedule towardGamma() {
+        return new LineSchedule(List.of(new DirectionSchedule("Gamma", List.of(
+            new StopOnLine("1", "Alpha", 0.000, 8 * 3600),
+            new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+            new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200)))));
+    }
+
+    private static RtSnapshot rtWith(LiveJourney journey) {
+        return new RtSnapshot(NOW, List.of(journey));
+    }
+
+    @Test
+    void interpolatesTowardNextStopUsingEta() {
+        // prochain arrêt Beta, ETA dans 300 s, segment Alpha→Beta = 600 s → à mi-chemin (lng 2.305)
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+
+        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD);
+
+        assertThat(vehicles).hasSize(1);
+        Vehicle v = vehicles.getFirst();
+        assertThat(v.source()).isEqualTo(Vehicle.Source.INTERPOLATED);
+        assertThat(v.tripId()).isEqualTo("J1");
+        assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
+        assertThat(v.lat()).isCloseTo(48.850, within(1e-4));
+        assertThat(v.nextStop()).isEqualTo("Beta");
+        assertThat(v.headsign()).isEqualTo("Gamma");
+        assertThat(v.bearing()).isCloseTo(90.0, within(5.0));
+        assertThat(v.delaySec()).isEqualTo(0);
+    }
+
+    @Test
+    void clampsToNextStopWhenEtaAlreadyPassed() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.minusSeconds(100));
+
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.310, within(1e-3)); // arrivé à Beta
+    }
+
+    @Test
+    void placesAtOriginWhenNextStopIsFirst() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
+
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.300, within(1e-3));
+        assertThat(v.nextStop()).isEqualTo("Alpha");
+    }
+
+    @Test
+    void skipsJourneyWhenNextStopUnknown() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:999:", NOW.plusSeconds(30));
+
+        assertThat(engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD)).isEmpty();
+    }
+
+    @Test
+    void selectsDirectionByDestinationWhenStopSharedByBothSenses() {
+        // deux sens partagent l'arrêt "Beta" ; destination "Alpha" → sens retour (Gamma→Alpha)
+        LineSchedule schedule = new LineSchedule(List.of(
+            new DirectionSchedule("Gamma", List.of(
+                new StopOnLine("1", "Alpha", 0.000, 8 * 3600),
+                new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+                new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200))),
+            new DirectionSchedule("Alpha", List.of(
+                new StopOnLine("3", "Gamma", 0.020, 8 * 3600),
+                new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+                new StopOnLine("1", "Alpha", 0.000, 8 * 3600 + 1200)))));
+        LiveJourney j = new LiveJourney("J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+
+        Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.315, within(1e-3)); // entre Gamma(2.320) et Beta(2.310)
+        assertThat(v.bearing()).isCloseTo(270.0, within(5.0)); // cap vers l'ouest
+    }
+}
