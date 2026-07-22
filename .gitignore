@@ -1,5 +1,10 @@
 node_modules/
 target/
 dist/
-.env
 *.log
+.idea/
+
+# Secrets — jamais commités
+.env
+.env.*
+!.env.example
