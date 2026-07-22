@@ -151,7 +151,7 @@ services:
     image: postgis/postgis:18-3.6
     environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
     ports: ["5432:5432"]
-    volumes: ["dbdata:/var/lib/postgresql/data"]
+    volumes: ["dbdata:/var/lib/postgresql"]
 volumes:
   dbdata:
 ```
@@ -2960,7 +2960,7 @@ services:
   db:
     image: postgis/postgis:18-3.6
     environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
-    volumes: ["dbdata:/var/lib/postgresql/data"]
+    volumes: ["dbdata:/var/lib/postgresql"]
   backend:
     build: ./backend
     environment:
