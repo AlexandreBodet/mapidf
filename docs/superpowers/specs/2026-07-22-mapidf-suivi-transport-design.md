@@ -19,19 +19,24 @@ qui **se déplacent en quasi temps réel sur une carte interactive**.
 Source : plateforme open data **PRIM** d'Île-de-France Mobilités
 (`prim.iledefrance-mobilites.fr`). Nécessite une **clé API**.
 
-Formats utilisés :
-- **GTFS statique** : lignes, arrêts, tracés (`shapes`), trips, `stop_times`
-  (offre théorique). Rafraîchi rarement (ex. 1×/jour).
-- **GTFS-RT** (protobuf) : temps réel — `TripUpdates` (retards),
-  `VehiclePositions` (GPS réel), `ServiceAlerts` (perturbations).
+Formats utilisés (endpoints vérifiés le 2026-07-22, cf.
+`backend/docs/prim-integration.md`) :
+- **GTFS statique** (open data, sans clé) : lignes, arrêts, tracés (`shapes`),
+  trips, `stop_times` (offre théorique). Rafraîchi rarement (ex. 1×/jour).
+- **SIRI Lite — `estimated-timetable` / `requete-ligne`** (JSON, en-tête `apikey`) :
+  temps réel par ligne. Endpoint retenu :
+  `GET /marketplace/requete-ligne?LineRef=STIF:Line::C01379:` (ligne 9 = `C01379`).
 
-**Contrainte clé** : la couverture des positions GPS réelles (`VehiclePositions`)
-est **partielle selon les modes** — plutôt fournie pour les bus et une partie du
-Transilien, clairsemée pour métro/tram/RER. Le produit doit donc fonctionner en
-deux modes par véhicule :
-- `REALTIME` : position issue du GPS, projetée (snap) sur le tracé.
-- `INTERPOLATED` : position calculée à partir de l'horaire théorique + retard
-  temps réel, le long du tracé.
+**Contrainte clé — la donnée temps réel d'IDFM est en SIRI, pas en GTFS-RT, et
+elle est parcimonieuse.** Pour la ligne 9, la réponse liste ~60 courses
+(`EstimatedVehicleJourney`), mais **chaque course ne fournit que son PROCHAIN arrêt**
+(`EstimatedCall` unique : `StopPointRef`, `ExpectedDepartureTime`, destination,
+`DepartureStatus`). Il n'y a **pas** de position GPS de véhicule ni de séquence
+horaire complète. Le produit calcule donc une **position estimée unique** par
+course (`source = INTERPOLATED`), à partir de : prochain arrêt + ETA temps réel +
+géométrie & horaires théoriques GTFS. Un mode `REALTIME` (GPS snappé) reste prévu
+dans le modèle pour une source future qui exposerait des positions, mais n'est pas
+alimenté au MVP.
 
 ## 3. Architecture générale
 
@@ -39,7 +44,7 @@ deux modes par véhicule :
 ┌─────────────┐   poll ~4s    ┌──────────────────┐   poll 5-20s   ┌──────────┐
 │   React      │ ────────────> │  Spring Boot      │ ─────────────> │   IDFM    │
 │  + MapLibre  │ <──────────── │  (proxy + moteur) │ <───────────── │   PRIM    │
-│  (tween RAF) │  positions    │  + PostgreSQL/    │  GTFS-RT/GTFS  │           │
+│  (tween RAF) │  positions    │  + PostgreSQL/    │  SIRI-ET/GTFS  │           │
 └─────────────┘   JSON        │   PostGIS         │                └──────────┘
                                └──────────────────┘
 ```
@@ -69,20 +74,22 @@ charge en base PostGIS.
 Le tracé de la ligne active est aussi mis en cache mémoire pour le calcul chaud.
 
 ### `RealtimePoller`
-`@Scheduled` : poll le flux GTFS-RT protobuf (parsing via
-`org.mobilitydata`/protobuf GTFS-RT). Conserve le dernier snapshot temps réel en
-mémoire, thread-safe (`AtomicReference` sur une structure immuable) :
-`TripUpdates` (retards par trip), `VehiclePositions`, `ServiceAlerts`.
+`@Scheduled` : poll le flux **SIRI-ET JSON** (`requete-ligne`), parsing via Jackson.
+Conserve le dernier snapshot temps réel en mémoire, thread-safe (`AtomicReference`
+sur une structure immuable). Extrait par course : `journeyRef`, `directionRef`,
+`destination`, **prochain arrêt** (`StopPointRef`) et **ETA** (`ExpectedDepartureTime`).
 
 ### `PositionEngine`
 Cœur du système. Fonction **pure et déterministe** :
-`(GTFS ligne, snapshot temps réel, instant t) → liste de véhicules positionnés`.
-Pour chaque trip actif à l'instant `t` sur la ligne :
-- Si GPS réel dispo → `ST_LineLocatePoint` pour snapper sur le tracé →
-  position + `source = REALTIME`.
-- Sinon → interpolation : `t` + retard → segment entre 2 arrêts → fraction
-  parcourue → `ST_LineInterpolatePoint` → position + cap ; `source = INTERPOLATED`.
-Déterminisme volontaire (instant `t` injecté) pour testabilité unitaire.
+`(tracé ligne, horaires par sens, snapshot temps réel, instant t) → véhicules positionnés`.
+Pour chaque course live (prochain arrêt + ETA + destination) :
+- Choisir le **sens** (via la destination/terminus), y localiser le prochain arrêt
+  et son **arrêt précédent** dans la séquence GTFS.
+- **Interpolation par ETA** : `fraction = 1 − (ETA − t) / durée_théorique_segment`,
+  bornée à `[0,1]` ; position = point du tracé (JTS `LengthIndexedLine`) à cette
+  fraction entre l'arrêt précédent et le prochain ; cap = direction précédent→prochain.
+- `source = INTERPOLATED` ; `delaySec` estimé = `ETA − horaire_théorique` de l'arrêt.
+Déterminisme volontaire (instant `t` injecté) pour testabilité unitaire, sans DB.
 
 ### `VehicleController`
 - `GET /api/lines/{id}/shape` — tracé (polyligne) + arrêts. Appelé une fois au
@@ -108,8 +115,9 @@ Clé PRIM et paramètres via configuration (variables d'environnement).
       "nextStop":"République", "source":"INTERPOLATED" } ] }
 ```
 
-`source` (`REALTIME` / `INTERPOLATED`) → stylisation différenciée côté front
-(ex. véhicule interpolé légèrement transparent).
+`source` (`REALTIME` / `INTERPOLATED`) → stylisation différenciée côté front. Au
+MVP toutes les positions sont `INTERPOLATED` (calculées depuis l'ETA SIRI) ; le
+champ reste pour distinguer une future source GPS. `tripId` = `journeyRef` SIRI.
 
 ## 6. Frontend React + MapLibre
 
@@ -139,9 +147,10 @@ Build front via Vite ; sortie statique.
 
 ## 8. Stratégie de test
 
-- `PositionEngine` pur/déterministe → tests unitaires couvrant : interpolation
-  entre arrêts, snap GPS, gestion des retards, trip inactif, absence de temps réel.
-- `RealtimePoller` : parsing GTFS-RT mocké (fixtures protobuf).
+- `PositionEngine` pur/déterministe → tests unitaires couvrant : interpolation par
+  ETA (fraction bornée), choix du sens via destination, arrêt introuvable, ETA
+  dépassée, course sans arrêt précédent (départ terminus).
+- `RealtimePoller` : parsing d'une **fixture SIRI-ET JSON** (extrait réel de la ligne 9).
 - Tests d'intégration : endpoints REST + accès PostGIS (Testcontainers).
 
 ## 9. Hors périmètre (YAGNI pour le MVP)

@@ -4,9 +4,11 @@
 
 **Goal:** Afficher les véhicules de la ligne 9 du métro parisien se déplaçant en quasi temps réel sur une carte interactive.
 
-**Architecture:** Backend Spring Boot qui poll les flux IDFM/PRIM (GTFS statique + GTFS-RT), stocke le réseau en PostGIS (types géométriques JTS mappés par Hibernate Spatial), et calcule les positions des véhicules (GPS réel projeté sur le tracé, ou interpolation horaire quand le GPS manque). Le front React+MapLibre poll un snapshot toutes les ~4 s et anime les marqueurs par tween `requestAnimationFrame` le long du tracé connu localement.
+**Architecture:** Backend Spring Boot qui poll le temps réel IDFM/PRIM (GTFS statique open data + SIRI-ET `requete-ligne`), stocke le réseau en PostGIS (types géométriques JTS mappés par Hibernate Spatial), et calcule une position estimée par course (prochain arrêt + ETA SIRI interpolés sur le tracé via les horaires GTFS). Le front React+MapLibre poll un snapshot toutes les ~4 s et anime les marqueurs par tween `requestAnimationFrame` le long du tracé connu localement.
 
-**Tech Stack:** Java 25, Spring Boot 4.1.0, PostgreSQL 16 + PostGIS 3.4, Flyway, Hibernate Spatial + JTS, Lombok, `org.mobilitydata:gtfs-realtime-bindings`, Apache Commons CSV, Testcontainers ; React 18 + Vite + TypeScript, MapLibre GL JS.
+**Tech Stack:** Java 25, Spring Boot 4.1.0, PostgreSQL 16 + PostGIS 3.4, Flyway, Hibernate Spatial + JTS, Lombok, **SIRI-ET JSON parsé via Jackson** (fourni par `spring-boot-starter-web`), Apache Commons CSV, Testcontainers ; React 18 + Vite + TypeScript, MapLibre GL JS.
+
+> **Note source temps réel (vérifiée en Task 2, cf. `backend/docs/prim-integration.md`)** : IDFM n'expose pas de GTFS-RT « clé en main ». Le temps réel est en **SIRI Lite** via `GET /marketplace/requete-ligne?LineRef=STIF:Line::C01379:` (ligne 9 = `C01379`, en-tête `apikey`). Chaque course (`EstimatedVehicleJourney`) ne donne que son **prochain arrêt** + `ExpectedDepartureTime` + destination. La position est donc **estimée** (jamais un GPS brut) par interpolation ETA + géométrie/horaires GTFS.
 
 ## Global Constraints
 
@@ -80,7 +82,6 @@ Deliverable : l'app démarre sur PostGIS (Testcontainers en test), `/actuator/he
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
     <dependency><groupId>org.hibernate.orm</groupId><artifactId>hibernate-spatial</artifactId></dependency>
     <dependency><groupId>org.locationtech.jts</groupId><artifactId>jts-core</artifactId></dependency>
-    <dependency><groupId>org.mobilitydata</groupId><artifactId>gtfs-realtime-bindings</artifactId><version>0.0.8</version></dependency>
     <dependency><groupId>org.apache.commons</groupId><artifactId>commons-csv</artifactId><version>1.11.0</version></dependency>
     <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
 
@@ -179,27 +180,29 @@ spring:
     locations: classpath:db/migration
 app:
   line:
-    gtfs-route-id: ""        # route_id réel de la ligne 9 (renseigné en Task 2)
+    gtfs-route-id: ""        # route_id GTFS ligne 9 (probable "IDFM:C01379"), renseigné en Task 2
+    siri-line-ref: "STIF:Line::C01379:"   # LineRef SIRI de la ligne 9 (confirmé en Task 2)
     color: "#D5C900"
   prim:
     api-key: ${PRIM_API_KEY:}
     auth-header: "apikey"
-    gtfs-static-url: ""      # renseigné en Task 2
-    vehicle-positions-url: ""
-    trip-updates-url: ""
+    gtfs-static-url: ""      # dataset open data offre-horaires-tc-gtfs-idfm (renseigné en Task 2)
+    realtime-base-url: "https://prim.iledefrance-mobilites.fr/marketplace/requete-ligne"
     poll-interval: PT10S
 ```
 
-`application-test.yml` (le datasource est fourni par Testcontainers `@ServiceConnection`, les URLs PRIM restent vides → poller/refresh no-op) :
+`application-test.yml` (le datasource est fourni par Testcontainers `@ServiceConnection` ; `realtime-base-url` vide → poller no-op, `gtfs-static-url` vide → refresh no-op) :
 ```yaml
 spring:
   jpa:
     hibernate:
       ddl-auto: validate
 app:
+  prim:
+    realtime-base-url: ""
   line:
     gtfs-route-id: "TEST9"
-```
+    siri-line-ref: "STIF:Line::C01379:"
 
 - [ ] **Step 5: classe d'application**
 
@@ -428,28 +431,24 @@ Deliverable : URLs/en-tête/`route_id` réels vérifiés et typés dans des `@Co
 - Modify: `backend/src/main/resources/application.yml`
 
 **Interfaces:**
-- Produces: `PrimProperties(apiKey, authHeader, gtfsStaticUrl, vehiclePositionsUrl, tripUpdatesUrl, pollInterval)` ; `LineProperties(gtfsRouteId, color)`. Consommés par Tasks 4/6/8.
+- Produces: `PrimProperties(apiKey, authHeader, gtfsStaticUrl, realtimeBaseUrl, pollInterval)` ; `LineProperties(gtfsRouteId, siriLineRef, color)`. Consommés par Tasks 4/6/8.
 
-- [ ] **Step 1: créer une clé PRIM** sur `https://prim.iledefrance-mobilites.fr` (compte + jeton). `export PRIM_API_KEY=...` (jamais dans le repo).
+> **⚠️ Spike déjà réalisé** (2026-07-22) : clé PRIM créée et stockée dans `.env`,
+> endpoints vérifiés au `curl`, valeurs consignées dans
+> `backend/docs/prim-integration.md` (déjà commité). Il ne reste ici qu'à créer les
+> deux records de config et reporter les valeurs dans `application.yml`.
 
-- [ ] **Step 2: vérifier au `curl` et documenter dans `backend/docs/prim-integration.md`**
+- [ ] **Step 1 (fait) : clé PRIM** dans `.env` (`PRIM_API_KEY`). En-tête d'auth confirmé : **`apikey`**.
 
-Renseigner ces valeurs vérifiées (remplacer les `<...>` par ce que retourne le catalogue PRIM) :
+- [ ] **Step 2 (fait) : valeurs vérifiées** — cf. `backend/docs/prim-integration.md` :
+  - Ligne 9 = `C01379` → `siri-line-ref: STIF:Line::C01379:`
+  - Temps réel : `GET /marketplace/requete-ligne?LineRef=...` (SIRI-ET JSON, 200 OK)
+  - Reste à relever : URL du zip GTFS statique open data (`offre-horaires-tc-gtfs-idfm`)
+    et le `route_id` GTFS de la ligne 9 (probable `IDFM:C01379`).
 
-```markdown
-# Intégration PRIM — valeurs vérifiées le <date>
-
-- En-tête d'auth : `apikey: $PRIM_API_KEY`  (confirmer le nom exact)
-- GTFS statique (zip) : <url>
-- GTFS-RT VehiclePositions : <url>
-- GTFS-RT TripUpdates : <url>
-- route_id GTFS de la ligne 9 (relevé dans routes.txt) : <route_id>
-- Quota d'appels observé : <req/s ou req/j>
-```
-
-Vérifier chaque URL, ex. :
-`curl -H "apikey: $PRIM_API_KEY" -o /tmp/rt.pb "<url VehiclePositions>" && ls -l /tmp/rt.pb`
-Expected : fichier non vide.
+Vérif type (déjà passée) :
+`curl -H "apikey: $PRIM_API_KEY" "https://prim.iledefrance-mobilites.fr/marketplace/requete-ligne?LineRef=STIF:Line::C01379:" | head -c 200`
+Expected : JSON SIRI (`{"Siri":{"ServiceDelivery":...`).
 
 - [ ] **Step 3: `PrimProperties` + `LineProperties`**
 
@@ -465,8 +464,7 @@ public record PrimProperties(
     String apiKey,
     String authHeader,
     String gtfsStaticUrl,
-    String vehiclePositionsUrl,
-    String tripUpdatesUrl,
+    String realtimeBaseUrl,
     Duration pollInterval
 ) {
 }
@@ -480,6 +478,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.line")
 public record LineProperties(
     String gtfsRouteId,
+    String siriLineRef,
     String color
 ) {
 }
@@ -1376,9 +1375,9 @@ git commit -m "feat(backend): endpoint GET /api/lines/{id}/shape"
 
 ---
 
-### Task 6: Poller GTFS-RT (snapshot temps réel en mémoire)
+### Task 6: Poller SIRI-ET (snapshot temps réel en mémoire)
 
-Deliverable : `RealtimePoller` parse les feeds protobuf et expose un snapshot immuable thread-safe.
+Deliverable : `RealtimePoller` récupère `requete-ligne` (SIRI-ET JSON), le parse via Jackson, et expose un snapshot immuable thread-safe des courses live.
 
 **Files:**
 - Create: `backend/src/main/java/com/mapidf/rt/RtSnapshot.java`
@@ -1387,32 +1386,42 @@ Deliverable : `RealtimePoller` parse les feeds protobuf et expose un snapshot im
 - Create: `backend/src/test/java/com/mapidf/rt/RtFixtures.java`
 
 **Interfaces:**
-- Consumes: `PrimProperties`.
-- Produces: `RtSnapshot(Instant asOf, Map<String,VehiclePos> positions, Map<String,Integer> delaysByTrip)`, `RtSnapshot.VehiclePos(String tripId, double lat, double lng, Float bearing)`, `RtSnapshot.empty()`. `RealtimePoller.current()` (jamais null), `RealtimePoller.parse(byte[] vp, byte[] tu, Instant)`.
+- Consumes: `PrimProperties`, `LineProperties`, `ObjectMapper` (bean Spring).
+- Produces: `RtSnapshot(Instant asOf, List<LiveJourney> journeys)`, `RtSnapshot.LiveJourney(String journeyRef, String directionRef, String destination, String nextStopRef, Instant expectedTime)`, `RtSnapshot.empty()`. `RealtimePoller.current()` (jamais null), `RealtimePoller.parse(ObjectMapper mapper, byte[] json, Instant asOf)`.
 
-- [ ] **Step 1: helper de fixtures protobuf (test)**
+- [ ] **Step 1: fixture SIRI-ET JSON (test)** — extrait minimal fidèle à la réponse réelle de la ligne 9
 
 ```java
 package com.mapidf.rt;
 
-import com.google.transit.realtime.GtfsRealtime.FeedHeader;
-import com.google.transit.realtime.GtfsRealtime.FeedMessage;
+import java.nio.charset.StandardCharsets;
 
 final class RtFixtures {
 
     private RtFixtures() {
     }
 
-    static byte[] vehiclePositionsForT1() {
-        FeedMessage.Builder feed = FeedMessage.newBuilder();
-        feed.getHeaderBuilder()
-            .setGtfsRealtimeVersion("2.0")
-            .setIncrementality(FeedHeader.Incrementality.FULL_DATASET)
-            .setTimestamp(1_600_000_000L);
-        var vehicle = feed.addEntityBuilder().setId("v1").getVehicleBuilder();
-        vehicle.getTripBuilder().setTripId("T1");
-        vehicle.getPositionBuilder().setLatitude(48.850f).setLongitude(2.305f).setBearing(90f);
-        return feed.build().toByteArray();
+    // Une course : prochain arrêt "STIF:StopPoint:Q:2:", ETA 14:05:00Z, destination "Gamma", direction "0"
+    static byte[] siriLineNineSample() {
+        String json = """
+            {"Siri":{"ServiceDelivery":{"ResponseTimestamp":"2026-07-22T14:00:00.000Z",
+              "EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+                "EstimatedVehicleJourney":[{
+                  "LineRef":{"value":"STIF:Line::C01379:"},
+                  "DirectionRef":{"value":"0"},
+                  "DatedVehicleJourneyRef":{"value":"J1"},
+                  "DestinationName":[{"value":"Gamma"}],
+                  "EstimatedCalls":{"EstimatedCall":[{
+                    "StopPointRef":{"value":"STIF:StopPoint:Q:2:"},
+                    "ExpectedDepartureTime":"2026-07-22T14:05:00.000Z",
+                    "DestinationDisplay":[{"value":"Gamma"}],
+                    "DepartureStatus":"ON_TIME"
+                  }]}
+                }]
+              }]}]
+            }}}
+            """;
+        return json.getBytes(StandardCharsets.UTF_8);
     }
 }
 ```
@@ -1424,20 +1433,24 @@ package com.mapidf.rt;
 
 import java.time.Instant;
 
-import org.assertj.core.data.Offset;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RealtimePollerParseTest {
 
     @Test
-    void parsesVehiclePositions() throws Exception {
+    void parsesEstimatedTimetable() throws Exception {
         RtSnapshot snapshot = RealtimePoller.parse(
-            RtFixtures.vehiclePositionsForT1(), new byte[0], Instant.ofEpochSecond(1_600_000_000L));
+            new ObjectMapper(), RtFixtures.siriLineNineSample(), Instant.parse("2026-07-22T14:00:00Z"));
 
-        assertThat(snapshot.positions()).containsKey("T1");
-        assertThat(snapshot.positions().get("T1").lat()).isEqualTo(48.850, Offset.offset(1e-4));
-        assertThat(snapshot.positions().get("T1").bearing()).isEqualTo(90f);
+        assertThat(snapshot.journeys()).hasSize(1);
+        RtSnapshot.LiveJourney journey = snapshot.journeys().getFirst();
+        assertThat(journey.journeyRef()).isEqualTo("J1");
+        assertThat(journey.directionRef()).isEqualTo("0");
+        assertThat(journey.destination()).isEqualTo("Gamma");
+        assertThat(journey.nextStopRef()).isEqualTo("STIF:StopPoint:Q:2:");
+        assertThat(journey.expectedTime()).isEqualTo(Instant.parse("2026-07-22T14:05:00Z"));
     }
 }
 ```
@@ -1451,15 +1464,16 @@ Expected: FAIL.
 package com.mapidf.rt;
 
 import java.time.Instant;
-import java.util.Map;
+import java.util.List;
 
-public record RtSnapshot(Instant asOf, Map<String, VehiclePos> positions, Map<String, Integer> delaysByTrip) {
+public record RtSnapshot(Instant asOf, List<LiveJourney> journeys) {
 
-    public record VehiclePos(String tripId, double lat, double lng, Float bearing) {
+    public record LiveJourney(String journeyRef, String directionRef, String destination,
+                              String nextStopRef, Instant expectedTime) {
     }
 
     public static RtSnapshot empty() {
-        return new RtSnapshot(Instant.EPOCH, Map.of(), Map.of());
+        return new RtSnapshot(Instant.EPOCH, List.of());
     }
 }
 ```
@@ -1468,19 +1482,19 @@ public record RtSnapshot(Instant asOf, Map<String, VehiclePos> positions, Map<St
 package com.mapidf.rt;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.transit.realtime.GtfsRealtime.FeedEntity;
-import com.google.transit.realtime.GtfsRealtime.FeedMessage;
-import com.google.transit.realtime.GtfsRealtime.Position;
-import com.google.transit.realtime.GtfsRealtime.TripUpdate;
-import com.google.transit.realtime.GtfsRealtime.VehiclePosition;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -1496,24 +1510,25 @@ public class RealtimePoller {
     }
 
     private final PrimProperties prim;
+    private final LineProperties line;
+    private final ObjectMapper objectMapper;
     private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
-    public RealtimePoller(PrimProperties prim) {
+    public RealtimePoller(PrimProperties prim, LineProperties line, ObjectMapper objectMapper) {
         this.prim = prim;
+        this.line = line;
+        this.objectMapper = objectMapper;
     }
 
     public RtSnapshot current() {
         return snapshot.get();
     }
 
-    void setSnapshot(RtSnapshot value) {
-        snapshot.set(value);
-    }
-
     @Scheduled(fixedRateString = "${app.prim.poll-interval}")
     public void poll() {
-        if (prim.vehiclePositionsUrl() == null || prim.vehiclePositionsUrl().isBlank()) {
+        if (prim.realtimeBaseUrl() == null || prim.realtimeBaseUrl().isBlank()
+            || line.siriLineRef() == null || line.siriLineRef().isBlank()) {
             return;
         }
         pollOnce(this::fetch, Instant.now());
@@ -1521,9 +1536,9 @@ public class RealtimePoller {
 
     void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
-            byte[] vehiclePositions = fetcher.get(prim.vehiclePositionsUrl());
-            byte[] tripUpdates = fetcher.get(prim.tripUpdatesUrl());
-            snapshot.set(parse(vehiclePositions, tripUpdates, asOf));
+            String url = prim.realtimeBaseUrl()
+                + "?LineRef=" + URLEncoder.encode(line.siriLineRef(), StandardCharsets.UTF_8);
+            snapshot.set(parse(objectMapper, fetcher.get(url), asOf));
         } catch (Exception e) {
             log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
         }
@@ -1537,42 +1552,40 @@ public class RealtimePoller {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray()).body();
     }
 
-    static RtSnapshot parse(byte[] vehicleBytes, byte[] tripUpdateBytes, Instant asOf) throws Exception {
-        Map<String, RtSnapshot.VehiclePos> positions = new HashMap<>();
-        if (vehicleBytes.length > 0) {
-            for (FeedEntity entity : FeedMessage.parseFrom(vehicleBytes).getEntityList()) {
-                if (!entity.hasVehicle()) {
-                    continue;
-                }
-                VehiclePosition vehicle = entity.getVehicle();
-                if (!vehicle.hasTrip() || !vehicle.hasPosition()) {
-                    continue;
-                }
-                String tripId = vehicle.getTrip().getTripId();
-                Position position = vehicle.getPosition();
-                Float bearing = position.hasBearing() ? position.getBearing() : null;
-                positions.put(tripId, new RtSnapshot.VehiclePos(
-                    tripId, position.getLatitude(), position.getLongitude(), bearing));
-            }
+    static RtSnapshot parse(ObjectMapper mapper, byte[] json, Instant asOf) throws Exception {
+        if (json == null || json.length == 0) {
+            return new RtSnapshot(asOf, List.of());
         }
+        JsonNode journeysNode = mapper.readTree(json)
+            .path("Siri").path("ServiceDelivery")
+            .path("EstimatedTimetableDelivery").path(0)
+            .path("EstimatedJourneyVersionFrame").path(0)
+            .path("EstimatedVehicleJourney");
 
-        Map<String, Integer> delays = new HashMap<>();
-        if (tripUpdateBytes.length > 0) {
-            for (FeedEntity entity : FeedMessage.parseFrom(tripUpdateBytes).getEntityList()) {
-                if (!entity.hasTripUpdate()) {
-                    continue;
-                }
-                TripUpdate tripUpdate = entity.getTripUpdate();
-                int delay = tripUpdate.getStopTimeUpdateList().stream()
-                    .filter(TripUpdate.StopTimeUpdate::hasArrival)
-                    .mapToInt(s -> s.getArrival().getDelay())
-                    .findFirst()
-                    .orElse(tripUpdate.hasDelay() ? tripUpdate.getDelay() : 0);
-                delays.put(tripUpdate.getTrip().getTripId(), delay);
+        List<RtSnapshot.LiveJourney> journeys = new ArrayList<>();
+        for (JsonNode journey : journeysNode) {
+            JsonNode calls = journey.path("EstimatedCalls").path("EstimatedCall");
+            JsonNode call = calls.isArray() ? calls.path(0) : calls;
+            String stopRef = call.path("StopPointRef").path("value").asText(null);
+            String eta = call.path("ExpectedDepartureTime")
+                .asText(call.path("ExpectedArrivalTime").asText(null));
+            if (stopRef == null || eta == null) {
+                continue;
             }
+            String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asText(stopRef);
+            String directionRef = journey.path("DirectionRef").path("value").asText("");
+            String destination = firstValue(journey.path("DestinationName"));
+            journeys.add(new RtSnapshot.LiveJourney(
+                journeyRef, directionRef, destination, stopRef, Instant.parse(eta)));
         }
+        return new RtSnapshot(asOf, journeys);
+    }
 
-        return new RtSnapshot(asOf, positions, delays);
+    private static String firstValue(JsonNode node) {
+        if (node.isArray() && !node.isEmpty()) {
+            return node.get(0).path("value").asText("");
+        }
+        return node.path("value").asText("");
     }
 }
 ```
@@ -1582,17 +1595,19 @@ public class RealtimePoller {
 Run: `cd backend && ./mvnw test -Dtest=RealtimePollerParseTest` → PASS
 ```bash
 git add backend/src/main/java/com/mapidf/rt backend/src/test/java/com/mapidf/rt
-git commit -m "feat(backend): poller GTFS-RT + snapshot temps réel thread-safe"
+git commit -m "feat(backend): poller SIRI-ET JSON + snapshot temps réel thread-safe"
 ```
 
 ---
 
 ### Task 7: `PositionEngine` — calcul pur des positions (cœur, sans DB)
 
-Deliverable : fonction déterministe produisant les positions à un instant `t`.
+Deliverable : fonction déterministe qui, pour chaque course live (prochain arrêt + ETA), calcule une position estimée le long du tracé.
 
 **Files:**
-- Create: `backend/src/main/java/com/mapidf/position/TripSchedule.java`
+- Create: `backend/src/main/java/com/mapidf/position/StopOnLine.java`
+- Create: `backend/src/main/java/com/mapidf/position/DirectionSchedule.java`
+- Create: `backend/src/main/java/com/mapidf/position/LineSchedule.java`
 - Create: `backend/src/main/java/com/mapidf/position/Vehicle.java`
 - Create: `backend/src/main/java/com/mapidf/position/PositionEngine.java`
 - Create: `backend/src/test/java/com/mapidf/position/PositionEngineTest.java`
@@ -1600,21 +1615,37 @@ Deliverable : fonction déterministe produisant les positions à un instant `t`.
 **Interfaces:**
 - Consumes: `LineString` (Task 4), `RtSnapshot` (Task 6).
 - Produces:
-  - `record TripSchedule(String tripId, String headsign, List<StopPassage> passages)` ; `record StopPassage(String stopName, int departureSec, double distanceAlongLine)`.
+  - `record StopOnLine(String stopKey, String stopName, double distanceAlongLine, int scheduledSec)` — `stopKey` = identifiant normalisé (chiffres uniquement) commun SIRI/GTFS.
+  - `record DirectionSchedule(String terminusName, List<StopOnLine> stops)` — arrêts ordonnés dans le sens.
+  - `record LineSchedule(List<DirectionSchedule> directions)`.
   - `record Vehicle(String tripId, double lat, double lng, double bearing, int delaySec, String headsign, String nextStop, Source source)` ; `enum Source { REALTIME, INTERPOLATED }`.
-  - `PositionEngine.computeAll(LineString line, List<TripSchedule> trips, RtSnapshot rt, int nowSecOfDay)` → `List<Vehicle>`.
+  - `PositionEngine.computeAll(LineString line, LineSchedule schedule, RtSnapshot rt, Instant now, int nowSecOfDay)` → `List<Vehicle>`.
+  - `PositionEngine.stopKey(String rawRef)` (static) — normalise `STIF:StopPoint:Q:463221:` → `463221`.
 
 - [ ] **Step 1: records**
 
 ```java
 package com.mapidf.position;
 
+public record StopOnLine(String stopKey, String stopName, double distanceAlongLine, int scheduledSec) {
+}
+```
+
+```java
+package com.mapidf.position;
+
 import java.util.List;
 
-public record TripSchedule(String tripId, String headsign, List<StopPassage> passages) {
+public record DirectionSchedule(String terminusName, List<StopOnLine> stops) {
+}
+```
 
-    public record StopPassage(String stopName, int departureSec, double distanceAlongLine) {
-    }
+```java
+package com.mapidf.position;
+
+import java.util.List;
+
+public record LineSchedule(List<DirectionSchedule> directions) {
 }
 ```
 
@@ -1630,17 +1661,16 @@ public record Vehicle(String tripId, double lat, double lng, double bearing,
 }
 ```
 
-- [ ] **Step 2: tests qui échouent** (interpolation, hors service, retard, snap GPS)
+- [ ] **Step 2: tests qui échouent** (interpolation ETA, ETA dépassée, départ terminus, arrêt inconnu, choix du sens)
 
 ```java
 package com.mapidf.position;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
-import com.mapidf.position.TripSchedule.StopPassage;
 import com.mapidf.rt.RtSnapshot;
+import com.mapidf.rt.RtSnapshot.LiveJourney;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -1651,6 +1681,9 @@ import static org.assertj.core.api.Assertions.within;
 
 class PositionEngineTest {
 
+    private static final Instant NOW = Instant.parse("2026-07-22T08:05:00Z");
+    private static final int NOW_SOD = 8 * 3600 + 300; // 08:05:00
+
     private final PositionEngine engine = new PositionEngine();
 
     private static LineString line() {
@@ -1659,52 +1692,81 @@ class PositionEngineTest {
             new Coordinate(2.300, 48.850), new Coordinate(2.310, 48.850), new Coordinate(2.320, 48.850)});
     }
 
-    private static TripSchedule trip() {
-        return new TripSchedule("T1", "Gamma", List.of(
-            new StopPassage("Alpha", 8 * 3600, 0.000),
-            new StopPassage("Beta", 8 * 3600 + 600, 0.010),
-            new StopPassage("Gamma", 8 * 3600 + 1200, 0.020)));
+    // sens "Gamma" : Alpha(0) → Beta(0.010) → Gamma(0.020), départs 08:00 / 08:10 / 08:20
+    private static LineSchedule towardGamma() {
+        return new LineSchedule(List.of(new DirectionSchedule("Gamma", List.of(
+            new StopOnLine("1", "Alpha", 0.000, 8 * 3600),
+            new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+            new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200)))));
+    }
+
+    private static RtSnapshot rtWith(LiveJourney journey) {
+        return new RtSnapshot(NOW, List.of(journey));
     }
 
     @Test
-    void interpolatesHalfwayBetweenStops() {
-        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 8 * 3600 + 300);
+    void interpolatesTowardNextStopUsingEta() {
+        // prochain arrêt Beta, ETA dans 300 s, segment Alpha→Beta = 600 s → à mi-chemin (lng 2.305)
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+
+        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD);
 
         assertThat(vehicles).hasSize(1);
         Vehicle v = vehicles.getFirst();
         assertThat(v.source()).isEqualTo(Vehicle.Source.INTERPOLATED);
+        assertThat(v.tripId()).isEqualTo("J1");
         assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
         assertThat(v.lat()).isCloseTo(48.850, within(1e-4));
         assertThat(v.nextStop()).isEqualTo("Beta");
+        assertThat(v.headsign()).isEqualTo("Gamma");
         assertThat(v.bearing()).isCloseTo(90.0, within(5.0));
+        assertThat(v.delaySec()).isEqualTo(0);
     }
 
     @Test
-    void excludesTripOutsideServiceWindow() {
-        assertThat(engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 7 * 3600)).isEmpty();
-        assertThat(engine.computeAll(line(), List.of(trip()), RtSnapshot.empty(), 9 * 3600)).isEmpty();
+    void clampsToNextStopWhenEtaAlreadyPassed() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.minusSeconds(100));
+
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.310, within(1e-3)); // arrivé à Beta
     }
 
     @Test
-    void appliesDelayShiftingPositionBackward() {
-        RtSnapshot rt = new RtSnapshot(Instant.EPOCH, Map.of(), Map.of("T1", 300));
+    void placesAtOriginWhenNextStopIsFirst() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
 
-        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), rt, 8 * 3600 + 300);
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
 
-        assertThat(vehicles.getFirst().lng()).isCloseTo(2.300, within(1e-3));
-        assertThat(vehicles.getFirst().delaySec()).isEqualTo(300);
+        assertThat(v.lng()).isCloseTo(2.300, within(1e-3));
+        assertThat(v.nextStop()).isEqualTo("Alpha");
     }
 
     @Test
-    void usesRealGpsSnappedToLineWhenAvailable() {
-        RtSnapshot rt = new RtSnapshot(Instant.EPOCH,
-            Map.of("T1", new RtSnapshot.VehiclePos("T1", 48.851, 2.315, 80f)), Map.of());
+    void skipsJourneyWhenNextStopUnknown() {
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:999:", NOW.plusSeconds(30));
 
-        List<Vehicle> vehicles = engine.computeAll(line(), List.of(trip()), rt, 8 * 3600 + 300);
+        assertThat(engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD)).isEmpty();
+    }
 
-        assertThat(vehicles.getFirst().source()).isEqualTo(Vehicle.Source.REALTIME);
-        assertThat(vehicles.getFirst().lat()).isCloseTo(48.850, within(1e-4));
-        assertThat(vehicles.getFirst().lng()).isCloseTo(2.315, within(1e-3));
+    @Test
+    void selectsDirectionByDestinationWhenStopSharedByBothSenses() {
+        // deux sens partagent l'arrêt "Beta" ; destination "Alpha" → sens retour (Gamma→Alpha)
+        LineSchedule schedule = new LineSchedule(List.of(
+            new DirectionSchedule("Gamma", List.of(
+                new StopOnLine("1", "Alpha", 0.000, 8 * 3600),
+                new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+                new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200))),
+            new DirectionSchedule("Alpha", List.of(
+                new StopOnLine("3", "Gamma", 0.020, 8 * 3600),
+                new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
+                new StopOnLine("1", "Alpha", 0.000, 8 * 3600 + 1200)))));
+        LiveJourney j = new LiveJourney("J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+
+        Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.315, within(1e-3)); // entre Gamma(2.320) et Beta(2.310)
+        assertThat(v.bearing()).isCloseTo(270.0, within(5.0)); // cap vers l'ouest
     }
 }
 ```
@@ -1712,15 +1774,16 @@ class PositionEngineTest {
 Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest`
 Expected: FAIL.
 
-- [ ] **Step 3: `PositionEngine` (JTS `LengthIndexedLine`)**
+- [ ] **Step 3: `PositionEngine`**
 
 ```java
 package com.mapidf.position;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.mapidf.position.TripSchedule.StopPassage;
 import com.mapidf.rt.RtSnapshot;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.LineString;
@@ -1730,15 +1793,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class PositionEngine {
 
-    private static final double BEARING_EPSILON = 1e-5;
-
-    public List<Vehicle> computeAll(LineString line, List<TripSchedule> trips,
-                                    RtSnapshot rt, int nowSecOfDay) {
+    public List<Vehicle> computeAll(LineString line, LineSchedule schedule,
+                                    RtSnapshot rt, Instant now, int nowSecOfDay) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
-        double geometryLength = line.getLength();
         List<Vehicle> out = new ArrayList<>();
-        for (TripSchedule trip : trips) {
-            Vehicle vehicle = compute(indexed, geometryLength, trip, rt, nowSecOfDay);
+        for (RtSnapshot.LiveJourney journey : rt.journeys()) {
+            Vehicle vehicle = compute(indexed, schedule, journey, now, nowSecOfDay);
             if (vehicle != null) {
                 out.add(vehicle);
             }
@@ -1746,71 +1806,99 @@ public class PositionEngine {
         return out;
     }
 
-    private Vehicle compute(LengthIndexedLine indexed, double geometryLength, TripSchedule trip,
-                            RtSnapshot rt, int nowSecOfDay) {
-        int delay = rt.delaysByTrip().getOrDefault(trip.tripId(), 0);
-        int effectiveNow = nowSecOfDay - delay;
-        List<StopPassage> passages = trip.passages();
-        int firstDeparture = passages.getFirst().departureSec();
-        int lastDeparture = passages.getLast().departureSec();
-        if (effectiveNow < firstDeparture || effectiveNow > lastDeparture) {
+    private Vehicle compute(LengthIndexedLine indexed, LineSchedule schedule,
+                            RtSnapshot.LiveJourney journey, Instant now, int nowSecOfDay) {
+        String key = stopKey(journey.nextStopRef());
+        DirectionSchedule direction = pickDirection(schedule, journey.destination(), key);
+        if (direction == null) {
             return null;
         }
+        List<StopOnLine> stops = direction.stops();
+        int index = indexOfStop(stops, key);
+        if (index < 0) {
+            return null;
+        }
+        StopOnLine next = stops.get(index);
+        long etaDeltaSec = Duration.between(now, journey.expectedTime()).getSeconds();
+        int delaySec = (int) (nowSecOfDay + etaDeltaSec - next.scheduledSec());
 
-        RtSnapshot.VehiclePos gps = rt.positions().get(trip.tripId());
-        if (gps != null) {
-            double index = indexed.project(new Coordinate(gps.lng(), gps.lat()));
-            Coordinate snapped = indexed.extractPoint(index);
-            double bearing = gps.bearing() != null ? gps.bearing() : bearingAt(indexed, geometryLength, index);
-            return new Vehicle(trip.tripId(), snapped.y, snapped.x, bearing, delay,
-                trip.headsign(), nextStopName(passages, index), Vehicle.Source.REALTIME);
+        double distance;
+        double bearing;
+        if (index == 0) {
+            distance = next.distanceAlongLine();
+            StopOnLine after = stops.size() > 1 ? stops.get(1) : next;
+            bearing = bearing(indexed, next.distanceAlongLine(), after.distanceAlongLine());
+        } else {
+            StopOnLine previous = stops.get(index - 1);
+            int segmentSec = next.scheduledSec() - previous.scheduledSec();
+            double fraction = segmentSec > 0 ? clamp(1.0 - (double) etaDeltaSec / segmentSec, 0.0, 1.0) : 1.0;
+            distance = previous.distanceAlongLine()
+                + fraction * (next.distanceAlongLine() - previous.distanceAlongLine());
+            bearing = bearing(indexed, previous.distanceAlongLine(), next.distanceAlongLine());
         }
 
-        double distance = interpolateDistance(passages, effectiveNow);
-        Coordinate position = indexed.extractPoint(distance);
-        double bearing = bearingAt(indexed, geometryLength, distance);
-        return new Vehicle(trip.tripId(), position.y, position.x, bearing, delay,
-            trip.headsign(), nextStopName(passages, distance), Vehicle.Source.INTERPOLATED);
+        Coordinate point = indexed.extractPoint(distance);
+        return new Vehicle(journey.journeyRef(), point.y, point.x, bearing, delaySec,
+            journey.destination(), next.stopName(), Vehicle.Source.INTERPOLATED);
     }
 
-    private double interpolateDistance(List<StopPassage> passages, int time) {
-        for (int i = 0; i < passages.size() - 1; i++) {
-            StopPassage from = passages.get(i);
-            StopPassage to = passages.get(i + 1);
-            if (time >= from.departureSec() && time <= to.departureSec()) {
-                double fraction = (double) (time - from.departureSec()) / (to.departureSec() - from.departureSec());
-                return from.distanceAlongLine() + fraction * (to.distanceAlongLine() - from.distanceAlongLine());
+    private DirectionSchedule pickDirection(LineSchedule schedule, String destination, String key) {
+        List<DirectionSchedule> candidates = schedule.directions().stream()
+            .filter(d -> indexOfStop(d.stops(), key) >= 0)
+            .toList();
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        if (candidates.size() == 1) {
+            return candidates.getFirst();
+        }
+        return candidates.stream()
+            .filter(d -> terminusMatches(d.terminusName(), destination))
+            .findFirst()
+            .orElse(candidates.getFirst());
+    }
+
+    private static boolean terminusMatches(String terminus, String destination) {
+        if (terminus == null || destination == null) {
+            return false;
+        }
+        String t = terminus.toLowerCase();
+        String d = destination.toLowerCase();
+        return t.equals(d) || t.contains(d) || d.contains(t);
+    }
+
+    private static int indexOfStop(List<StopOnLine> stops, String key) {
+        for (int i = 0; i < stops.size(); i++) {
+            if (stops.get(i).stopKey().equals(key)) {
+                return i;
             }
         }
-        return passages.getLast().distanceAlongLine();
+        return -1;
     }
 
-    private String nextStopName(List<StopPassage> passages, double distance) {
-        for (StopPassage passage : passages) {
-            if (passage.distanceAlongLine() > distance + BEARING_EPSILON) {
-                return passage.stopName();
-            }
-        }
-        return passages.getLast().stopName();
-    }
-
-    private double bearingAt(LengthIndexedLine indexed, double geometryLength, double distance) {
-        double before = Math.max(0, distance - BEARING_EPSILON);
-        double after = Math.min(geometryLength, distance + BEARING_EPSILON);
-        Coordinate a = indexed.extractPoint(before);
-        Coordinate b = indexed.extractPoint(after);
+    private double bearing(LengthIndexedLine indexed, double fromDistance, double toDistance) {
+        Coordinate a = indexed.extractPoint(fromDistance);
+        Coordinate b = indexed.extractPoint(toDistance);
         double angle = Math.toDegrees(Math.atan2(b.x - a.x, b.y - a.y));
         return (angle + 360) % 360;
+    }
+
+    private static double clamp(double value, double low, double high) {
+        return Math.max(low, Math.min(high, value));
+    }
+
+    public static String stopKey(String rawRef) {
+        return rawRef == null ? "" : rawRef.replaceAll("\\D", "");
     }
 }
 ```
 
 - [ ] **Step 4: run → PASS ; commit**
 
-Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest` → PASS (les 4 cas)
+Run: `cd backend && ./mvnw test -Dtest=PositionEngineTest` → PASS (les 5 cas)
 ```bash
 git add backend/src/main/java/com/mapidf/position backend/src/test/java/com/mapidf/position
-git commit -m "feat(backend): PositionEngine pur (interpolation + snap GPS, JTS)"
+git commit -m "feat(backend): PositionEngine pur (interpolation par ETA SIRI + choix du sens, JTS)"
 ```
 
 ---
@@ -1828,21 +1916,26 @@ Deliverable : le front reçoit les véhicules calculés à l'instant courant.
 
 **Interfaces:**
 - Consumes: `StopTimeRepository`, `GtfsStaticService.getRouteGeometry()`, `PositionEngine`, `RealtimePoller.current()`, `LineProperties`.
-- Produces: `ScheduleProvider.getSchedules(LineString line, String gtfsRouteId)` → `List<TripSchedule>` (projette chaque arrêt sur le tracé via JTS). `VehicleResponse` (`@Value @Builder`, `from(Vehicle)`), `VehiclesResponse(Instant asOf, List<VehicleResponse> vehicles)`.
+- Produces: `ScheduleProvider.getLineSchedule(LineString line, String gtfsRouteId)` → `LineSchedule` (une `DirectionSchedule` par sens, arrêts projetés sur le tracé via JTS). `VehicleResponse` (`@Value @Builder`, `from(Vehicle)`), `VehiclesResponse(Instant asOf, List<VehicleResponse> vehicles)`.
 
-- [ ] **Step 1: `ScheduleProvider` (projection JTS des arrêts, sans SQL natif)**
+- [ ] **Step 1: `ScheduleProvider` (schedule par sens, projection JTS, sans SQL natif)**
+
+Pour chaque sens (GTFS `direction_id`), on choisit une course représentative (celle
+qui a le plus d'arrêts) et on projette chaque arrêt sur le tracé. Le terminus du sens
+= dernier arrêt de cette course (sert au `PositionEngine` pour rattacher une course
+live à son sens via la destination).
 
 ```java
 package com.mapidf.position;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.mapidf.data.entity.StopTime;
 import com.mapidf.data.repositories.StopTimeRepository;
-import com.mapidf.position.TripSchedule.StopPassage;
 import lombok.AllArgsConstructor;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.linearref.LengthIndexedLine;
@@ -1856,23 +1949,40 @@ public class ScheduleProvider {
     private final StopTimeRepository stopTimeRepository;
 
     @Transactional(readOnly = true)
-    public List<TripSchedule> getSchedules(LineString line, String gtfsRouteId) {
+    public LineSchedule getLineSchedule(LineString line, String gtfsRouteId) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
-        Map<String, List<StopPassage>> passagesByTrip = new LinkedHashMap<>();
-        Map<String, String> headsignByTrip = new LinkedHashMap<>();
 
+        Map<String, List<StopTime>> stopTimesByTrip = new LinkedHashMap<>();
+        Map<String, Short> directionByTrip = new HashMap<>();
         for (StopTime stopTime : stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId)) {
             String tripId = stopTime.getTrip().getGtfsId();
-            headsignByTrip.putIfAbsent(tripId, stopTime.getTrip().getHeadsign());
-            double distance = indexed.project(stopTime.getStop().getGeom().getCoordinate());
-            passagesByTrip.computeIfAbsent(tripId, key -> new ArrayList<>())
-                .add(new StopPassage(stopTime.getStop().getName(), stopTime.getDepartureSec(), distance));
+            stopTimesByTrip.computeIfAbsent(tripId, key -> new ArrayList<>()).add(stopTime);
+            directionByTrip.putIfAbsent(tripId, stopTime.getTrip().getDirection());
         }
 
-        List<TripSchedule> schedules = new ArrayList<>();
-        passagesByTrip.forEach((tripId, passages) ->
-            schedules.add(new TripSchedule(tripId, headsignByTrip.get(tripId), passages)));
-        return schedules;
+        // course représentative par sens = celle qui a le plus d'arrêts
+        Map<Short, String> representativeByDirection = new HashMap<>();
+        stopTimesByTrip.forEach((tripId, stopTimes) -> {
+            Short direction = directionByTrip.get(tripId);
+            String current = representativeByDirection.get(direction);
+            if (current == null || stopTimes.size() > stopTimesByTrip.get(current).size()) {
+                representativeByDirection.put(direction, tripId);
+            }
+        });
+
+        List<DirectionSchedule> directions = new ArrayList<>();
+        for (String tripId : representativeByDirection.values()) {
+            List<StopOnLine> stops = stopTimesByTrip.get(tripId).stream()
+                .map(st -> new StopOnLine(
+                    PositionEngine.stopKey(st.getStop().getGtfsId()),
+                    st.getStop().getName(),
+                    indexed.project(st.getStop().getGeom().getCoordinate()),
+                    st.getDepartureSec()))
+                .toList();
+            String terminus = stops.isEmpty() ? "" : stops.getLast().stopName();
+            directions.add(new DirectionSchedule(terminus, stops));
+        }
+        return new LineSchedule(directions);
     }
 }
 ```
@@ -1990,8 +2100,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 
-import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.gtfs.GtfsStaticService;
+import com.mapidf.position.LineSchedule;
 import com.mapidf.position.PositionEngine;
 import com.mapidf.position.ScheduleProvider;
 import com.mapidf.position.Vehicle;
@@ -2016,7 +2126,6 @@ public class LineController {
     private final PositionEngine positionEngine;
     private final GtfsStaticService staticService;
     private final RealtimePoller poller;
-    private final LineProperties lineProperties;
 
     @GetMapping("/{id}/shape")
     public ShapeResponse shape(@PathVariable String id) {
@@ -2028,9 +2137,11 @@ public class LineController {
         LineString line = staticService.getRouteGeometry();
         List<VehicleResponse> vehicles = List.of();
         if (line != null) {
+            Instant now = Instant.now();
             int nowSecOfDay = LocalTime.now(PARIS).toSecondOfDay();
+            LineSchedule schedule = scheduleProvider.getLineSchedule(line, id);
             List<Vehicle> computed = positionEngine.computeAll(
-                line, scheduleProvider.getSchedules(line, id), poller.current(), nowSecOfDay);
+                line, schedule, poller.current(), now, nowSecOfDay);
             vehicles = computed.stream().map(VehicleResponse::from).toList();
         }
         return VehiclesResponse.builder()
@@ -2068,8 +2179,11 @@ Deliverable : un échec IDFM conserve le dernier snapshot ; métriques d'âge de
 ```java
 package com.mapidf.rt;
 
+import java.time.Duration;
 import java.time.Instant;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -2077,25 +2191,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RealtimePollerResilienceTest {
 
-    private static PrimProperties props() {
-        return new PrimProperties("", "apikey", "", "http://vp", "http://tu", java.time.Duration.ofSeconds(10));
+    private static PrimProperties prim() {
+        return new PrimProperties("", "apikey", "", "http://realtime", Duration.ofSeconds(10));
+    }
+
+    private static LineProperties line() {
+        return new LineProperties("TEST9", "STIF:Line::C01379:", "#D5C900");
     }
 
     @Test
     void keepsLastSnapshotOnFetchFailure() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        RealtimePoller poller = new RealtimePoller(props());
+        RealtimePoller poller = new RealtimePoller(prim(), line(), new ObjectMapper());
         poller.attachMetrics(registry);
 
-        byte[] vp = RtFixtures.vehiclePositionsForT1();
-        poller.pollOnce(url -> vp, Instant.ofEpochSecond(100));
-        assertThat(poller.current().positions()).containsKey("T1");
+        byte[] siri = RtFixtures.siriLineNineSample();
+        poller.pollOnce(url -> siri, Instant.ofEpochSecond(100));
+        assertThat(poller.current().journeys()).extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
 
         poller.pollOnce(url -> {
             throw new RuntimeException("IDFM down");
         }, Instant.ofEpochSecond(200));
 
-        assertThat(poller.current().positions()).containsKey("T1");
+        assertThat(poller.current().journeys()).extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
         assertThat(registry.counter("mapidf.rt.poll.failures").count()).isEqualTo(1.0);
     }
 }
