@@ -1447,7 +1447,7 @@ package com.mapidf.rt;
 
 import java.time.Instant;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -1506,8 +1506,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -2196,7 +2196,7 @@ package com.mapidf.rt;
 import java.time.Duration;
 import java.time.Instant;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
