@@ -8,6 +8,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       return;
     }
     let cancelled = false;
+    let drawHandler: (() => void) | null = null;
     fetchShape(lineId).then((shape) => {
       if (cancelled) {
         return;
@@ -56,11 +57,15 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       if (map.isStyleLoaded()) {
         draw();
       } else {
+        drawHandler = draw;
         map.once("load", draw);
       }
     });
     return () => {
       cancelled = true;
+      if (drawHandler) {
+        map.off("load", drawHandler);
+      }
     };
   }, [map, lineId]);
 }
