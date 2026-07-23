@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
+    volumes: ["dbdata:/var/lib/postgresql"]
+  backend:
+    build: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/mapidf
+      SPRING_DATASOURCE_USERNAME: mapidf
+      SPRING_DATASOURCE_PASSWORD: mapidf
+      PRIM_API_KEY: ${PRIM_API_KEY}
+    depends_on: [db]
+    ports: ["8000:8000", "9000:9000"]
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports: ["8080:80"]
+volumes:
+  dbdata:
