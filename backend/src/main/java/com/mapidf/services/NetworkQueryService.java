@@ -47,9 +47,18 @@ public class NetworkQueryService {
 
         return ShapeResponse.builder()
             .lineId(gtfsRouteId)
-            .color(route.getColor())
+            .color(toCssColor(route.getColor()))
             .shape(shape)
             .stops(stops)
             .build();
+    }
+
+    // route_color GTFS est un hex SANS '#' (ex. "D2D200") ; on renvoie une couleur CSS
+    // valide (ex. "#D2D200") sinon MapLibre rejette la couche et le tracé n'apparaît pas.
+    private static String toCssColor(String gtfsColor) {
+        if (gtfsColor == null || gtfsColor.isBlank()) {
+            return "#000000";
+        }
+        return gtfsColor.startsWith("#") ? gtfsColor : "#" + gtfsColor;
     }
 }
