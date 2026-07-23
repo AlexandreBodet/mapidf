@@ -9,7 +9,9 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
     }
     const instance = new maplibregl.Map({
       container: container.current,
-      style: "https://demotiles.maplibre.org/style.json",
+      // Fond de rues OpenFreeMap (gratuit, sans clé) — pour se repérer dans Paris.
+      // demotiles n'affiche que les frontières (aucune rue).
+      style: "https://tiles.openfreemap.org/styles/liberty",
       center: [2.34, 48.86],
       zoom: 11,
     });
