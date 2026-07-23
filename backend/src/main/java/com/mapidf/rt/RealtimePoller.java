@@ -6,6 +6,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -33,11 +37,19 @@ public class RealtimePoller {
     private final ObjectMapper objectMapper;
     private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private Counter pollFailures;
 
     public RealtimePoller(PrimProperties prim, LineProperties line, ObjectMapper objectMapper) {
         this.prim = prim;
         this.line = line;
         this.objectMapper = objectMapper;
+    }
+
+    @Autowired
+    public void attachMetrics(MeterRegistry registry) {
+        this.pollFailures = registry.counter("mapidf.rt.poll.failures");
+        registry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
+            ref -> Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
     }
 
     public RtSnapshot current() {
@@ -59,6 +71,9 @@ public class RealtimePoller {
                 + "?LineRef=" + URLEncoder.encode(line.siriLineRef(), StandardCharsets.UTF_8);
             snapshot.set(parse(objectMapper, fetcher.get(url), asOf));
         } catch (Exception e) {
+            if (pollFailures != null) {
+                pollFailures.increment();
+            }
             log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
         }
     }
