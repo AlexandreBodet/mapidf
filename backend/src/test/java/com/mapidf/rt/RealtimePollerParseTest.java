@@ -20,5 +20,6 @@ class RealtimePollerParseTest {
         assertThat(journey.destination()).isEqualTo("Gamma");
         assertThat(journey.nextStopRef()).isEqualTo("STIF:StopPoint:Q:2:");
         assertThat(journey.expectedTime()).isEqualTo(Instant.parse("2026-07-22T14:05:00Z"));
+        assertThat(journey.departureStatus()).isEqualTo("ON_TIME");
     }
 }

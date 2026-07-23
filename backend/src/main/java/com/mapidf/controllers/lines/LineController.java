@@ -1,8 +1,6 @@
 package com.mapidf.controllers.lines;
 
 import java.time.Instant;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.List;
 
 import com.mapidf.configurations.properties.LineProperties;
@@ -25,8 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 @AllArgsConstructor
 public class LineController {
 
-    private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
-
     private final NetworkQueryService networkQueryService;
     private final ScheduleProvider scheduleProvider;
     private final PositionEngine positionEngine;
@@ -45,12 +41,10 @@ public class LineController {
         LineString line = staticService.getRouteGeometry();
         List<VehicleResponse> vehicles = List.of();
         if (line != null) {
-            Instant now = Instant.now();
-            int nowSecOfDay = LocalTime.now(PARIS).toSecondOfDay();
             // MVP mono-ligne : on sert la ligne configurée (app.line.gtfs-route-id)
             LineSchedule schedule = scheduleProvider.getLineSchedule(line, lineProperties.gtfsRouteId());
             List<Vehicle> computed = positionEngine.computeAll(
-                line, schedule, poller.current(), now, nowSecOfDay);
+                line, schedule, poller.current(), Instant.now());
             vehicles = computed.stream().map(VehicleResponse::from).toList();
         }
         return VehiclesResponse.builder()

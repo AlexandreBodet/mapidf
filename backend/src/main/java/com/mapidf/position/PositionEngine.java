@@ -15,11 +15,11 @@ import org.springframework.stereotype.Component;
 public class PositionEngine {
 
     public List<Vehicle> computeAll(LineString line, LineSchedule schedule,
-                                    RtSnapshot rt, Instant now, int nowSecOfDay) {
+                                    RtSnapshot rt, Instant now) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
         List<Vehicle> out = new ArrayList<>();
         for (RtSnapshot.LiveJourney journey : rt.journeys()) {
-            Vehicle vehicle = compute(indexed, schedule, journey, now, nowSecOfDay);
+            Vehicle vehicle = compute(indexed, schedule, journey, now);
             if (vehicle != null) {
                 out.add(vehicle);
             }
@@ -28,7 +28,7 @@ public class PositionEngine {
     }
 
     private Vehicle compute(LengthIndexedLine indexed, LineSchedule schedule,
-                            RtSnapshot.LiveJourney journey, Instant now, int nowSecOfDay) {
+                            RtSnapshot.LiveJourney journey, Instant now) {
         String key = stopKey(journey.nextStopRef());
         DirectionSchedule direction = pickDirection(schedule, journey.destination(), key);
         if (direction == null) {
@@ -41,7 +41,6 @@ public class PositionEngine {
         }
         StopOnLine next = stops.get(index);
         long etaDeltaSec = Duration.between(now, journey.expectedTime()).getSeconds();
-        int delaySec = (int) (nowSecOfDay + etaDeltaSec - next.scheduledSec());
 
         double distance;
         double bearing;
@@ -74,7 +73,7 @@ public class PositionEngine {
         }
 
         Coordinate point = indexed.extractPoint(distance);
-        return new Vehicle(journey.journeyRef(), point.y, point.x, bearing, delaySec,
+        return new Vehicle(journey.journeyRef(), point.y, point.x, bearing, journey.departureStatus(),
             journey.destination(), next.stopName(), Vehicle.Source.INTERPOLATED);
     }
 

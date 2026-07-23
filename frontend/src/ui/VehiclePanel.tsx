@@ -1,13 +1,22 @@
 interface Props {
-  vehicle: { headsign: string; nextStop: string; delaySec: number; source: string } | null;
+  vehicle: { headsign: string; nextStop: string; status: string; source: string } | null;
   onClose: () => void;
 }
+
+const STATUS_LABELS: Record<string, string> = {
+  ON_TIME: "à l'heure",
+  ONTIME: "à l'heure",
+  DELAYED: "retardé",
+  EARLY: "en avance",
+  CANCELLED: "supprimé",
+  CANCELED: "supprimé",
+};
 
 export function VehiclePanel({ vehicle, onClose }: Props) {
   if (!vehicle) {
     return null;
   }
-  const delayMin = Math.round(vehicle.delaySec / 60);
+  const statusLabel = STATUS_LABELS[vehicle.status?.toUpperCase()] ?? "—";
   return (
     <div
       style={{
@@ -29,7 +38,7 @@ export function VehiclePanel({ vehicle, onClose }: Props) {
       <p style={{ margin: "4px 0" }}>
         Prochain arrêt : <b>{vehicle.nextStop}</b>
       </p>
-      <p style={{ margin: "4px 0" }}>Retard : {delayMin > 0 ? `+${delayMin} min` : "à l'heure"}</p>
+      <p style={{ margin: "4px 0" }}>État : {statusLabel}</p>
       <p style={{ margin: "4px 0", color: "#666" }}>
         Position : {vehicle.source === "REALTIME" ? "GPS temps réel" : "estimée (horaire)"}
       </p>

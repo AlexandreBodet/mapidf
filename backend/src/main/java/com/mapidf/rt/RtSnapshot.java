@@ -10,7 +10,7 @@ public record RtSnapshot(Instant asOf, List<LiveJourney> journeys) {
     }
 
     public record LiveJourney(String journeyRef, String directionRef, String destination,
-                              String nextStopRef, Instant expectedTime) {
+                              String nextStopRef, Instant expectedTime, String departureStatus) {
     }
 
     public static RtSnapshot empty() {

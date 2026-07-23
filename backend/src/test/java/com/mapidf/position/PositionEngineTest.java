@@ -16,7 +16,6 @@ import static org.assertj.core.api.Assertions.within;
 class PositionEngineTest {
 
     private static final Instant NOW = Instant.parse("2026-07-22T08:05:00Z");
-    private static final int NOW_SOD = 8 * 3600 + 300; // 08:05:00
 
     private final PositionEngine engine = new PositionEngine();
 
@@ -34,6 +33,10 @@ class PositionEngineTest {
             new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200)))));
     }
 
+    private static LiveJourney journey(String destination, String stopRef, Instant eta) {
+        return new LiveJourney("J1", "0", destination, stopRef, eta, "ON_TIME");
+    }
+
     private static RtSnapshot rtWith(LiveJourney journey) {
         return new RtSnapshot(NOW, List.of(journey));
     }
@@ -41,9 +44,9 @@ class PositionEngineTest {
     @Test
     void interpolatesTowardNextStopUsingEta() {
         // prochain arrêt Beta, ETA dans 300 s, segment Alpha→Beta = 600 s → à mi-chemin (lng 2.305)
-        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
 
-        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD);
+        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(), rtWith(j), NOW);
 
         assertThat(vehicles).hasSize(1);
         Vehicle v = vehicles.getFirst();
@@ -54,14 +57,14 @@ class PositionEngineTest {
         assertThat(v.nextStop()).isEqualTo("Beta");
         assertThat(v.headsign()).isEqualTo("Gamma");
         assertThat(v.bearing()).isCloseTo(90.0, within(5.0));
-        assertThat(v.delaySec()).isEqualTo(0);
+        assertThat(v.status()).isEqualTo("ON_TIME");
     }
 
     @Test
     void clampsToNextStopWhenEtaAlreadyPassed() {
-        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:2:", NOW.minusSeconds(100));
+        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:2:", NOW.minusSeconds(100));
 
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.310, within(1e-3)); // arrivé à Beta
     }
@@ -71,9 +74,9 @@ class PositionEngineTest {
         // prochain arrêt reporté = Gamma (2 segments plus loin), ETA dans 900 s.
         // segment Beta→Gamma = 600 s (consommé) ; reste 300 s sur Alpha→Beta (600 s)
         // → fraction 0.5 sur Alpha→Beta → lng 2.305, prochain arrêt affiché = Gamma.
-        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:3:", NOW.plusSeconds(900));
+        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:3:", NOW.plusSeconds(900));
 
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
         assertThat(v.nextStop()).isEqualTo("Gamma");
@@ -81,9 +84,9 @@ class PositionEngineTest {
 
     @Test
     void placesAtOriginWhenNextStopIsFirst() {
-        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
+        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
 
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.300, within(1e-3));
         assertThat(v.nextStop()).isEqualTo("Alpha");
@@ -91,9 +94,9 @@ class PositionEngineTest {
 
     @Test
     void skipsJourneyWhenNextStopUnknown() {
-        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:999:", NOW.plusSeconds(30));
+        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:999:", NOW.plusSeconds(30));
 
-        assertThat(engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD)).isEmpty();
+        assertThat(engine.computeAll(line(), towardGamma(), rtWith(j), NOW)).isEmpty();
     }
 
     @Test
@@ -108,9 +111,9 @@ class PositionEngineTest {
                 new StopOnLine("3", "Gamma", 0.020, 8 * 3600),
                 new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
                 new StopOnLine("1", "Alpha", 0.000, 8 * 3600 + 1200)))));
-        LiveJourney j = new LiveJourney("J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
+        LiveJourney j = new LiveJourney("J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300), "ON_TIME");
 
-        Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW, NOW_SOD).getFirst();
+        Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.315, within(1e-3)); // entre Gamma(2.320) et Beta(2.310)
         assertThat(v.bearing()).isCloseTo(270.0, within(5.0)); // cap vers l'ouest

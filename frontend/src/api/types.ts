@@ -12,7 +12,7 @@ export interface VehiclesResponse {
     lat: number;
     lng: number;
     bearing: number;
-    delaySec: number;
+    status: string;
     headsign: string;
     nextStop: string;
     source: "REALTIME" | "INTERPOLATED";

@@ -101,7 +101,7 @@ export class VehicleLayer {
               bearing: anim.bearing,
               headsign: anim.vehicle.headsign,
               nextStop: anim.vehicle.nextStop,
-              delaySec: anim.vehicle.delaySec,
+              status: anim.vehicle.status,
             },
             geometry: { type: "Point", coordinates: [lng, lat] },
           } as GeoJSON.Feature;

@@ -111,8 +111,9 @@ public class RealtimePoller {
             String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asText(stopRef);
             String directionRef = journey.path("DirectionRef").path("value").asText("");
             String destination = firstValue(journey.path("DestinationName"));
+            String departureStatus = call.path("DepartureStatus").asText("");
             journeys.add(new RtSnapshot.LiveJourney(
-                journeyRef, directionRef, destination, stopRef, Instant.parse(eta)));
+                journeyRef, directionRef, destination, stopRef, Instant.parse(eta), departureStatus));
         }
         return new RtSnapshot(asOf, List.copyOf(journeys));
     }
