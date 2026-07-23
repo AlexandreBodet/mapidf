@@ -1,5 +1,6 @@
 package com.mapidf.rt;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -85,7 +86,14 @@ public class RealtimePoller {
             .header(prim.authHeader(), prim.apiKey())
             .GET()
             .build();
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray()).body();
+        HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        // On DOIT vérifier le code HTTP : sur 429 (quota) ou 5xx, PRIM renvoie un corps
+        // JSON d'erreur qui se parserait en 0 course et écraserait le dernier bon snapshot.
+        // En levant ici, pollOnce conserve le snapshot précédent (dégradation gracieuse).
+        if (response.statusCode() / 100 != 2) {
+            throw new IOException("réponse HTTP " + response.statusCode() + " de PRIM");
+        }
+        return response.body();
     }
 
     static RtSnapshot parse(ObjectMapper mapper, byte[] json, Instant asOf) throws Exception {
