@@ -1,57 +1,55 @@
-# Plan — Migration temps réel GTFS-RT global (TDD, subagent-driven)
+# Plan — Migration temps réel vers flux global `estimated-timetable` (TDD)
 
 *2026-07-23 — met en œuvre `specs/2026-07-23-migration-gtfs-rt-global.md`.*
 
-Principe : le cœur métier (`PositionEngine`, front) ne bouge pas ; on remplace
-l'ingestion mono-ligne SIRI par une ingestion **réseau** GTFS-RT. Chaque tâche =
-un test qui échoue d'abord, puis le code qui le fait passer. `./mvnw verify` vert
-à chaque fin de tâche.
+> **Task 0 = GO** (vérifié) : `estimated-timetable` renvoie tout le réseau en JSON,
+> ligne 9 incluse, dans la structure déjà parsée. **Pas de protobuf.** Le plan
+> initial (GTFS-RT/protobuf) est abandonné au profit de ce plan-ci, bien plus court.
 
-## Task 0 — Vérification du flux (BLOQUANT, pas de code produit)
-- **Pré-requis utilisateur** : abonnement à l'API GTFS-RT « Trip Updates – requête
-  globale » sur PRIM → URL de requête + confirmation du quota.
-- Récupérer le flux **une fois** (script jetable, en-tête `apikey`), `parseFrom`,
-  et **confirmer** : la ligne 9 `IDFM:C01379` est présente avec des
-  `stop_time_update`. Noter le format exact des `trip_id` / `stop_id` / du champ
-  temps (epoch vs ISO) pour caler le parsing.
-- **Sortie** : go/no-go. Si no-go → appliquer §7 de la spec (fallback SIRI borné).
+Principe : on ne change que **l'ingestion**. `PositionEngine`, contrat `/vehicles`,
+front = inchangés. TDD : test rouge d'abord, `./mvnw verify` vert à chaque tâche.
 
-## Task 1 — Dépendance protobuf
-- Ajouter `gtfs-realtime-bindings` au `pom.xml`. `./mvnw verify` compile.
+## Task 1 — Snapshot indexé par ligne
+- Test : `RtSnapshot` expose `forLine(lineRef)` → courses de cette ligne (liste
+  immuable, vide si absente) ; `empty()` OK.
+- Impl : `RtSnapshot(asOf, Map<String,List<LiveJourney>>)` + `forLine`. `LiveJourney`
+  gagne `lineRef` (déjà lisible dans le SIRI).
 
-## Task 2 — Modèle de snapshot réseau
-- Test : `RtSnapshot` (réseau) expose `forRoute(routeId)` → liste immuable des
-  courses de cette ligne ; `empty()` renvoie une liste vide pour toute ligne.
-- Impl : `RtSnapshot(asOf, Map<String, List<LiveJourney>>)` + `forRoute`.
+## Task 2 — Parser multi-lignes
+- Test : fixture SIRI `estimated-timetable` (2 lignes, dont la 9) → `parse()` indexe
+  par `LineRef`, extrait par course : prochain arrêt, ETA, statut, destination, sens.
+  Réutilise la fixture réelle capturée (ligne 9, 82 courses) réduite.
+- Impl : adapter `parse()` pour boucler toutes les `EstimatedVehicleJourney` et les
+  ranger par `LineRef` (au lieu d'une seule liste). Champs : parser **inchangé**.
 
-## Task 3 — Parsing GTFS-RT TripUpdates
-- Test : fixture protobuf réduite (2-3 `FeedEntity`, dont ligne 9) →
-  `RealtimePoller.parse(bytes, now)` indexe correctement par `route_id`, extrait
-  prochain arrêt + ETA + statut. Cas limites : entité sans `TripUpdate`, sans
-  `stop_time_update`, temps en `arrival` seul.
-- Impl : `FeedMessage.parseFrom`, boucle entités, mapping du §4.4.
+## Task 3 — Poller sur `estimated-timetable`
+- Test : `pollOnce` avec fetcher bouchonné (fixture) → snapshot réseau peuplé ;
+  non-2xx / corps invalide → snapshot conservé + compteur d'échec++ (déjà en place).
+- Impl : URL `estimated-timetable`. `LineRef` **optionnel** via config (liste de
+  lignes suivies) : présent au MVP (léger), absent = global. En-tête `apikey` inchangé.
 
-## Task 4 — Fetch protobuf + résilience
-- Test : `fetch()` sur HTTP non-2xx lève → snapshot conservé, compteur d'échec++.
-  Corps non-protobuf → idem (parse lève, snapshot conservé).
-- Impl : GET binaire, `Content-Type` protobuf, réutilise le durcissement HTTP existant.
+## Task 4 — Contrôleur
+- Test IT : snapshot réseau injecté → `GET /lines/9/vehicles` ne renvoie que la ligne 9.
+- Impl : `poller.current().forLine(lineProperties.siriLineRef())`.
 
-## Task 5 — Contrôleur multi-lignes
-- Test IT : snapshot réseau injecté → `GET /lines/9/vehicles` ne renvoie que les
-  courses de la ligne 9, positionnées par `PositionEngine`.
-- Impl : `poller.current().forRoute(lineProperties.gtfsRouteId())`.
+## Task 5 — Config & cadence quota
+- `realtime-base-url` → `.../marketplace/estimated-timetable`.
+- `app.line` : liste de lignes suivies (MVP = ligne 9 → filtre `LineRef`).
+- Cadence : **PT90S** (≈960/j < 1000) ou PT60S + garde heures de service
+  (skip ~01h30–05h00). Commentaire quota mis à jour.
+- `application-test.yml` : flux vide (hermétique) inchangé.
 
-## Task 6 — Config & heures de service
-- `realtime-base-url` = endpoint GTFS-RT global ; commentaire quota mis à jour.
-- Optionnel : garde « heures de service » dans `poll()` (skip 01h30–05h00).
-- `application-test.yml` : flux vide (hermétique, déjà en place).
-
-## Task 7 — Nettoyage & doc
-- Retirer le code SIRI `requete-ligne` devenu mort (ou le garder derrière un flag
-  si on veut le fallback §7). Mettre à jour `backend/docs/prim-integration.md`.
+## Task 6 — Nettoyage & doc
+- Retirer l'ancien chemin `requete-ligne` (mort).
+- MAJ `backend/docs/prim-integration.md` (endpoint global, quotas réels constatés :
+  `estimated-timetable` global OK / `stop-monitoring` 1M/j / `general-message` 20k/j).
 - `./mvnw verify` + build front verts. Revue finale.
 
+## À confirmer côté PRIM (non bloquant pour coder)
+- Quota exact de `estimated-timetable` (doc ~1000/j) → fige la cadence par défaut.
+- Si relevable, PT60S 24/7 (1440/j) redevient envisageable.
+
 ## Notes
-- Front : **aucun changement** (contrat `/vehicles` identique).
-- Un seul flux global sert toutes les lignes → le cache/snapshot backend protège
-  déjà le quota quel que soit le trafic front.
+- Front : **aucun changement**.
+- Fixture de test : dérivée de la capture réelle `estimated-timetable?LineRef=…C01379`
+  (82 courses) — réduire à 2-3 courses sur 2 lignes pour le test unitaire.
