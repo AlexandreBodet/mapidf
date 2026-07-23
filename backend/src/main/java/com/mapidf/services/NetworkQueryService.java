@@ -1,7 +1,5 @@
 package com.mapidf.services;
 
-import java.util.List;
-
 import com.mapidf.controllers.lines.ShapeResponse;
 import com.mapidf.controllers.lines.ShapeResponse.StopDto;
 import com.mapidf.data.entity.Route;
@@ -15,6 +13,8 @@ import org.locationtech.jts.geom.Coordinate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @AllArgsConstructor

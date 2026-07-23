@@ -1,5 +1,6 @@
 package com.mapidf.controllers.lines;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -13,6 +14,8 @@ import com.mapidf.rt.RealtimePoller;
 import com.mapidf.services.NetworkQueryService;
 import lombok.AllArgsConstructor;
 import org.locationtech.jts.geom.LineString;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,9 +34,14 @@ public class LineController {
     private final LineProperties lineProperties;
 
     @GetMapping("/{id}/shape")
-    public ShapeResponse shape(@PathVariable String id) {
+    public ResponseEntity<ShapeResponse> shape(@PathVariable String id) {
         // MVP mono-ligne : on sert la ligne configurée (app.line.gtfs-route-id)
-        return networkQueryService.getShape(lineProperties.gtfsRouteId());
+        ShapeResponse body = networkQueryService.getShape(lineProperties.gtfsRouteId());
+        // Le tracé est statique (ne change qu'au rechargement du GTFS) : on autorise le
+        // cache navigateur pour éviter de repayer la requête PostGIS à chaque onglet/refresh.
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePublic())
+            .body(body);
     }
 
     @GetMapping("/{id}/vehicles")

@@ -1,5 +1,16 @@
 package com.mapidf.rt;
 
+import com.mapidf.configurations.properties.LineProperties;
+import com.mapidf.configurations.properties.PrimProperties;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -12,17 +23,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.mapidf.configurations.properties.LineProperties;
-import com.mapidf.configurations.properties.PrimProperties;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 @Slf4j
 @Component
@@ -96,7 +96,7 @@ public class RealtimePoller {
         return response.body();
     }
 
-    static RtSnapshot parse(ObjectMapper mapper, byte[] json, Instant asOf) throws Exception {
+    static RtSnapshot parse(ObjectMapper mapper, byte[] json, Instant asOf) {
         if (json == null || json.length == 0) {
             return new RtSnapshot(asOf, List.of());
         }
@@ -110,16 +110,15 @@ public class RealtimePoller {
         for (JsonNode journey : journeysNode) {
             JsonNode calls = journey.path("EstimatedCalls").path("EstimatedCall");
             JsonNode call = calls.isArray() ? calls.path(0) : calls;
-            String stopRef = call.path("StopPointRef").path("value").asText(null);
-            String eta = call.path("ExpectedDepartureTime")
-                .asText(call.path("ExpectedArrivalTime").asText(null));
+            String stopRef = call.path("StopPointRef").path("value").asString(null);
+            String eta = call.path("ExpectedDepartureTime").asString(call.path("ExpectedArrivalTime").asString(null));
             if (stopRef == null || eta == null) {
                 continue;
             }
-            String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asText(stopRef);
-            String directionRef = journey.path("DirectionRef").path("value").asText("");
+            String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asString(stopRef);
+            String directionRef = journey.path("DirectionRef").path("value").asString("");
             String destination = firstValue(journey.path("DestinationName"));
-            String departureStatus = call.path("DepartureStatus").asText("");
+            String departureStatus = call.path("DepartureStatus").asString("");
             journeys.add(new RtSnapshot.LiveJourney(
                 journeyRef, directionRef, destination, stopRef, Instant.parse(eta), departureStatus));
         }
@@ -128,8 +127,8 @@ public class RealtimePoller {
 
     private static String firstValue(JsonNode node) {
         if (node.isArray() && !node.isEmpty()) {
-            return node.get(0).path("value").asText("");
+            return node.get(0).path("value").asString("");
         }
-        return node.path("value").asText("");
+        return node.path("value").asString("");
     }
 }
