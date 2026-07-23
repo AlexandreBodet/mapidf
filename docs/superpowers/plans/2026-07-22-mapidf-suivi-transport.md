@@ -2388,27 +2388,31 @@ createRoot(document.getElementById("root")!).render(
 
 `src/map/MapView.tsx` :
 ```tsx
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import maplibregl, { Map as MlMap } from "maplibre-gl";
 
-export function useMap(container: React.RefObject<HTMLDivElement>) {
-  const mapRef = useRef<MlMap | null>(null);
+// Renvoie l'instance via state (posée DANS l'effet) : le re-render qui suit livre
+// la vraie carte aux hooks consommateurs. Renvoyer une ref ne re-render pas et
+// laisserait les hooks avec `null` en permanence.
+export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null {
+  const [map, setMap] = useState<MlMap | null>(null);
   useEffect(() => {
-    if (!container.current || mapRef.current) {
+    if (!container.current) {
       return;
     }
-    mapRef.current = new maplibregl.Map({
+    const instance = new maplibregl.Map({
       container: container.current,
       style: "https://demotiles.maplibre.org/style.json",
       center: [2.34, 48.86],
       zoom: 11,
     });
+    setMap(instance);
     return () => {
-      mapRef.current?.remove();
-      mapRef.current = null;
+      instance.remove();
+      setMap(null);
     };
   }, [container]);
-  return mapRef;
+  return map;
 }
 ```
 
@@ -2511,6 +2515,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       return;
     }
     let cancelled = false;
+    let drawHandler: (() => void) | null = null;
     fetchShape(lineId).then((shape) => {
       if (cancelled) {
         return;
@@ -2559,11 +2564,15 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       if (map.isStyleLoaded()) {
         draw();
       } else {
+        drawHandler = draw;
         map.once("load", draw);
       }
     });
     return () => {
       cancelled = true;
+      if (drawHandler) {
+        map.off("load", drawHandler);
+      }
     };
   }, [map, lineId]);
 }
@@ -2580,7 +2589,7 @@ import { LINE_ID } from "./api/config";
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
-  useLineShape(map.current, LINE_ID);
+  useLineShape(map, LINE_ID);
   return <div ref={container} style={{ position: "absolute", inset: 0 }} />;
 }
 ```
@@ -2771,7 +2780,7 @@ export function useVehicles(map: MlMap | null, lineId: string) {
 }
 ```
 
-- [ ] **Step 3: brancher dans `App.tsx`** — ajouter `useVehicles(map.current, LINE_ID);` après `useLineShape(...)`.
+- [ ] **Step 3: brancher dans `App.tsx`** — ajouter `useVehicles(map, LINE_ID);` après `useLineShape(...)` (`map` est la valeur renvoyée par `useMap`, pas une ref).
 
 - [ ] **Step 4: vérifier visuellement**
 
@@ -2858,21 +2867,20 @@ export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
   const [selected, setSelected] = useState<Selected>(null);
-  useLineShape(map.current, LINE_ID);
-  useVehicles(map.current, LINE_ID);
+  useLineShape(map, LINE_ID);
+  useVehicles(map, LINE_ID);
 
   useEffect(() => {
-    const instance = map.current;
-    if (!instance) {
+    if (!map) {
       return;
     }
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
       const props = e.features?.[0]?.properties;
       setSelected(props ? (props as Selected) : null);
     };
-    instance.on("click", "vehicles", onClick);
+    map.on("click", "vehicles", onClick);
     return () => {
-      instance.off("click", "vehicles", onClick);
+      map.off("click", "vehicles", onClick);
     };
   }, [map]);
 
