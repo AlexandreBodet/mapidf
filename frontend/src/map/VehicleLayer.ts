@@ -14,6 +14,7 @@ interface Anim {
 export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
+  private loadHandler: (() => void) | null = null;
 
   constructor(
     private map: MlMap,
@@ -44,6 +45,7 @@ export class VehicleLayer {
     if (this.map.isStyleLoaded()) {
       add();
     } else {
+      this.loadHandler = add;
       this.map.once("load", add);
     }
   }
@@ -116,6 +118,10 @@ export class VehicleLayer {
       cancelAnimationFrame(this.raf);
     }
     this.raf = 0;
+    if (this.loadHandler) {
+      this.map.off("load", this.loadHandler);
+      this.loadHandler = null;
+    }
     this.anims.clear();
   }
 }

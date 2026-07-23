@@ -10,18 +10,26 @@ export function useVehicles(map: MlMap | null, lineId: string) {
       return;
     }
     const layer = new VehicleLayer(map, VEHICLE_POLL_MS);
+    let cancelled = false;
     let timer: number;
     const tick = async () => {
       try {
         const response = await fetchVehicles(lineId);
+        if (cancelled) {
+          return;
+        }
         layer.update(response.vehicles, performance.now());
       } catch {
         // on conserve l'affichage courant
+      }
+      if (cancelled) {
+        return;
       }
       timer = window.setTimeout(tick, VEHICLE_POLL_MS);
     };
     tick();
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       layer.destroy();
     };
