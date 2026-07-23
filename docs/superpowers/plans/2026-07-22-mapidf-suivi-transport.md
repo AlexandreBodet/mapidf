@@ -2639,6 +2639,7 @@ interface Anim {
 export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
+  private loadHandler: (() => void) | null = null;
 
   constructor(
     private map: MlMap,
@@ -2669,6 +2670,7 @@ export class VehicleLayer {
     if (this.map.isStyleLoaded()) {
       add();
     } else {
+      this.loadHandler = add;
       this.map.once("load", add);
     }
   }
@@ -2741,6 +2743,10 @@ export class VehicleLayer {
       cancelAnimationFrame(this.raf);
     }
     this.raf = 0;
+    if (this.loadHandler) {
+      this.map.off("load", this.loadHandler);
+      this.loadHandler = null;
+    }
     this.anims.clear();
   }
 }
@@ -2761,18 +2767,26 @@ export function useVehicles(map: MlMap | null, lineId: string) {
       return;
     }
     const layer = new VehicleLayer(map, VEHICLE_POLL_MS);
+    let cancelled = false;
     let timer: number;
     const tick = async () => {
       try {
         const response = await fetchVehicles(lineId);
+        if (cancelled) {
+          return;
+        }
         layer.update(response.vehicles, performance.now());
       } catch {
         // on conserve l'affichage courant
+      }
+      if (cancelled) {
+        return;
       }
       timer = window.setTimeout(tick, VEHICLE_POLL_MS);
     };
     tick();
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       layer.destroy();
     };
