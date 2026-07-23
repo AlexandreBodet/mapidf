@@ -49,7 +49,9 @@ public class RealtimePoller {
     public void attachMetrics(MeterRegistry registry) {
         this.pollFailures = registry.counter("mapidf.rt.poll.failures");
         registry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
-            ref -> Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
+            ref -> ref.get().asOf().equals(Instant.EPOCH)
+                ? 0.0
+                : Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
     }
 
     public RtSnapshot current() {
@@ -112,7 +114,7 @@ public class RealtimePoller {
             journeys.add(new RtSnapshot.LiveJourney(
                 journeyRef, directionRef, destination, stopRef, Instant.parse(eta)));
         }
-        return new RtSnapshot(asOf, journeys);
+        return new RtSnapshot(asOf, List.copyOf(journeys));
     }
 
     private static String firstValue(JsonNode node) {

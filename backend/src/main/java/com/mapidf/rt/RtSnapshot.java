@@ -5,6 +5,10 @@ import java.util.List;
 
 public record RtSnapshot(Instant asOf, List<LiveJourney> journeys) {
 
+    public RtSnapshot {
+        journeys = List.copyOf(journeys);
+    }
+
     public record LiveJourney(String journeyRef, String directionRef, String destination,
                               String nextStopRef, Instant expectedTime) {
     }

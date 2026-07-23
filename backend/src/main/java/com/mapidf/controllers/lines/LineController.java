@@ -5,6 +5,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 
+import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.gtfs.GtfsStaticService;
 import com.mapidf.position.LineSchedule;
 import com.mapidf.position.PositionEngine;
@@ -31,10 +32,12 @@ public class LineController {
     private final PositionEngine positionEngine;
     private final GtfsStaticService staticService;
     private final RealtimePoller poller;
+    private final LineProperties lineProperties;
 
     @GetMapping("/{id}/shape")
     public ShapeResponse shape(@PathVariable String id) {
-        return networkQueryService.getShape(id);
+        // MVP mono-ligne : on sert la ligne configurée (app.line.gtfs-route-id)
+        return networkQueryService.getShape(lineProperties.gtfsRouteId());
     }
 
     @GetMapping("/{id}/vehicles")
@@ -44,7 +47,8 @@ public class LineController {
         if (line != null) {
             Instant now = Instant.now();
             int nowSecOfDay = LocalTime.now(PARIS).toSecondOfDay();
-            LineSchedule schedule = scheduleProvider.getLineSchedule(line, id);
+            // MVP mono-ligne : on sert la ligne configurée (app.line.gtfs-route-id)
+            LineSchedule schedule = scheduleProvider.getLineSchedule(line, lineProperties.gtfsRouteId());
             List<Vehicle> computed = positionEngine.computeAll(
                 line, schedule, poller.current(), now, nowSecOfDay);
             vehicles = computed.stream().map(VehicleResponse::from).toList();
