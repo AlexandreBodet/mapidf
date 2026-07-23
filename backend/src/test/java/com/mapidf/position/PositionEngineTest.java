@@ -67,6 +67,19 @@ class PositionEngineTest {
     }
 
     @Test
+    void interpolatesAcrossMultipleSegmentsWhenEtaSpansMoreThanOneSegment() {
+        // prochain arrêt reporté = Gamma (2 segments plus loin), ETA dans 900 s.
+        // segment Beta→Gamma = 600 s (consommé) ; reste 300 s sur Alpha→Beta (600 s)
+        // → fraction 0.5 sur Alpha→Beta → lng 2.305, prochain arrêt affiché = Gamma.
+        LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:3:", NOW.plusSeconds(900));
+
+        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW, NOW_SOD).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
+        assertThat(v.nextStop()).isEqualTo("Gamma");
+    }
+
+    @Test
     void placesAtOriginWhenNextStopIsFirst() {
         LiveJourney j = new LiveJourney("J1", "0", "Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
 

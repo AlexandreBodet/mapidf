@@ -50,12 +50,27 @@ public class PositionEngine {
             StopOnLine after = stops.size() > 1 ? stops.get(1) : next;
             bearing = bearing(indexed, next.distanceAlongLine(), after.distanceAlongLine());
         } else {
-            StopOnLine previous = stops.get(index - 1);
-            int segmentSec = next.scheduledSec() - previous.scheduledSec();
-            double fraction = segmentSec > 0 ? clamp(1.0 - (double) etaDeltaSec / segmentSec, 0.0, 1.0) : 1.0;
-            distance = previous.distanceAlongLine()
-                + fraction * (next.distanceAlongLine() - previous.distanceAlongLine());
-            bearing = bearing(indexed, previous.distanceAlongLine(), next.distanceAlongLine());
+            // SIRI ne donne que l'ETA du prochain arrêt reporté ; il est souvent à
+            // plusieurs inter-stations. On remonte les segments théoriques depuis
+            // `next` en consommant l'ETA, pour situer le véhicule dans le bon segment
+            // (sinon il resterait collé à l'arrêt précédent tant que ETA > 1 segment).
+            long remaining = Math.max(0, etaDeltaSec);
+            int target = index;
+            while (target > 1) {
+                int segDur = stops.get(target).scheduledSec() - stops.get(target - 1).scheduledSec();
+                if (segDur <= 0 || remaining <= segDur) {
+                    break;
+                }
+                remaining -= segDur;
+                target--;
+            }
+            StopOnLine to = stops.get(target);
+            StopOnLine from = stops.get(target - 1);
+            int segmentSec = to.scheduledSec() - from.scheduledSec();
+            double fraction = segmentSec > 0 ? clamp(1.0 - (double) remaining / segmentSec, 0.0, 1.0) : 1.0;
+            distance = from.distanceAlongLine()
+                + fraction * (to.distanceAlongLine() - from.distanceAlongLine());
+            bearing = bearing(indexed, from.distanceAlongLine(), to.distanceAlongLine());
         }
 
         Coordinate point = indexed.extractPoint(distance);
