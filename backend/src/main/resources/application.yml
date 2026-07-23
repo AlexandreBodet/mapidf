@@ -43,6 +43,7 @@ app:
     # Miroir open data STIF ; remplaçable par l'export data.iledefrance-mobilites.fr.
     gtfs-static-url: "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip"
     realtime-base-url: "https://prim.iledefrance-mobilites.fr/marketplace/requete-ligne"
-    # Un seul poll sert tous les clients (le front tweene entre deux snapshots),
-    # donc on reste doux pour ne pas saturer le quota PRIM (429 "rate limit exceeded").
-    poll-interval: PT20S
+    # PRIM actualise ces données 1×/minute et le quota par ligne est ~1000 appels/jour ;
+    # inutile (et coûteux) de poller plus vite. Un seul poll sert tous les clients
+    # (le front tweene entre deux snapshots et le backend recalcule la position à chaque requête).
+    poll-interval: PT60S
