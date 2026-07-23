@@ -4,7 +4,9 @@ spring:
       ddl-auto: validate
 app:
   prim:
+    # Vides en test : le poller et le refresh GTFS no-op → aucun accès réseau.
     realtime-base-url: ""
+    gtfs-static-url: ""
   line:
     gtfs-route-id: "TEST9"
     siri-line-ref: "STIF:Line::C01379:"

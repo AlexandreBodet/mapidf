@@ -17,10 +17,9 @@ Le MVP est mono-ligne : le backend sert uniquement la ligne configurée par
 utilisé côté frontend n'est qu'un libellé d'URL (`/api/lines/{id}/...`) — il n'est pas
 utilisé pour la résolution de la ligne côté backend.
 
-Pour faire tourner l'appli avec de vraies données, renseignez :
-- `app.prim.gtfs-static-url` (dataset GTFS statique PRIM)
-- `app.line.gtfs-route-id` (le vrai `route_id` GTFS, ex. `IDFM:C01379`)
-- `PRIM_API_KEY` (clé d'accès PRIM)
-
-`docker compose` charge automatiquement le fichier `.env` à la racine, donc
-`export PRIM_API_KEY` avant `docker compose up` est optionnel si `.env` est renseigné.
+La ligne 9 est **pré-configurée** dans `application.yml` (`gtfs-route-id: IDFM:C01379`,
+`siri-line-ref`, et `gtfs-static-url` = GTFS IDFM complet ~109 Mo, filtré en streaming
+par le backend pour n'en garder que la ligne cible). **Seule la clé PRIM est requise** :
+renseignez `PRIM_API_KEY` dans le fichier `.env` à la racine (chargé automatiquement par
+`docker compose`), puis `docker compose up`. Pour suivre une autre ligne, ajustez
+`app.line.*` (et le `gtfs-static-url` si besoin).

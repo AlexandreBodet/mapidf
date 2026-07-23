@@ -32,12 +32,15 @@ spring:
     locations: classpath:db/migration
 app:
   line:
-    gtfs-route-id: ""        # route_id GTFS ligne 9 (probable "IDFM:C01379"), renseigné en Task 2
-    siri-line-ref: "STIF:Line::C01379:"   # LineRef SIRI de la ligne 9 (confirmé en Task 2)
-    color: "#D5C900"
+    # Ligne 9 du métro (vérifié sur données réelles) — route_id du GTFS IDFM
+    gtfs-route-id: "IDFM:C01379"
+    siri-line-ref: "STIF:Line::C01379:"   # LineRef SIRI de la ligne 9
+    color: "#D2D200"                       # route_color GTFS de la ligne 9
   prim:
     api-key: ${PRIM_API_KEY:}
     auth-header: "apikey"
-    gtfs-static-url: ""      # dataset open data offre-horaires-tc-gtfs-idfm (renseigné en Task 2)
+    # GTFS IDFM complet (~109 Mo) ; le loader filtre en streaming la seule ligne cible.
+    # Miroir open data STIF ; remplaçable par l'export data.iledefrance-mobilites.fr.
+    gtfs-static-url: "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip"
     realtime-base-url: "https://prim.iledefrance-mobilites.fr/marketplace/requete-ligne"
     poll-interval: PT10S
