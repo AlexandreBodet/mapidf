@@ -2983,6 +2983,11 @@ services:
     image: postgis/postgis:18-3.6
     environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
     volumes: ["dbdata:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mapidf -d mapidf"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   backend:
     build: ./backend
     environment:
@@ -2990,7 +2995,10 @@ services:
       SPRING_DATASOURCE_USERNAME: mapidf
       SPRING_DATASOURCE_PASSWORD: mapidf
       PRIM_API_KEY: ${PRIM_API_KEY}
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
     ports: ["8000:8000", "9000:9000"]
   frontend:
     build: ./frontend
