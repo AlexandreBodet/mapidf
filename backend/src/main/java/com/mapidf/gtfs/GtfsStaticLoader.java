@@ -1,16 +1,22 @@
 package com.mapidf.gtfs;
 
-import java.io.ByteArrayInputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.ZipInputStream;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 import com.mapidf.data.entity.Route;
 import com.mapidf.data.entity.Stop;
@@ -21,20 +27,34 @@ import com.mapidf.data.repositories.StopRepository;
 import com.mapidf.data.repositories.StopTimeRepository;
 import com.mapidf.data.repositories.TripRepository;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.PrecisionModel;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Charge un GTFS statique (zip IDFM potentiellement volumineux : stop_times.txt peut peser
+ * plusieurs centaines de Mo une fois décompressé) en ne conservant en mémoire QUE les lignes
+ * utiles à la route demandée. Aucun fichier n'est jamais chargé intégralement en RAM :
+ * chaque .txt est parcouru en flux (BufferedReader + Commons CSV en mode itérateur) et filtré
+ * au fil de l'eau.
+ */
+@Slf4j
 @Component
 @AllArgsConstructor
 public class GtfsStaticLoader {
 
     private static final int SRID = 4326;
+    private static final int BATCH_SIZE = 1000;
+    private static final CSVFormat CSV_FORMAT = CSVFormat.DEFAULT.builder()
+        .setHeader().setSkipHeaderRecord(true).setTrim(true).build();
 
     private final RouteRepository routeRepository;
     private final StopRepository stopRepository;
@@ -44,80 +64,173 @@ public class GtfsStaticLoader {
 
     @Transactional
     public void loadFromZip(InputStream zipIn, String routeId) throws IOException {
-        Map<String, List<CSVRecord>> files = readZip(zipIn);
-
-        stopTimeRepository.deleteAllInBatch();
-        tripRepository.deleteAllInBatch();
-        stopRepository.deleteAllInBatch();
-        routeRepository.deleteAllInBatch();
-
-        CSVRecord routeRecord = files.get("routes.txt").stream()
-            .filter(r -> r.get("route_id").equals(routeId))
-            .findFirst()
-            .orElseThrow(() -> new IllegalStateException("route absente: " + routeId));
-
-        List<CSVRecord> tripRecords = files.get("trips.txt").stream()
-            .filter(r -> r.get("route_id").equals(routeId))
-            .toList();
-        String shapeId = tripRecords.getFirst().get("shape_id");
-
-        Route route = routeRepository.save(Route.builder()
-            .gtfsId(routeId)
-            .shortName(routeRecord.get("route_short_name"))
-            .color(safe(routeRecord, "route_color"))
-            .geom(buildShape(files.get("shapes.txt"), shapeId))
-            .build());
-
-        Map<String, Trip> tripsByGtfsId = new HashMap<>();
-        for (CSVRecord t : tripRecords) {
-            Trip trip = tripRepository.save(Trip.builder()
-                .gtfsId(t.get("trip_id"))
-                .route(route)
-                .headsign(safe(t, "trip_headsign"))
-                .direction(Short.parseShort(safe(t, "direction_id", "0")))
-                .build());
-            tripsByGtfsId.put(trip.getGtfsId(), trip);
-        }
-
-        List<CSVRecord> stopTimeRecords = files.get("stop_times.txt").stream()
-            .filter(r -> tripsByGtfsId.containsKey(r.get("trip_id")))
-            .toList();
-
-        Map<String, Stop> stopsByGtfsId = new HashMap<>();
-        for (CSVRecord s : files.get("stops.txt")) {
-            String stopId = s.get("stop_id");
-            boolean referenced = stopTimeRecords.stream().anyMatch(r -> r.get("stop_id").equals(stopId));
-            if (!referenced) {
-                continue;
-            }
-            Stop stop = stopRepository.save(Stop.builder()
-                .gtfsId(stopId)
-                .name(s.get("stop_name"))
-                .geom(geometryFactory.createPoint(new Coordinate(
-                    Double.parseDouble(s.get("stop_lon")), Double.parseDouble(s.get("stop_lat")))))
-                .build());
-            stopsByGtfsId.put(stopId, stop);
-        }
-
-        for (CSVRecord r : stopTimeRecords) {
-            stopTimeRepository.save(StopTime.builder()
-                .trip(tripsByGtfsId.get(r.get("trip_id")))
-                .stop(stopsByGtfsId.get(r.get("stop_id")))
-                .stopSequence(Integer.parseInt(r.get("stop_sequence")))
-                .arrivalSec(toSeconds(r.get("arrival_time")))
-                .departureSec(toSeconds(r.get("departure_time")))
-                .build());
+        Path tempZip = Files.createTempFile("gtfs-static-", ".zip");
+        try {
+            Files.copy(zipIn, tempZip, StandardCopyOption.REPLACE_EXISTING);
+            loadFromZipFile(tempZip, routeId);
+        } finally {
+            Files.deleteIfExists(tempZip);
         }
     }
 
-    private LineString buildShape(List<CSVRecord> shapes, String shapeId) {
-        List<CSVRecord> points = new ArrayList<>(shapes.stream()
-            .filter(r -> r.get("shape_id").equals(shapeId))
-            .toList());
-        points.sort(Comparator.comparingInt(r -> Integer.parseInt(r.get("shape_pt_sequence"))));
+    private void loadFromZipFile(Path zipPath, String routeId) throws IOException {
+        try (ZipFile zipFile = new ZipFile(zipPath.toFile())) {
+            stopTimeRepository.deleteAllInBatch();
+            tripRepository.deleteAllInBatch();
+            stopRepository.deleteAllInBatch();
+            routeRepository.deleteAllInBatch();
+
+            RouteInfo routeInfo = findRoute(zipFile, routeId);
+            TripsParseResult tripsParsed = parseTrips(zipFile, routeId);
+
+            Route route = routeRepository.save(Route.builder()
+                .gtfsId(routeId)
+                .shortName(routeInfo.shortName())
+                .color(routeInfo.color())
+                .geom(buildShape(zipFile, tripsParsed.shapeId()))
+                .build());
+
+            Map<String, Trip> tripsByGtfsId = persistTrips(route, tripsParsed.tripRows());
+
+            StopTimesParseResult stopTimesParsed = parseStopTimes(zipFile, tripsByGtfsId);
+            Map<String, Stop> stopsByGtfsId = persistStops(zipFile, stopTimesParsed.stopIds());
+
+            persistStopTimes(tripsByGtfsId, stopsByGtfsId, stopTimesParsed.rows());
+        }
+    }
+
+    private RouteInfo findRoute(ZipFile zipFile, String routeId) throws IOException {
+        try (CSVParser parser = openCsv(zipFile, "routes.txt")) {
+            for (CSVRecord r : parser) {
+                if (r.get("route_id").equals(routeId)) {
+                    return new RouteInfo(r.get("route_short_name"), safe(r, "route_color"));
+                }
+            }
+        }
+        throw new IllegalStateException("route absente: " + routeId);
+    }
+
+    private TripsParseResult parseTrips(ZipFile zipFile, String routeId) throws IOException {
+        List<TripRow> tripRows = new ArrayList<>();
+        Set<String> shapeIds = new HashSet<>();
+        String firstShapeId = null;
+        try (CSVParser parser = openCsv(zipFile, "trips.txt")) {
+            for (CSVRecord r : parser) {
+                if (!r.get("route_id").equals(routeId)) {
+                    continue;
+                }
+                String shapeId = r.get("shape_id");
+                if (firstShapeId == null) {
+                    firstShapeId = shapeId;
+                }
+                shapeIds.add(shapeId);
+                tripRows.add(new TripRow(
+                    r.get("trip_id"),
+                    safe(r, "trip_headsign"),
+                    Short.parseShort(safe(r, "direction_id", "0"))));
+            }
+        }
+        if (tripRows.isEmpty()) {
+            throw new IllegalStateException("aucun trip pour la route: " + routeId);
+        }
+        if (shapeIds.size() > 1) {
+            log.warn("[GTFS] route {} référence {} shapes distincts, seul le premier ({}) est utilisé pour la géométrie",
+                routeId, shapeIds.size(), firstShapeId);
+        }
+        return new TripsParseResult(tripRows, firstShapeId);
+    }
+
+    private Map<String, Trip> persistTrips(Route route, List<TripRow> tripRows) {
+        List<Trip> tripsToSave = tripRows.stream()
+            .map(tr -> Trip.builder()
+                .gtfsId(tr.tripId())
+                .route(route)
+                .headsign(tr.headsign())
+                .direction(tr.direction())
+                .build())
+            .toList();
+        Map<String, Trip> tripsByGtfsId = new HashMap<>();
+        for (Trip trip : saveAllInBatches(tripRepository, tripsToSave)) {
+            tripsByGtfsId.put(trip.getGtfsId(), trip);
+        }
+        return tripsByGtfsId;
+    }
+
+    private StopTimesParseResult parseStopTimes(ZipFile zipFile, Map<String, Trip> tripsByGtfsId) throws IOException {
+        List<StopTimeRow> rows = new ArrayList<>();
+        Set<String> stopIds = new HashSet<>();
+        try (CSVParser parser = openCsv(zipFile, "stop_times.txt")) {
+            for (CSVRecord r : parser) {
+                String tripId = r.get("trip_id");
+                if (!tripsByGtfsId.containsKey(tripId)) {
+                    continue;
+                }
+                String stopId = r.get("stop_id");
+                rows.add(new StopTimeRow(
+                    tripId,
+                    stopId,
+                    Integer.parseInt(r.get("stop_sequence")),
+                    toSeconds(r.get("arrival_time")),
+                    toSeconds(r.get("departure_time"))));
+                stopIds.add(stopId);
+            }
+        }
+        return new StopTimesParseResult(rows, stopIds);
+    }
+
+    private Map<String, Stop> persistStops(ZipFile zipFile, Set<String> stopIds) throws IOException {
+        List<Stop> stopsToSave = new ArrayList<>();
+        try (CSVParser parser = openCsv(zipFile, "stops.txt")) {
+            for (CSVRecord r : parser) {
+                String stopId = r.get("stop_id");
+                if (!stopIds.contains(stopId)) {
+                    continue;
+                }
+                stopsToSave.add(Stop.builder()
+                    .gtfsId(stopId)
+                    .name(r.get("stop_name"))
+                    .geom(geometryFactory.createPoint(new Coordinate(
+                        Double.parseDouble(r.get("stop_lon")), Double.parseDouble(r.get("stop_lat")))))
+                    .build());
+            }
+        }
+        Map<String, Stop> stopsByGtfsId = new HashMap<>();
+        for (Stop stop : saveAllInBatches(stopRepository, stopsToSave)) {
+            stopsByGtfsId.put(stop.getGtfsId(), stop);
+        }
+        return stopsByGtfsId;
+    }
+
+    private void persistStopTimes(Map<String, Trip> tripsByGtfsId, Map<String, Stop> stopsByGtfsId,
+                                   List<StopTimeRow> rows) {
+        List<StopTime> stopTimesToSave = rows.stream()
+            .map(row -> StopTime.builder()
+                .trip(tripsByGtfsId.get(row.tripId()))
+                .stop(stopsByGtfsId.get(row.stopId()))
+                .stopSequence(row.stopSequence())
+                .arrivalSec(row.arrivalSec())
+                .departureSec(row.departureSec())
+                .build())
+            .toList();
+        saveAllInBatches(stopTimeRepository, stopTimesToSave);
+    }
+
+    private LineString buildShape(ZipFile zipFile, String shapeId) throws IOException {
+        List<ShapePoint> points = new ArrayList<>();
+        try (CSVParser parser = openCsv(zipFile, "shapes.txt")) {
+            for (CSVRecord r : parser) {
+                if (!r.get("shape_id").equals(shapeId)) {
+                    continue;
+                }
+                points.add(new ShapePoint(
+                    Integer.parseInt(r.get("shape_pt_sequence")),
+                    Double.parseDouble(r.get("shape_pt_lon")),
+                    Double.parseDouble(r.get("shape_pt_lat"))));
+            }
+        }
+        points.sort(Comparator.comparingInt(ShapePoint::sequence));
         Coordinate[] coordinates = points.stream()
-            .map(r -> new Coordinate(
-                Double.parseDouble(r.get("shape_pt_lon")), Double.parseDouble(r.get("shape_pt_lat"))))
+            .map(p -> new Coordinate(p.lon(), p.lat()))
             .toArray(Coordinate[]::new);
         return geometryFactory.createLineString(coordinates);
     }
@@ -138,23 +251,40 @@ public class GtfsStaticLoader {
         return defaultValue;
     }
 
-    private Map<String, List<CSVRecord>> readZip(InputStream zipIn) throws IOException {
-        Map<String, List<CSVRecord>> out = new HashMap<>();
-        try (ZipInputStream zis = new ZipInputStream(zipIn)) {
-            var entry = zis.getNextEntry();
-            while (entry != null) {
-                if (entry.getName().endsWith(".txt")) {
-                    byte[] bytes = zis.readAllBytes();
-                    try (var reader = new InputStreamReader(new ByteArrayInputStream(bytes), StandardCharsets.UTF_8)) {
-                        var parser = CSVFormat.DEFAULT.builder()
-                            .setHeader().setSkipHeaderRecord(true).setTrim(true).build()
-                            .parse(reader);
-                        out.put(entry.getName(), parser.getRecords());
-                    }
-                }
-                entry = zis.getNextEntry();
-            }
+    private CSVParser openCsv(ZipFile zipFile, String entryName) throws IOException {
+        ZipEntry entry = zipFile.getEntry(entryName);
+        if (entry == null) {
+            throw new IllegalStateException("entrée GTFS manquante dans le zip: " + entryName);
         }
-        return out;
+        BufferedReader reader = new BufferedReader(
+            new InputStreamReader(zipFile.getInputStream(entry), StandardCharsets.UTF_8));
+        return CSV_FORMAT.parse(reader);
+    }
+
+    private <T> List<T> saveAllInBatches(JpaRepository<T, ?> repository, List<T> entities) {
+        List<T> saved = new ArrayList<>(entities.size());
+        for (int i = 0; i < entities.size(); i += BATCH_SIZE) {
+            List<T> chunk = entities.subList(i, Math.min(i + BATCH_SIZE, entities.size()));
+            saved.addAll(repository.saveAll(chunk));
+        }
+        return saved;
+    }
+
+    private record RouteInfo(String shortName, String color) {
+    }
+
+    private record TripRow(String tripId, String headsign, Short direction) {
+    }
+
+    private record TripsParseResult(List<TripRow> tripRows, String shapeId) {
+    }
+
+    private record StopTimeRow(String tripId, String stopId, int stopSequence, int arrivalSec, int departureSec) {
+    }
+
+    private record StopTimesParseResult(List<StopTimeRow> rows, Set<String> stopIds) {
+    }
+
+    private record ShapePoint(int sequence, double lon, double lat) {
     }
 }
