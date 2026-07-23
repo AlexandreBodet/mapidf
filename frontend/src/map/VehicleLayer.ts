@@ -1,5 +1,6 @@
 import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
 import type { VehiclesResponse } from "../api/types";
+import { whenStyleReady } from "./mapReady";
 
 type V = VehiclesResponse["vehicles"][number];
 
@@ -14,7 +15,7 @@ interface Anim {
 export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
-  private loadHandler: (() => void) | null = null;
+  private cancelReady: (() => void) | null = null;
 
   constructor(
     private map: MlMap,
@@ -42,12 +43,7 @@ export class VehicleLayer {
         },
       });
     };
-    if (this.map.isStyleLoaded()) {
-      add();
-    } else {
-      this.loadHandler = add;
-      this.map.once("load", add);
-    }
+    this.cancelReady = whenStyleReady(this.map, add);
   }
 
   private featureCollection(features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
@@ -101,7 +97,7 @@ export class VehicleLayer {
               bearing: anim.bearing,
               headsign: anim.vehicle.headsign,
               nextStop: anim.vehicle.nextStop,
-              delaySec: anim.vehicle.delaySec,
+              status: anim.vehicle.status,
             },
             geometry: { type: "Point", coordinates: [lng, lat] },
           } as GeoJSON.Feature;
@@ -118,9 +114,9 @@ export class VehicleLayer {
       cancelAnimationFrame(this.raf);
     }
     this.raf = 0;
-    if (this.loadHandler) {
-      this.map.off("load", this.loadHandler);
-      this.loadHandler = null;
+    if (this.cancelReady) {
+      this.cancelReady();
+      this.cancelReady = null;
     }
     this.anims.clear();
   }

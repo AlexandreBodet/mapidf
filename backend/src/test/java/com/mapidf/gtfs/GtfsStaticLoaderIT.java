@@ -47,4 +47,17 @@ class GtfsStaticLoaderIT {
             .extracting("gtfsId")
             .containsExactlyInAnyOrder("S1", "S2", "S3");
     }
+
+    @Test
+    void usesTheLongestShapeWhenRouteHasSeveralVariants() throws Exception {
+        // R1 a 2 trips : SH_SHORT (2 points, ~0.001°) et SH_LONG (4 points, ~0.03°).
+        // Le tracé retenu doit être le plus long (SH_LONG, 4 points), sinon les arrêts
+        // hors emprise se projetteraient sur l'extrémité du tracé court.
+        try (var in = getClass().getResourceAsStream("/gtfs-twoshapes.zip")) {
+            loader.loadFromZip(in, "R1");
+        }
+
+        Route route = routeRepository.findByGtfsId("R1").orElseThrow();
+        assertThat(route.getGeom().getNumPoints()).isEqualTo(4);
+    }
 }

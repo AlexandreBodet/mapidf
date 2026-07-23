@@ -12,7 +12,7 @@ public class VehicleResponse {
     double lat;
     double lng;
     double bearing;
-    int delaySec;
+    String status;
     String headsign;
     String nextStop;
     String source;
@@ -23,7 +23,7 @@ public class VehicleResponse {
             .lat(vehicle.lat())
             .lng(vehicle.lng())
             .bearing(vehicle.bearing())
-            .delaySec(vehicle.delaySec())
+            .status(vehicle.status())
             .headsign(vehicle.headsign())
             .nextStop(vehicle.nextStop())
             .source(vehicle.source().name())

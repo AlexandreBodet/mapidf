@@ -1,7 +1,5 @@
 package com.mapidf.services;
 
-import java.util.List;
-
 import com.mapidf.controllers.lines.ShapeResponse;
 import com.mapidf.controllers.lines.ShapeResponse.StopDto;
 import com.mapidf.data.entity.Route;
@@ -15,6 +13,8 @@ import org.locationtech.jts.geom.Coordinate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @AllArgsConstructor
@@ -47,9 +47,18 @@ public class NetworkQueryService {
 
         return ShapeResponse.builder()
             .lineId(gtfsRouteId)
-            .color(route.getColor())
+            .color(toCssColor(route.getColor()))
             .shape(shape)
             .stops(stops)
             .build();
+    }
+
+    // route_color GTFS est un hex SANS '#' (ex. "D2D200") ; on renvoie une couleur CSS
+    // valide (ex. "#D2D200") sinon MapLibre rejette la couche et le tracé n'apparaît pas.
+    private static String toCssColor(String gtfsColor) {
+        if (gtfsColor == null || gtfsColor.isBlank()) {
+            return "#000000";
+        }
+        return gtfsColor.startsWith("#") ? gtfsColor : "#" + gtfsColor;
     }
 }

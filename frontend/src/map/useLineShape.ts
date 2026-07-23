@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { Map as MlMap } from "maplibre-gl";
 import { fetchShape } from "../api/lines";
+import { whenStyleReady } from "./mapReady";
 
 export function useLineShape(map: MlMap | null, lineId: string) {
   useEffect(() => {
@@ -8,13 +9,13 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       return;
     }
     let cancelled = false;
-    let drawHandler: (() => void) | null = null;
+    let cancelReady: (() => void) | null = null;
     fetchShape(lineId).then((shape) => {
       if (cancelled) {
         return;
       }
       const draw = () => {
-        if (map.getSource("line-shape")) {
+        if (cancelled || map.getSource("line-shape")) {
           return;
         }
         map.addSource("line-shape", {
@@ -54,17 +55,12 @@ export function useLineShape(map: MlMap | null, lineId: string) {
           },
         });
       };
-      if (map.isStyleLoaded()) {
-        draw();
-      } else {
-        drawHandler = draw;
-        map.once("load", draw);
-      }
+      cancelReady = whenStyleReady(map, draw);
     });
     return () => {
       cancelled = true;
-      if (drawHandler) {
-        map.off("load", drawHandler);
+      if (cancelReady) {
+        cancelReady();
       }
     };
   }, [map, lineId]);

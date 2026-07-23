@@ -87,7 +87,7 @@ public class GtfsStaticLoader {
                 .gtfsId(routeId)
                 .shortName(routeInfo.shortName())
                 .color(routeInfo.color())
-                .geom(buildShape(zipFile, tripsParsed.shapeId()))
+                .geom(buildLongestShape(zipFile, tripsParsed.shapeIds()))
                 .build());
 
             Map<String, Trip> tripsByGtfsId = persistTrips(route, tripsParsed.tripRows());
@@ -113,17 +113,15 @@ public class GtfsStaticLoader {
     private TripsParseResult parseTrips(ZipFile zipFile, String routeId) throws IOException {
         List<TripRow> tripRows = new ArrayList<>();
         Set<String> shapeIds = new HashSet<>();
-        String firstShapeId = null;
         try (CSVParser parser = openCsv(zipFile, "trips.txt")) {
             for (CSVRecord r : parser) {
                 if (!r.get("route_id").equals(routeId)) {
                     continue;
                 }
-                String shapeId = r.get("shape_id");
-                if (firstShapeId == null) {
-                    firstShapeId = shapeId;
+                String shapeId = safe(r, "shape_id");
+                if (shapeId != null) {
+                    shapeIds.add(shapeId);
                 }
-                shapeIds.add(shapeId);
                 tripRows.add(new TripRow(
                     r.get("trip_id"),
                     safe(r, "trip_headsign"),
@@ -133,11 +131,10 @@ public class GtfsStaticLoader {
         if (tripRows.isEmpty()) {
             throw new IllegalStateException("aucun trip pour la route: " + routeId);
         }
-        if (shapeIds.size() > 1) {
-            log.warn("[GTFS] route {} référence {} shapes distincts, seul le premier ({}) est utilisé pour la géométrie",
-                routeId, shapeIds.size(), firstShapeId);
+        if (shapeIds.isEmpty()) {
+            throw new IllegalStateException("aucun shape_id pour la route: " + routeId);
         }
-        return new TripsParseResult(tripRows, firstShapeId);
+        return new TripsParseResult(tripRows, shapeIds);
     }
 
     private Map<String, Trip> persistTrips(Route route, List<TripRow> tripRows) {
@@ -215,24 +212,45 @@ public class GtfsStaticLoader {
         saveAllInBatches(stopTimeRepository, stopTimesToSave);
     }
 
-    private LineString buildShape(ZipFile zipFile, String shapeId) throws IOException {
-        List<ShapePoint> points = new ArrayList<>();
+    /**
+     * Une route référence souvent plusieurs shapes (services partiels, terminus divers).
+     * On retient le tracé le plus long : c'est celui qui couvre la ligne de bout en bout,
+     * sinon les arrêts hors de son emprise se projettent tous sur son extrémité (fraction 0)
+     * et les véhicules s'y empilent.
+     */
+    private LineString buildLongestShape(ZipFile zipFile, Set<String> shapeIds) throws IOException {
+        Map<String, List<ShapePoint>> pointsByShape = new HashMap<>();
         try (CSVParser parser = openCsv(zipFile, "shapes.txt")) {
             for (CSVRecord r : parser) {
-                if (!r.get("shape_id").equals(shapeId)) {
+                String shapeId = r.get("shape_id");
+                if (!shapeIds.contains(shapeId)) {
                     continue;
                 }
-                points.add(new ShapePoint(
+                pointsByShape.computeIfAbsent(shapeId, k -> new ArrayList<>()).add(new ShapePoint(
                     Integer.parseInt(r.get("shape_pt_sequence")),
                     Double.parseDouble(r.get("shape_pt_lon")),
                     Double.parseDouble(r.get("shape_pt_lat"))));
             }
         }
-        points.sort(Comparator.comparingInt(ShapePoint::sequence));
-        Coordinate[] coordinates = points.stream()
-            .map(p -> new Coordinate(p.lon(), p.lat()))
-            .toArray(Coordinate[]::new);
-        return geometryFactory.createLineString(coordinates);
+        LineString longest = null;
+        String longestId = null;
+        for (Map.Entry<String, List<ShapePoint>> entry : pointsByShape.entrySet()) {
+            List<ShapePoint> points = new ArrayList<>(entry.getValue());
+            points.sort(Comparator.comparingInt(ShapePoint::sequence));
+            Coordinate[] coordinates = points.stream()
+                .map(p -> new Coordinate(p.lon(), p.lat()))
+                .toArray(Coordinate[]::new);
+            LineString candidate = geometryFactory.createLineString(coordinates);
+            if (longest == null || candidate.getLength() > longest.getLength()) {
+                longest = candidate;
+                longestId = entry.getKey();
+            }
+        }
+        if (longest == null) {
+            throw new IllegalStateException("aucun tracé (shape) trouvé pour la route");
+        }
+        log.info("[GTFS] {} shape(s) candidat(s) ; tracé retenu (le plus long) : {}", pointsByShape.size(), longestId);
+        return longest;
     }
 
     static int toSeconds(String hms) {
@@ -276,7 +294,7 @@ public class GtfsStaticLoader {
     private record TripRow(String tripId, String headsign, Short direction) {
     }
 
-    private record TripsParseResult(List<TripRow> tripRows, String shapeId) {
+    private record TripsParseResult(List<TripRow> tripRows, Set<String> shapeIds) {
     }
 
     private record StopTimeRow(String tripId, String stopId, int stopSequence, int arrivalSec, int departureSec) {

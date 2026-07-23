@@ -32,6 +32,7 @@ class LineControllerShapeIT {
         mockMvc.perform(get("/lines/TEST9/shape"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.lineId").value("TEST9"))
+            .andExpect(jsonPath("$.color").value("#D5C900"))
             .andExpect(jsonPath("$.shape.length()").value(3))
             .andExpect(jsonPath("$.stops.length()").value(3));
     }
