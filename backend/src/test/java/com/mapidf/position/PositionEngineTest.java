@@ -3,7 +3,6 @@ package com.mapidf.position;
 import java.time.Instant;
 import java.util.List;
 
-import com.mapidf.rt.RtSnapshot;
 import com.mapidf.rt.RtSnapshot.LiveJourney;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
@@ -34,11 +33,12 @@ class PositionEngineTest {
     }
 
     private static LiveJourney journey(String destination, String stopRef, Instant eta) {
-        return new LiveJourney("J1", "0", destination, stopRef, eta, "ON_TIME");
+        return new LiveJourney("STIF:Line::C01379:", "J1", "0", destination, stopRef, eta, "ON_TIME");
     }
 
-    private static RtSnapshot rtWith(LiveJourney journey) {
-        return new RtSnapshot(NOW, List.of(journey));
+    // Le moteur travaille désormais sur la liste de courses d'UNE ligne (extraite du snapshot réseau).
+    private static List<LiveJourney> rtWith(LiveJourney journey) {
+        return List.of(journey);
     }
 
     @Test
@@ -111,7 +111,8 @@ class PositionEngineTest {
                 new StopOnLine("3", "Gamma", 0.020, 8 * 3600),
                 new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
                 new StopOnLine("1", "Alpha", 0.000, 8 * 3600 + 1200)))));
-        LiveJourney j = new LiveJourney("J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300), "ON_TIME");
+        LiveJourney j = new LiveJourney(
+            "STIF:Line::C01379:", "J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300), "ON_TIME");
 
         Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW).getFirst();
 

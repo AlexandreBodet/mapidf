@@ -51,8 +51,9 @@ public class LineController {
         if (line != null) {
             // MVP mono-ligne : on sert la ligne configurée (app.line.gtfs-route-id)
             LineSchedule schedule = scheduleProvider.getLineSchedule(line, lineProperties.gtfsRouteId());
+            // Le snapshot couvre tout le réseau ; on n'en tire que la ligne demandée (par LineRef SIRI).
             List<Vehicle> computed = positionEngine.computeAll(
-                line, schedule, poller.current(), Instant.now());
+                line, schedule, poller.current().forLine(lineProperties.siriLineRef()), Instant.now());
             vehicles = computed.stream().map(VehicleResponse::from).toList();
         }
         return VehiclesResponse.builder()

@@ -12,7 +12,8 @@ Clé stockée dans `.env` (racine), variable `PRIM_API_KEY` — non commitée.
 | Endpoint | Résultat | Usage |
 |---|---|---|
 | `GET /marketplace/stop-monitoring?MonitoringRef=STIF:StopPoint:Q:<id>:` | **200** | Prochains passages à un arrêt (SIRI-SM) |
-| `GET /marketplace/estimated-timetable?LineRef=STIF:Line::<id>:` | **200** (~110 Ko) | **Horaires estimés temps réel par ligne (SIRI-ET) — SOURCE PRINCIPALE** |
+| `GET /marketplace/estimated-timetable?LineRef=STIF:Line::<id>:` | **200** (~129 Ko) | Horaires estimés temps réel filtrés sur une ligne (SIRI-ET) |
+| `GET /marketplace/estimated-timetable` (SANS LineRef) | **200** (~63,5 Mo) | **Flux GLOBAL tout le réseau en 1 appel (SIRI-ET) — SOURCE PRINCIPALE** |
 | `GET /marketplace/general-message` | 400 sans param, auth OK | Perturbations (SIRI-GM) — nécessite un paramètre |
 | `GET /marketplace/gtfs-rt*` | 403 Cloudflare | **N'existe pas sous ce chemin** — IDFM ne publie pas de GTFS-RT « clé en main » ici |
 
@@ -26,10 +27,28 @@ pour chaque course (`EstimatedVehicleJourney`) de la ligne, elle fournit les
 pour **interpoler la position** le long du tracé : pas besoin d'un flux
 `TripUpdates` séparé, l'heure estimée intègre déjà le retard.
 
-→ Impact sur le plan : la **Task 6** (poller) parse du **SIRI-ET JSON**, pas du
-protobuf GTFS-RT. Le reste (snapshot → `PositionEngine` interpolation → endpoints)
-est inchangé. Les positions GPS « brutes » de véhicules ne semblent pas exposées →
-le mode `INTERPOLATED` devient le mode principal.
+→ Impact sur le plan : le poller parse du **SIRI-ET JSON**, pas du protobuf GTFS-RT.
+Le reste (snapshot → `PositionEngine` interpolation → endpoints) est inchangé. Les
+positions GPS « brutes » de véhicules ne semblent pas exposées → le mode
+`INTERPOLATED` devient le mode principal.
+
+## Mise à jour 2026-07-23 — passage au flux GLOBAL
+
+Vérifié : **`estimated-timetable` SANS `LineRef` renvoie tout le réseau en un seul
+appel** (63,5 Mo, JSON, même structure), ligne 9 incluse (métro couvert). Le poller
+(`RealtimePoller`) ingère donc ce flux et **indexe les courses par `LineRef`**
+(`RtSnapshot.byLine`, `forLine(...)`), au lieu d'un appel `requete-ligne` par ligne.
+
+Conséquences :
+- **Coût quota indépendant du nombre de lignes** (1 appel/poll pour tout le réseau).
+  L'ancien `requete-ligne` (1 appel/min **par ligne**) ne passait pas à l'échelle.
+- Au MVP mono-ligne, le poller garde le filtre `?LineRef=` (réponse ~129 Ko) ; retirer
+  le filtre = ingestion réseau complète (évolution multi-lignes, sans nouvel appel).
+- Poll **PT60S borné aux heures de service** (~05h30–01h30, `inServiceHours`) ≈ 1200/j.
+  Quota `estimated-timetable` (doc ~1000/j, à relever à 1500 côté PRIM). Bucket
+  **distinct** de `requete-ligne` (constaté : 200 alors que `requete-ligne` était 429).
+- `gtfs-rt` sous `/marketplace/` = 403 Cloudflare (chemin inexistant) → piste protobuf
+  abandonnée, inutile ici.
 
 ## Identifiants confirmés (référentiel ILICO `getData`)
 

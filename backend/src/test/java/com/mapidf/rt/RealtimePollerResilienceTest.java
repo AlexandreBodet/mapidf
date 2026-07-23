@@ -28,13 +28,15 @@ class RealtimePollerResilienceTest {
 
         byte[] siri = RtFixtures.siriLineNineSample();
         poller.pollOnce(url -> siri, Instant.ofEpochSecond(100));
-        assertThat(poller.current().journeys()).extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
+        assertThat(poller.current().forLine("STIF:Line::C01379:"))
+            .extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
 
         poller.pollOnce(url -> {
             throw new RuntimeException("IDFM down");
         }, Instant.ofEpochSecond(200));
 
-        assertThat(poller.current().journeys()).extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
+        assertThat(poller.current().forLine("STIF:Line::C01379:"))
+            .extracting(RtSnapshot.LiveJourney::journeyRef).contains("J1");
         assertThat(registry.counter("mapidf.rt.poll.failures").count()).isEqualTo(1.0);
     }
 }
