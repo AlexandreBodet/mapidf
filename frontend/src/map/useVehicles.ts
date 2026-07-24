@@ -57,7 +57,7 @@ export function useVehicles(
       layer.destroy();
       layerRef.current = null;
     };
-  }, [map, lineId, color]);
+  }, [map, lineId]);
 
   useEffect(() => {
     layerRef.current?.setSelected(selectedTripId);
@@ -66,4 +66,8 @@ export function useVehicles(
   useEffect(() => {
     layerRef.current?.setFollow(follow);
   }, [map, lineId, follow]);
+
+  useEffect(() => {
+    layerRef.current?.setColor(color);
+  }, [map, lineId, color]);
 }

@@ -35,6 +35,16 @@ export class VehicleLayer {
     this.follow = follow;
   }
 
+  setColor(color: string) {
+    this.color = color;
+    // L'icône est déjà sur la carte : on remplace son contenu par une flèche à la
+    // nouvelle couleur (la couche symbol la ré-affiche automatiquement). Si l'image
+    // n'existe pas encore, ensureLayer l'ajoutera avec this.color mis à jour.
+    if (this.map.hasImage("vehicle-arrow")) {
+      this.map.updateImage("vehicle-arrow", this.arrowImage());
+    }
+  }
+
   private arrowImage(): ImageData {
     const size = 24;
     const canvas = document.createElement("canvas");
