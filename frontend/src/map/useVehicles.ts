@@ -1,15 +1,23 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Map as MlMap } from "maplibre-gl";
 import { fetchVehicles } from "../api/lines";
 import { VEHICLE_POLL_MS } from "../api/config";
 import { VehicleLayer } from "./VehicleLayer";
 
-export function useVehicles(map: MlMap | null, lineId: string) {
+export function useVehicles(
+  map: MlMap | null,
+  lineId: string,
+  selectedTripId: string | null = null,
+  follow = false,
+) {
+  const layerRef = useRef<VehicleLayer | null>(null);
+
   useEffect(() => {
     if (!map) {
       return;
     }
     const layer = new VehicleLayer(map, VEHICLE_POLL_MS);
+    layerRef.current = layer;
     let cancelled = false;
     let timer: number;
     const tick = async () => {
@@ -32,6 +40,15 @@ export function useVehicles(map: MlMap | null, lineId: string) {
       cancelled = true;
       window.clearTimeout(timer);
       layer.destroy();
+      layerRef.current = null;
     };
   }, [map, lineId]);
+
+  useEffect(() => {
+    layerRef.current?.setSelected(selectedTripId);
+  }, [map, lineId, selectedTripId]);
+
+  useEffect(() => {
+    layerRef.current?.setFollow(follow);
+  }, [map, lineId, follow]);
 }
