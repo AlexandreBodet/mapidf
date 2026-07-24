@@ -4,8 +4,10 @@ import { useMap } from "./map/MapView";
 import { useLineShape } from "./map/useLineShape";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
+import { StopPanel } from "./ui/StopPanel";
+import { fetchDepartures } from "./api/lines";
 import { LINE_ID } from "./api/config";
-import type { VehiclesResponse } from "./api/types";
+import type { VehiclesResponse, DeparturesResponse } from "./api/types";
 
 type V = VehiclesResponse["vehicles"][number];
 type Selected = { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
@@ -20,6 +22,7 @@ export default function App() {
   const [selected, setSelected] = useState<Selected>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
+  const [station, setStation] = useState<DeparturesResponse | null>(null);
   useLineShape(map, LINE_ID);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
@@ -38,13 +41,31 @@ export default function App() {
       if (!props) {
         return;
       }
+      setStation(null);
       setSelected(props as Selected);
       setSelectedTripId(props.tripId as string);
       setFollow(true);
     };
     map.on("click", "vehicles", onClick);
+    const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
+      const id = e.features?.[0]?.properties?.id as string | undefined;
+      if (!id) {
+        return;
+      }
+      // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
+      setSelected(null);
+      setSelectedTripId(null);
+      setFollow(false);
+      try {
+        setStation(await fetchDepartures(LINE_ID, id));
+      } catch {
+        setStation(null);
+      }
+    };
+    map.on("click", "stops", onStationClick);
     return () => {
       map.off("click", "vehicles", onClick);
+      map.off("click", "stops", onStationClick);
     };
   }, [map]);
 
@@ -81,6 +102,7 @@ export default function App() {
         onFollow={() => setFollow((f) => !f)}
         onClose={clearSelection}
       />
+      <StopPanel data={station} onClose={() => setStation(null)} />
     </>
   );
 }

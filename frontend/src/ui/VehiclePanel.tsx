@@ -1,22 +1,10 @@
+import { formatEta } from "./formatEta";
+
 interface Props {
   vehicle: { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
   following?: boolean;
   onFollow?: () => void;
   onClose: () => void;
-}
-
-function formatEta(expectedTime: string): string {
-  const sec = Math.round((new Date(expectedTime).getTime() - Date.now()) / 1000);
-  if (Number.isNaN(sec)) {
-    return "—";
-  }
-  if (sec <= 0) {
-    return "imminent / à quai";
-  }
-  if (sec < 60) {
-    return `dans ${sec} s`;
-  }
-  return `dans ${Math.floor(sec / 60)} min ${sec % 60} s`;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -55,7 +43,7 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
         Prochain arrêt : <b>{vehicle.nextStop}</b>
       </p>
       <p style={{ margin: "4px 0" }}>
-        Arrivée estimée : <b>{formatEta(vehicle.expectedTime)}</b>
+        Arrivée estimée : <b>{formatEta(vehicle.expectedTime, { withSeconds: true })}</b>
       </p>
       <p style={{ margin: "4px 0" }}>État : {statusLabel}</p>
       <p style={{ margin: "4px 0", color: "#666" }}>
