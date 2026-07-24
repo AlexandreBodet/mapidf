@@ -21,5 +21,6 @@ public class ShapeResponse {
         String name;
         double lat;
         double lng;
+        List<String> platformIds;
     }
 }

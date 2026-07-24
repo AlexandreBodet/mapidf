@@ -3,6 +3,7 @@ package com.mapidf.services;
 import com.mapidf.controllers.lines.ShapeResponse;
 import com.mapidf.controllers.lines.ShapeResponse.StopDto;
 import com.mapidf.data.entity.Route;
+import com.mapidf.data.entity.Stop;
 import com.mapidf.data.entity.StopTime;
 import com.mapidf.data.enums.ErrorCode;
 import com.mapidf.data.repositories.RouteRepository;
@@ -14,7 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @AllArgsConstructor
@@ -34,15 +38,27 @@ public class NetworkQueryService {
             shape[i] = new double[]{coordinates[i].x, coordinates[i].y};
         }
 
-        List<StopDto> stops = stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId).stream()
+        // Un quai par sens ⇒ deux arrêts GTFS par station physique. On les regroupe par
+        // parent_station (clé canonique GTFS) ; à défaut on garde le quai seul (gtfs_id),
+        // ce qui gère les arrêts à sens unique. lat/lng = centroïde des quais membres.
+        Map<String, List<Stop>> byStation = stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId).stream()
             .map(StopTime::getStop)
             .distinct()
-            .map(s -> StopDto.builder()
-                .id(s.getGtfsId())
-                .name(s.getName())
-                .lat(s.getGeom().getY())
-                .lng(s.getGeom().getX())
-                .build())
+            .collect(Collectors.groupingBy(NetworkQueryService::stationKey, LinkedHashMap::new, Collectors.toList()));
+
+        List<StopDto> stops = byStation.entrySet().stream()
+            .map(e -> {
+                List<Stop> platforms = e.getValue();
+                double lat = platforms.stream().mapToDouble(s -> s.getGeom().getY()).average().orElse(0);
+                double lng = platforms.stream().mapToDouble(s -> s.getGeom().getX()).average().orElse(0);
+                return StopDto.builder()
+                    .id(e.getKey())
+                    .name(platforms.getFirst().getName())
+                    .lat(lat)
+                    .lng(lng)
+                    .platformIds(platforms.stream().map(Stop::getGtfsId).toList())
+                    .build();
+            })
             .toList();
 
         return ShapeResponse.builder()
@@ -51,6 +67,11 @@ public class NetworkQueryService {
             .shape(shape)
             .stops(stops)
             .build();
+    }
+
+    private static String stationKey(Stop stop) {
+        String parent = stop.getParentStation();
+        return (parent == null || parent.isBlank()) ? stop.getGtfsId() : parent;
     }
 
     // route_color GTFS est un hex SANS '#' (ex. "D2D200") ; on renvoie une couleur CSS
