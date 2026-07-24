@@ -32,6 +32,19 @@ class RealtimePollerParseTest {
     }
 
     @Test
+    void picksEarliestUpcomingCallWhenCallsAreUnordered() {
+        // La liste EstimatedCall n'est pas triée : on doit choisir l'arrêt imminent
+        // (le plus tôt encore à venir), pas le premier élément du tableau.
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.siriUnorderedCallsSample(), Instant.parse("2026-07-22T14:00:00Z"));
+
+        RtSnapshot.LiveJourney journey = snapshot.forLine("STIF:Line::C01379:").getFirst();
+        assertThat(journey.nextStopRef()).isEqualTo("STIF:StopPoint:Q:2:");
+        assertThat(journey.expectedTime()).isEqualTo(Instant.parse("2026-07-22T14:02:00Z"));
+        assertThat(journey.departureStatus()).isEqualTo("ON_TIME");
+    }
+
+    @Test
     void serviceWindowWrapsAroundMidnight() {
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(12, 0))).isTrue();  // plein service
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(1, 0))).isTrue();   // après minuit, avant 01h30

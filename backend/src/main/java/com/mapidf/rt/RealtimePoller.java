@@ -87,6 +87,7 @@ public class RealtimePoller {
     void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
             snapshot.set(parse(objectMapper, fetcher.get(buildUrl()), asOf));
+            log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
                 pollFailures.increment();
@@ -132,7 +133,7 @@ public class RealtimePoller {
         for (JsonNode delivery : deliveries) {
             for (JsonNode frame : delivery.path("EstimatedJourneyVersionFrame")) {
                 for (JsonNode journey : frame.path("EstimatedVehicleJourney")) {
-                    RtSnapshot.LiveJourney live = toJourney(journey);
+                    RtSnapshot.LiveJourney live = toJourney(journey, asOf);
                     if (live != null) {
                         byLine.computeIfAbsent(live.lineRef(), key -> new ArrayList<>()).add(live);
                     }
@@ -142,11 +143,13 @@ public class RealtimePoller {
         return new RtSnapshot(asOf, byLine);
     }
 
-    private static RtSnapshot.LiveJourney toJourney(JsonNode journey) {
-        JsonNode calls = journey.path("EstimatedCalls").path("EstimatedCall");
-        JsonNode call = calls.isArray() ? calls.path(0) : calls;
+    private static RtSnapshot.LiveJourney toJourney(JsonNode journey, Instant asOf) {
+        JsonNode call = pickNextCall(journey.path("EstimatedCalls").path("EstimatedCall"), asOf);
+        if (call == null) {
+            return null;
+        }
         String stopRef = call.path("StopPointRef").path("value").asString(null);
-        String eta = call.path("ExpectedDepartureTime").asString(call.path("ExpectedArrivalTime").asString(null));
+        Instant eta = callTime(call);
         if (stopRef == null || eta == null) {
             return null;
         }
@@ -156,7 +159,51 @@ public class RealtimePoller {
         String destination = firstValue(journey.path("DestinationName"));
         String departureStatus = call.path("DepartureStatus").asString("");
         return new RtSnapshot.LiveJourney(
-            lineRef, journeyRef, directionRef, destination, stopRef, Instant.parse(eta), departureStatus);
+            lineRef, journeyRef, directionRef, destination, stopRef, eta, departureStatus);
+    }
+
+    // La liste EstimatedCall du flux PRIM N'EST PAS triée (ni par heure ni par ordre d'arrêt,
+    // le champ Order est absent). On choisit donc l'arrêt IMMINENT = le plus tôt encore à venir
+    // (>= asOf) ; s'il n'y a plus d'arrêt futur (course en fin de parcours), le plus tardif connu.
+    private static JsonNode pickNextCall(JsonNode callsNode, Instant asOf) {
+        JsonNode best = null;
+        Instant bestTime = null;
+        boolean bestFuture = false;
+        for (JsonNode call : callList(callsNode)) {
+            Instant t = callTime(call);
+            if (t == null) {
+                continue;
+            }
+            boolean future = !t.isBefore(asOf);
+            if (best == null
+                || (future && (!bestFuture || t.isBefore(bestTime)))
+                || (!future && !bestFuture && t.isAfter(bestTime))) {
+                best = call;
+                bestTime = t;
+                bestFuture = future;
+            }
+        }
+        return best;
+    }
+
+    private static List<JsonNode> callList(JsonNode callsNode) {
+        if (callsNode.isArray()) {
+            List<JsonNode> list = new ArrayList<>();
+            callsNode.forEach(list::add);
+            return list;
+        }
+        if (callsNode.isMissingNode() || callsNode.isNull()) {
+            return List.of();
+        }
+        return List.of(callsNode);
+    }
+
+    // Heure de passage au prochain arrêt : arrivée en priorité (moment où le train l'atteint),
+    // départ à défaut.
+    private static Instant callTime(JsonNode call) {
+        String iso = call.path("ExpectedArrivalTime").asString(
+            call.path("ExpectedDepartureTime").asString(null));
+        return iso == null ? null : Instant.parse(iso);
     }
 
     private static String firstValue(JsonNode node) {
