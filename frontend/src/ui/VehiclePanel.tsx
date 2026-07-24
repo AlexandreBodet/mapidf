@@ -35,7 +35,11 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
         font: "14px sans-serif",
       }}
     >
-      <button onClick={onClose} style={{ float: "right", border: "none", background: "none", cursor: "pointer" }}>
+      <button
+        onClick={onClose}
+        style={{ float: "right", border: "none", background: "none", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}
+        aria-label="Fermer"
+      >
         ✕
       </button>
       <h3 style={{ margin: "0 0 8px" }}>→ {vehicle.headsign}</h3>

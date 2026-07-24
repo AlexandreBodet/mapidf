@@ -5,6 +5,7 @@ import { useLineShape } from "./map/useLineShape";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
+import { Legend } from "./ui/Legend";
 import { fetchShape, fetchDepartures } from "./api/lines";
 import { LINE_ID } from "./api/config";
 import type { VehiclesResponse, DeparturesResponse } from "./api/types";
@@ -24,6 +25,7 @@ export default function App() {
   const [follow, setFollow] = useState(false);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [lineColor, setLineColor] = useState("#e30613");
+  const [count, setCount] = useState(0);
   useLineShape(map, LINE_ID);
   useEffect(() => {
     fetchShape(LINE_ID).then((s) => setLineColor(s.color)).catch(() => {});
@@ -34,7 +36,7 @@ export default function App() {
     if (v) {
       setSelected(toSelected(v));
     }
-  });
+  }, setCount);
 
   useEffect(() => {
     if (!map) {
@@ -113,6 +115,7 @@ export default function App() {
         onClose={clearSelection}
       />
       <StopPanel data={station} onClose={() => setStation(null)} />
+      <Legend color={lineColor} count={count} />
     </>
   );
 }

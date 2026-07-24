@@ -14,13 +14,16 @@ export function useVehicles(
   selectedTripId: string | null = null,
   follow = false,
   onSelected?: (vehicle: V | null) => void,
+  onCount?: (n: number) => void,
 ) {
   const layerRef = useRef<VehicleLayer | null>(null);
   // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
   const selectedRef = useRef(selectedTripId);
   const onSelectedRef = useRef(onSelected);
+  const onCountRef = useRef(onCount);
   selectedRef.current = selectedTripId;
   onSelectedRef.current = onSelected;
+  onCountRef.current = onCount;
 
   useEffect(() => {
     if (!map) {
@@ -37,6 +40,7 @@ export function useVehicles(
           return;
         }
         layer.update(response.vehicles, performance.now());
+        onCountRef.current?.(response.vehicles.length);
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
         const id = selectedRef.current;
         if (id) {

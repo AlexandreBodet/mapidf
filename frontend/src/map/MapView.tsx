@@ -28,6 +28,10 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
         center: [2.34, 48.86],
         zoom: 11,
       });
+      ref.current.instance.addControl(
+        new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
+        "top-left",
+      );
     }
     setMap(ref.current.instance);
     return () => {
