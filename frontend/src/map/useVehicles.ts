@@ -10,6 +10,7 @@ type V = VehiclesResponse["vehicles"][number];
 export function useVehicles(
   map: MlMap | null,
   lineId: string,
+  color: string,
   selectedTripId: string | null = null,
   follow = false,
   onSelected?: (vehicle: V | null) => void,
@@ -25,7 +26,7 @@ export function useVehicles(
     if (!map) {
       return;
     }
-    const layer = new VehicleLayer(map, VEHICLE_POLL_MS);
+    const layer = new VehicleLayer(map, VEHICLE_POLL_MS, color);
     layerRef.current = layer;
     let cancelled = false;
     let timer: number;
@@ -56,7 +57,7 @@ export function useVehicles(
       layer.destroy();
       layerRef.current = null;
     };
-  }, [map, lineId]);
+  }, [map, lineId, color]);
 
   useEffect(() => {
     layerRef.current?.setSelected(selectedTripId);

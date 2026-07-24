@@ -22,6 +22,7 @@ export class VehicleLayer {
   constructor(
     private map: MlMap,
     private durationMs: number,
+    private color: string,
   ) {
     this.ensureLayer();
   }
@@ -34,22 +35,58 @@ export class VehicleLayer {
     this.follow = follow;
   }
 
+  private arrowImage(): ImageData {
+    const size = 24;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = this.color;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(size / 2, 2);        // pointe (haut = nord)
+    ctx.lineTo(size - 4, size - 4); // bas droite
+    ctx.lineTo(4, size - 4);        // bas gauche
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    return ctx.getImageData(0, 0, size, size);
+  }
+
   private ensureLayer() {
     const add = () => {
       if (this.map.getSource("vehicles")) {
         return;
       }
       this.map.addSource("vehicles", { type: "geojson", data: this.featureCollection([]) });
+      if (!this.map.hasImage("vehicle-arrow")) {
+        this.map.addImage("vehicle-arrow", this.arrowImage());
+      }
+      // Halo de sélection SOUS les flèches : anneau bleu, uniquement la feature sélectionnée.
       this.map.addLayer({
-        id: "vehicles",
+        id: "vehicles-halo",
         type: "circle",
         source: "vehicles",
+        filter: ["==", ["get", "selected"], true],
         paint: {
-          "circle-radius": ["case", ["get", "selected"], 11, 7],
-          "circle-color": ["case", ["==", ["get", "source"], "REALTIME"], "#e30613", "#f7a600"],
-          "circle-stroke-color": ["case", ["get", "selected"], "#1d4ed8", "#fff"],
-          "circle-stroke-width": ["case", ["get", "selected"], 4, 2],
-          "circle-opacity": ["case", ["==", ["get", "source"], "INTERPOLATED"], 0.7, 1.0],
+          "circle-radius": 12,
+          "circle-color": "rgba(29,78,216,0.15)",
+          "circle-stroke-color": "#1d4ed8",
+          "circle-stroke-width": 3,
+        },
+      });
+      // Flèches orientées sur le bearing (0 = nord), alignées à la carte.
+      this.map.addLayer({
+        id: "vehicles",
+        type: "symbol",
+        source: "vehicles",
+        layout: {
+          "icon-image": "vehicle-arrow",
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-size": 0.8,
         },
       });
     };
