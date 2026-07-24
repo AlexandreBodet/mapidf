@@ -5,8 +5,14 @@ import { useLineShape } from "./map/useLineShape";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { LINE_ID } from "./api/config";
+import type { VehiclesResponse } from "./api/types";
 
+type V = VehiclesResponse["vehicles"][number];
 type Selected = { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
+
+function toSelected(v: V): Selected {
+  return { headsign: v.headsign, nextStop: v.nextStop, status: v.status, source: v.source, expectedTime: v.expectedTime };
+}
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
@@ -15,7 +21,13 @@ export default function App() {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
   useLineShape(map, LINE_ID);
-  useVehicles(map, LINE_ID, selectedTripId, follow);
+  // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
+  // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
+  useVehicles(map, LINE_ID, selectedTripId, follow, (v) => {
+    if (v) {
+      setSelected(toSelected(v));
+    }
+  });
 
   useEffect(() => {
     if (!map) {

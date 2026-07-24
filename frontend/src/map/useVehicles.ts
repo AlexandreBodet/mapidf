@@ -1,16 +1,25 @@
 import { useEffect, useRef } from "react";
 import type { Map as MlMap } from "maplibre-gl";
+import type { VehiclesResponse } from "../api/types";
 import { fetchVehicles } from "../api/lines";
 import { VEHICLE_POLL_MS } from "../api/config";
 import { VehicleLayer } from "./VehicleLayer";
+
+type V = VehiclesResponse["vehicles"][number];
 
 export function useVehicles(
   map: MlMap | null,
   lineId: string,
   selectedTripId: string | null = null,
   follow = false,
+  onSelected?: (vehicle: V | null) => void,
 ) {
   const layerRef = useRef<VehicleLayer | null>(null);
+  // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
+  const selectedRef = useRef(selectedTripId);
+  const onSelectedRef = useRef(onSelected);
+  selectedRef.current = selectedTripId;
+  onSelectedRef.current = onSelected;
 
   useEffect(() => {
     if (!map) {
@@ -27,6 +36,11 @@ export function useVehicles(
           return;
         }
         layer.update(response.vehicles, performance.now());
+        // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
+        const id = selectedRef.current;
+        if (id) {
+          onSelectedRef.current?.(response.vehicles.find((v) => v.tripId === id) ?? null);
+        }
       } catch {
         // on conserve l'affichage courant
       }
