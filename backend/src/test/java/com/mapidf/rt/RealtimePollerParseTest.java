@@ -22,9 +22,11 @@ class RealtimePollerParseTest {
         assertThat(journey.journeyRef()).isEqualTo("J1");
         assertThat(journey.directionRef()).isEqualTo("0");
         assertThat(journey.destination()).isEqualTo("Gamma");
-        assertThat(journey.nextStopRef()).isEqualTo("STIF:StopPoint:Q:2:");
-        assertThat(journey.expectedTime()).isEqualTo(Instant.parse("2026-07-22T14:05:00Z"));
-        assertThat(journey.departureStatus()).isEqualTo("ON_TIME");
+        assertThat(journey.calls()).singleElement().satisfies(call -> {
+            assertThat(call.stopRef()).isEqualTo("STIF:StopPoint:Q:2:");
+            assertThat(call.time()).isEqualTo(Instant.parse("2026-07-22T14:05:00Z"));
+            assertThat(call.departureStatus()).isEqualTo("ON_TIME");
+        });
 
         assertThat(snapshot.forLine("STIF:Line::C01371:")).extracting(RtSnapshot.LiveJourney::journeyRef)
             .containsExactly("J2");
@@ -32,16 +34,16 @@ class RealtimePollerParseTest {
     }
 
     @Test
-    void picksEarliestUpcomingCallWhenCallsAreUnordered() {
-        // La liste EstimatedCall n'est pas triée : on doit choisir l'arrêt imminent
-        // (le plus tôt encore à venir), pas le premier élément du tableau.
+    void parsesAllCallsOfAJourneyPreservingFeedOrder() {
+        // parse ne trie pas et ne filtre pas : il garde tous les appels tels quels (le choix de
+        // l'arrêt imminent revient à PositionEngine). Le tableau EstimatedCall est non trié.
         RtSnapshot snapshot = RealtimePoller.parse(
             new ObjectMapper(), RtFixtures.siriUnorderedCallsSample(), Instant.parse("2026-07-22T14:00:00Z"));
 
         RtSnapshot.LiveJourney journey = snapshot.forLine("STIF:Line::C01379:").getFirst();
-        assertThat(journey.nextStopRef()).isEqualTo("STIF:StopPoint:Q:2:");
-        assertThat(journey.expectedTime()).isEqualTo(Instant.parse("2026-07-22T14:02:00Z"));
-        assertThat(journey.departureStatus()).isEqualTo("ON_TIME");
+        assertThat(journey.calls()).extracting(RtSnapshot.LiveJourney.Call::stopRef)
+            .containsExactly("STIF:StopPoint:Q:5:", "STIF:StopPoint:Q:2:",
+                "STIF:StopPoint:Q:1:", "STIF:StopPoint:Q:8:");
     }
 
     @Test

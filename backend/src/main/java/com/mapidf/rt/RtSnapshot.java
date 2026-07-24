@@ -17,8 +17,21 @@ public record RtSnapshot(Instant asOf, Map<String, List<LiveJourney>> byLine) {
         byLine = Map.copyOf(copy);
     }
 
+    /**
+     * Une course temps réel = son identité + la liste de ses arrêts estimés (dans l'ordre du flux,
+     * PAS forcément trié). Le calcul de position ({@link com.mapidf.position.PositionEngine}) choisit
+     * l'arrêt imminent et interpole à partir de ces heures.
+     */
     public record LiveJourney(String lineRef, String journeyRef, String directionRef, String destination,
-                              String nextStopRef, Instant expectedTime, String departureStatus) {
+                              List<Call> calls) {
+
+        public LiveJourney {
+            calls = List.copyOf(calls);
+        }
+
+        /** Un passage estimé à un arrêt : sa référence, son heure estimée, son statut. */
+        public record Call(String stopRef, Instant time, String departureStatus) {
+        }
     }
 
     /** Courses temps réel d'une ligne (liste vide si la ligne est absente du flux). */

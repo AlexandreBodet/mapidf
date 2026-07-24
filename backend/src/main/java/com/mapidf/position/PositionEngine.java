@@ -3,6 +3,7 @@ package com.mapidf.position;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import com.mapidf.rt.RtSnapshot;
@@ -29,52 +30,70 @@ public class PositionEngine {
 
     private Vehicle compute(LengthIndexedLine indexed, LineSchedule schedule,
                             RtSnapshot.LiveJourney journey, Instant now) {
-        String key = stopKey(journey.nextStopRef());
-        DirectionSchedule direction = pickDirection(schedule, journey.destination(), key);
+        List<RtSnapshot.LiveJourney.Call> sorted = journey.calls().stream()
+            .sorted(Comparator.comparing(RtSnapshot.LiveJourney.Call::time))
+            .toList();
+        // Arrêt imminent = premier encore à venir ; s'il n'y en a plus, le dernier connu
+        // (train tout juste arrivé / fin de données). On n'exclut jamais un train qui a des données.
+        RtSnapshot.LiveJourney.Call next = sorted.stream()
+            .filter(c -> !c.time().isBefore(now))
+            .findFirst()
+            .orElse(sorted.getLast());
+        // Dernier arrêt déjà passé, s'il figure dans le flux (≈ 1 course sur 3 en a un).
+        RtSnapshot.LiveJourney.Call prev = sorted.stream()
+            .filter(c -> c.time().isBefore(now))
+            .reduce((a, b) -> b)
+            .orElse(null);
+
+        DirectionSchedule direction = pickDirection(schedule, journey.destination(), stopKey(next.stopRef()));
         if (direction == null) {
             return null;
         }
         List<StopOnLine> stops = direction.stops();
-        int index = indexOfStop(stops, key);
-        if (index < 0) {
+        int nextIdx = indexOfStop(stops, stopKey(next.stopRef()));
+        if (nextIdx < 0) {
             return null;
         }
-        StopOnLine next = stops.get(index);
-        long etaDeltaSec = Duration.between(now, journey.expectedTime()).getSeconds();
+        StopOnLine to = stops.get(nextIdx);
 
-        double distance;
-        double bearing;
-        if (index == 0) {
-            distance = next.distanceAlongLine();
-            StopOnLine after = stops.size() > 1 ? stops.get(1) : next;
-            bearing = bearing(indexed, next.distanceAlongLine(), after.distanceAlongLine());
-        } else {
-            // SIRI ne donne que l'ETA du prochain arrêt reporté ; il est souvent à
-            // plusieurs inter-stations. On remonte les segments théoriques depuis
-            // `next` en consommant l'ETA, pour situer le véhicule dans le bon segment
-            // (sinon il resterait collé à l'arrêt précédent tant que ETA > 1 segment).
-            long remaining = Math.max(0, etaDeltaSec);
-            int target = index;
-            while (target > 1) {
-                int segDur = stops.get(target).scheduledSec() - stops.get(target - 1).scheduledSec();
-                if (segDur <= 0 || remaining <= segDur) {
-                    break;
-                }
-                remaining -= segDur;
-                target--;
-            }
-            StopOnLine to = stops.get(target);
-            StopOnLine from = stops.get(target - 1);
-            int segmentSec = to.scheduledSec() - from.scheduledSec();
-            double fraction = segmentSec > 0 ? clamp(1.0 - (double) remaining / segmentSec, 0.0, 1.0) : 1.0;
-            distance = from.distanceAlongLine()
-                + fraction * (to.distanceAlongLine() - from.distanceAlongLine());
-            bearing = bearing(indexed, from.distanceAlongLine(), to.distanceAlongLine());
+        if (nextIdx == 0) {
+            // Prochain arrêt = tête de ligne dans ce sens → placé à l'origine.
+            StopOnLine after = stops.size() > 1 ? stops.get(1) : to;
+            return vehicleAt(indexed, journey, to, next,
+                to.distanceAlongLine(), to.distanceAlongLine(), after.distanceAlongLine());
         }
 
+        // Origine du segment courant : le dernier arrêt SIRI passé s'il est en amont dans ce sens
+        // (interpolation aux VRAIES heures estimées → capte le temps à quai) ; sinon l'arrêt
+        // précédent du tracé, dont on estime l'heure de départ via l'horaire théorique.
+        int prevIdx = prev == null ? -1 : indexOfStop(stops, stopKey(prev.stopRef()));
+        double fromDist;
+        Instant fromTime;
+        if (prev != null && prevIdx >= 0 && prevIdx < nextIdx) {
+            fromDist = stops.get(prevIdx).distanceAlongLine();
+            fromTime = prev.time();
+        } else {
+            StopOnLine routePrev = stops.get(nextIdx - 1);
+            int segmentSec = to.scheduledSec() - routePrev.scheduledSec();
+            fromDist = routePrev.distanceAlongLine();
+            fromTime = next.time().minusSeconds(Math.max(1, segmentSec));
+        }
+
+        long total = Duration.between(fromTime, next.time()).getSeconds();
+        double fraction = total > 0
+            ? clamp((double) Duration.between(fromTime, now).getSeconds() / total, 0.0, 1.0)
+            : 1.0;
+        double distance = fromDist + fraction * (to.distanceAlongLine() - fromDist);
+        return vehicleAt(indexed, journey, to, next, distance, fromDist, to.distanceAlongLine());
+    }
+
+    private Vehicle vehicleAt(LengthIndexedLine indexed, RtSnapshot.LiveJourney journey,
+                              StopOnLine next, RtSnapshot.LiveJourney.Call call,
+                              double distance, double fromDist, double toDist) {
         Coordinate point = indexed.extractPoint(distance);
-        return new Vehicle(journey.journeyRef(), point.y, point.x, bearing, journey.departureStatus(),
-            journey.destination(), next.stopName(), journey.expectedTime(), Vehicle.Source.INTERPOLATED);
+        return new Vehicle(journey.journeyRef(), point.y, point.x, bearing(indexed, fromDist, toDist),
+            call.departureStatus(), journey.destination(), next.stopName(), call.time(),
+            Vehicle.Source.INTERPOLATED);
     }
 
     private DirectionSchedule pickDirection(LineSchedule schedule, String destination, String key) {
