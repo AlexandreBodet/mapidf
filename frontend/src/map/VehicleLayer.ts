@@ -112,6 +112,7 @@ export class VehicleLayer {
               bearing: anim.bearing,
               headsign: anim.vehicle.headsign,
               nextStop: anim.vehicle.nextStop,
+              expectedTime: anim.vehicle.expectedTime,
               status: anim.vehicle.status,
               selected,
             },

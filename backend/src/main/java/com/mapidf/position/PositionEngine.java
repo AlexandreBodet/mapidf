@@ -74,7 +74,7 @@ public class PositionEngine {
 
         Coordinate point = indexed.extractPoint(distance);
         return new Vehicle(journey.journeyRef(), point.y, point.x, bearing, journey.departureStatus(),
-            journey.destination(), next.stopName(), Vehicle.Source.INTERPOLATED);
+            journey.destination(), next.stopName(), journey.expectedTime(), Vehicle.Source.INTERPOLATED);
     }
 
     private DirectionSchedule pickDirection(LineSchedule schedule, String destination, String key) {

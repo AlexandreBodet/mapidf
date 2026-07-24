@@ -6,7 +6,7 @@ import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { LINE_ID } from "./api/config";
 
-type Selected = { headsign: string; nextStop: string; status: string; source: string } | null;
+type Selected = { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);

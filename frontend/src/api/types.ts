@@ -15,6 +15,7 @@ export interface VehiclesResponse {
     status: string;
     headsign: string;
     nextStop: string;
+    expectedTime: string;
     source: "REALTIME" | "INTERPOLATED";
   }[];
 }
