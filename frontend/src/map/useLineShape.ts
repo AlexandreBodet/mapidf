@@ -38,7 +38,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
             type: "FeatureCollection",
             features: shape.stops.map((s) => ({
               type: "Feature",
-              properties: { name: s.name },
+              properties: { id: s.id, name: s.name },
               geometry: { type: "Point", coordinates: [s.lng, s.lat] },
             })),
           },
@@ -54,6 +54,28 @@ export function useLineShape(map: MlMap | null, lineId: string) {
             "circle-stroke-width": 2,
           },
         });
+        // Noms affichés seulement en zoom rapproché (collision gérée par MapLibre) → pas
+        // d'encombrement au dézoom, coût maîtrisé même avec beaucoup de stations.
+        map.addLayer({
+          id: "stops-labels",
+          type: "symbol",
+          source: "stops",
+          minzoom: 13,
+          layout: {
+            "text-field": ["get", "name"],
+            "text-size": 12,
+            "text-offset": [0, 1.2],
+            "text-anchor": "top",
+          },
+          paint: {
+            "text-color": "#111",
+            "text-halo-color": "#fff",
+            "text-halo-width": 1.5,
+          },
+        });
+        // Curseur main au survol des stations cliquables.
+        map.on("mouseenter", "stops", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "stops", () => { map.getCanvas().style.cursor = ""; });
       };
       cancelReady = whenStyleReady(map, draw);
     });
