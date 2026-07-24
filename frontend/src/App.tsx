@@ -40,14 +40,17 @@ export default function App() {
     if (!map) {
       return;
     }
-    const onMoveStart = (e: maplibregl.MapLibreEvent) => {
-      if ((e as { originalEvent?: unknown }).originalEvent) {
-        setFollow(false);
-      }
-    };
-    map.on("movestart", onMoveStart);
+    // Le suivi appelle jumpTo à chaque frame : la carte est en mouvement permanent,
+    // donc `movestart` ne se redéclenche pas sur un geste utilisateur. On écoute plutôt
+    // les événements d'entrée bruts, qui arrivent quel que soit l'état d'animation.
+    const stopFollow = () => setFollow(false);
+    map.on("mousedown", stopFollow);
+    map.on("wheel", stopFollow);
+    map.on("touchstart", stopFollow);
     return () => {
-      map.off("movestart", onMoveStart);
+      map.off("mousedown", stopFollow);
+      map.off("wheel", stopFollow);
+      map.off("touchstart", stopFollow);
     };
   }, [map]);
 
@@ -63,7 +66,7 @@ export default function App() {
       <VehiclePanel
         vehicle={selected}
         following={follow}
-        onFollow={() => setFollow(true)}
+        onFollow={() => setFollow((f) => !f)}
         onClose={clearSelection}
       />
     </>

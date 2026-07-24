@@ -71,18 +71,24 @@ Coût nul : les features sont déjà reconstruites à chaque frame dans `startLo
 
 ### 4. Relâche automatique (App)
 
-- `App` écoute `map.on("movestart", handler)`.
-- Si l'événement porte un `originalEvent` (geste **utilisateur** : drag, molette, tactile),
-  passer `follow = false`.
-- Les `jumpTo` internes du suivi **n'ont pas** d'`originalEvent` → aucune boucle infinie,
-  le suivi programmatique ne se coupe pas lui-même.
+- `App` écoute les événements d'**entrée bruts** de la carte : `mousedown`, `wheel`,
+  `touchstart`. Chacun passe `follow = false`.
+- Pourquoi pas `movestart` : le suivi appelle `jumpTo` à chaque frame, donc la carte est
+  en mouvement permanent et ne repasse jamais par l'état « idle ». `movestart` ne se
+  déclenchant qu'à la transition idle → moving, le geste utilisateur ne produit pas de
+  nouvel événement → non détecté. Les événements d'entrée bruts, eux, arrivent quel que
+  soit l'état d'animation de la caméra.
+- Le clic de sélection d'un train déclenche `mousedown` (→ `follow = false`) puis `click`
+  (→ `follow = true`) : l'ordre garantit que la sélection reste suivie.
 
 ### 5. Bouton « Suivre » (VehiclePanel)
 
 - Nouvelles props : `following: boolean` et `onFollow: () => void`.
-- Bouton « ◉ Suivre » : rendu **plein** quand `following`, **contour** sinon.
-- Clic → `onFollow()` (réactive le suivi et recentre). Accessible même si le train est
-  hors écran (le panneau reste affiché tant qu'un train est sélectionné).
+- Bouton « ◉ Suivre » : rendu **plein** (« Suivi actif ») quand `following`, **contour**
+  (« Suivre ») sinon.
+- Clic → **bascule** `follow` : réactive le suivi si coupé, ou l'arrête si actif.
+  Accessible même si le train est hors écran (le panneau reste affiché tant qu'un train
+  est sélectionné).
 
 ### 6. Câblage (useVehicles)
 
