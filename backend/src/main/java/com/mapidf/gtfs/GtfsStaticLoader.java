@@ -186,6 +186,7 @@ public class GtfsStaticLoader {
                 stopsToSave.add(Stop.builder()
                     .gtfsId(stopId)
                     .name(r.get("stop_name"))
+                    .parentStation(safe(r, "parent_station"))
                     .geom(geometryFactory.createPoint(new Coordinate(
                         Double.parseDouble(r.get("stop_lon")), Double.parseDouble(r.get("stop_lat")))))
                     .build());

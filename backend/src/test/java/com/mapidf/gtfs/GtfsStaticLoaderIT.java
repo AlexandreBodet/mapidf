@@ -60,4 +60,19 @@ class GtfsStaticLoaderIT {
         Route route = routeRepository.findByGtfsId("R1").orElseThrow();
         assertThat(route.getGeom().getNumPoints()).isEqualTo(4);
     }
+
+    @Test
+    void readsParentStationFromStopsAndLeavesItNullWhenAbsent() throws Exception {
+        try (var in = getClass().getResourceAsStream("/gtfs-parent.zip")) {
+            loader.loadFromZip(in, "RP");
+        }
+        var stops = stopRepository.findAll();
+        assertThat(stops).hasSize(5);
+        assertThat(stops).filteredOn(s -> s.getGtfsId().equals("PA0"))
+            .singleElement().extracting("parentStation").isEqualTo("SAA");
+        assertThat(stops).filteredOn(s -> s.getGtfsId().equals("PA1"))
+            .singleElement().extracting("parentStation").isEqualTo("SAA");
+        assertThat(stops).filteredOn(s -> s.getGtfsId().equals("PC"))
+            .singleElement().extracting("parentStation").isNull();
+    }
 }

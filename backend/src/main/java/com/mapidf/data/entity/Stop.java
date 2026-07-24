@@ -38,6 +38,9 @@ public class Stop {
     @Column(name = "name")
     private String name;
 
+    @Column(name = "parent_station")
+    private String parentStation;
+
     @Column(name = "geom", columnDefinition = "geometry(Point,4326)")
     private Point geom;
 }
