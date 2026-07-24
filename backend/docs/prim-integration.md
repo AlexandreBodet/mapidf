@@ -66,10 +66,31 @@ Conséquences :
 | Logo de ligne (bonus front) | `GET /marketplace/ilico/getIcon/C01379` | **`Authorization`** | SVG ; en-tête différent ! |
 | Perturbations | `GET /marketplace/general-message?LineRef=...` | `apikey` | param requis |
 
-## ⚠️ Structure réelle de la réponse SIRI-ET — impact fort sur l'interpolation
+## ⚠️ Correction 2026-07-24 — la structure des EstimatedCall (analyse du flux live)
 
-Pour la ligne 9 : **60 `EstimatedVehicleJourney`**, mais **1 seul `EstimatedCall` par course** =
-le **prochain arrêt uniquement** :
+**L'affirmation ci-dessous (« 1 seul EstimatedCall par course ») est FAUSSE.** Vérifié sur le
+flux réel `estimated-timetable` filtré ligne 9 :
+
+- Le nombre d'`EstimatedCall` par course va de **1 à 22** (souvent plusieurs arrêts à venir).
+- **Le tableau n'est PAS trié** : ni par heure, ni par ordre d'arrêt (le champ `Order` est absent).
+  Sur ~50 % des courses, `EstimatedCall[0]` n'est PAS l'arrêt le plus proche. → **il faut trier
+  par heure et choisir l'arrêt le plus tôt à venir** (bug corrigé, cf. `RealtimePoller`/`PositionEngine`).
+- **Aucun `RecordedCalls`** : les arrêts déjà desservis ne sont pas fournis. Un train en marche a
+  donc typiquement TOUS ses appels dans le futur ; ~1/3 des courses ont un appel tout juste passé.
+- `OriginRef` est souvent `null` ; ~17/47 courses sont des **départs futurs** (prochain arrêt à
+  +8–27 min) mêlés aux trains en circulation.
+
+**Interpolation retenue** (sans walk-back) : arrêt imminent = plus tôt à venir ; si un arrêt passé
+est présent → interpolation aux **vraies heures** entre lui et le prochain (capte le temps à quai) ;
+sinon → segment `arrêt-tracé-précédent → prochain`, durée théorique GTFS. Fraction bornée [0,1] :
+un train lointain/futur se fige à son arrêt précédent au lieu d'être reculé.
+
+---
+
+## ⚠️ (obsolète) Structure supposée de la réponse SIRI-ET
+
+Pour la ligne 9 : **60 `EstimatedVehicleJourney`**, ~~**1 seul `EstimatedCall` par course** =
+le **prochain arrêt uniquement**~~ (voir correction ci-dessus) :
 
 ```json
 "EstimatedVehicleJourney": [{

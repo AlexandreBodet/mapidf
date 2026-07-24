@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import com.mapidf.rt.RtSnapshot.LiveJourney;
+import com.mapidf.rt.RtSnapshot.LiveJourney.Call;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -32,21 +33,21 @@ class PositionEngineTest {
             new StopOnLine("3", "Gamma", 0.020, 8 * 3600 + 1200)))));
     }
 
-    private static LiveJourney journey(String destination, String stopRef, Instant eta) {
-        return new LiveJourney("STIF:Line::C01379:", "J1", "0", destination, stopRef, eta, "ON_TIME");
+    private static Call call(String stopRef, Instant time) {
+        return new Call(stopRef, time, "ON_TIME");
     }
 
-    // Le moteur travaille désormais sur la liste de courses d'UNE ligne (extraite du snapshot réseau).
-    private static List<LiveJourney> rtWith(LiveJourney journey) {
-        return List.of(journey);
+    // Une course ligne 9 (dest "Gamma", sens 0, id "J1") avec la liste d'appels donnée.
+    private static List<LiveJourney> rtWith(String destination, Call... calls) {
+        return List.of(new LiveJourney("STIF:Line::C01379:", "J1", "0", destination, List.of(calls)));
     }
 
     @Test
-    void interpolatesTowardNextStopUsingEta() {
-        // prochain arrêt Beta, ETA dans 300 s, segment Alpha→Beta = 600 s → à mi-chemin (lng 2.305)
-        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300));
-
-        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(), rtWith(j), NOW);
+    void interpolatesTowardNextStopUsingTheoreticalSegmentWhenNoPreviousCall() {
+        // Un seul appel à venir : Beta, ETA dans 300 s. Pas d'arrêt passé dans le flux → on estime
+        // l'heure de départ d'Alpha via l'horaire théorique (segment Alpha→Beta = 600 s) → mi-chemin.
+        List<Vehicle> vehicles = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma", call("STIF:StopPoint:Q:2:", NOW.plusSeconds(300))), NOW);
 
         assertThat(vehicles).hasSize(1);
         Vehicle v = vehicles.getFirst();
@@ -58,35 +59,73 @@ class PositionEngineTest {
         assertThat(v.headsign()).isEqualTo("Gamma");
         assertThat(v.bearing()).isCloseTo(90.0, within(5.0));
         assertThat(v.status()).isEqualTo("ON_TIME");
+        assertThat(v.expectedTime()).isEqualTo(NOW.plusSeconds(300));
     }
 
     @Test
-    void clampsToNextStopWhenEtaAlreadyPassed() {
-        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:2:", NOW.minusSeconds(100));
-
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
-
-        assertThat(v.lng()).isCloseTo(2.310, within(1e-3)); // arrivé à Beta
-    }
-
-    @Test
-    void interpolatesAcrossMultipleSegmentsWhenEtaSpansMoreThanOneSegment() {
-        // prochain arrêt reporté = Gamma (2 segments plus loin), ETA dans 900 s.
-        // segment Beta→Gamma = 600 s (consommé) ; reste 300 s sur Alpha→Beta (600 s)
-        // → fraction 0.5 sur Alpha→Beta → lng 2.305, prochain arrêt affiché = Gamma.
-        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:3:", NOW.plusSeconds(900));
-
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
+    void interpolatesUsingRealTimesWhenPreviousCallIsPresent() {
+        // Le flux contient l'arrêt passé (Alpha, il y a 300 s) ET le prochain (Beta, dans 300 s).
+        // On interpole aux VRAIES heures : à mi-chemin du segment réel Alpha→Beta → lng 2.305.
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma",
+                call("STIF:StopPoint:Q:1:", NOW.minusSeconds(300)),
+                call("STIF:StopPoint:Q:2:", NOW.plusSeconds(300))), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
+        assertThat(v.nextStop()).isEqualTo("Beta");
+    }
+
+    @Test
+    void realTimesCaptureDwellTime() {
+        // Train à quai à Alpha : arrêt passé Alpha il y a 30 s, prochain Beta dans 570 s (long).
+        // Aux vraies heures, fraction = 30/600 = 0.05 → encore quasi à Alpha (temps à quai capté).
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma",
+                call("STIF:StopPoint:Q:1:", NOW.minusSeconds(30)),
+                call("STIF:StopPoint:Q:2:", NOW.plusSeconds(570))), NOW).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.3005, within(5e-4)); // ~5 % du segment Alpha→Beta
+        assertThat(v.nextStop()).isEqualTo("Beta");
+    }
+
+    @Test
+    void picksEarliestUpcomingStopAmongUnorderedCalls() {
+        // Appels dans le désordre : Gamma (dans 600 s) AVANT Beta (dans 300 s). Le prochain arrêt
+        // doit être Beta (le plus tôt à venir), pas Gamma (premier du tableau).
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma",
+                call("STIF:StopPoint:Q:3:", NOW.plusSeconds(600)),
+                call("STIF:StopPoint:Q:2:", NOW.plusSeconds(300))), NOW).getFirst();
+
+        assertThat(v.nextStop()).isEqualTo("Beta");
+        assertThat(v.lng()).isCloseTo(2.305, within(1e-3));
+    }
+
+    @Test
+    void clampsToPreviousStopWhenOnlyFarCallAvailable() {
+        // Sans arrêt passé et avec un unique arrêt lointain (Gamma dans 900 s, > un segment),
+        // le train N'EST PLUS reculé (plus de walk-back) : il est borné à l'arrêt précédent Beta.
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma", call("STIF:StopPoint:Q:3:", NOW.plusSeconds(900))), NOW).getFirst();
+
+        assertThat(v.lng()).isCloseTo(2.310, within(1e-3)); // borné à Beta
         assertThat(v.nextStop()).isEqualTo("Gamma");
     }
 
     @Test
-    void placesAtOriginWhenNextStopIsFirst() {
-        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:1:", NOW.plusSeconds(30));
+    void placesAtLastKnownStopWhenAllCallsArePassed() {
+        // Tous les arrêts passés (Beta il y a 100 s) : train tout juste arrivé → placé à Beta,
+        // jamais masqué.
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma", call("STIF:StopPoint:Q:2:", NOW.minusSeconds(100))), NOW).getFirst();
 
-        Vehicle v = engine.computeAll(line(), towardGamma(), rtWith(j), NOW).getFirst();
+        assertThat(v.lng()).isCloseTo(2.310, within(1e-3));
+    }
+
+    @Test
+    void placesAtOriginWhenNextStopIsFirst() {
+        Vehicle v = engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma", call("STIF:StopPoint:Q:1:", NOW.plusSeconds(30))), NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.300, within(1e-3));
         assertThat(v.nextStop()).isEqualTo("Alpha");
@@ -94,9 +133,8 @@ class PositionEngineTest {
 
     @Test
     void skipsJourneyWhenNextStopUnknown() {
-        LiveJourney j = journey("Gamma", "STIF:StopPoint:Q:999:", NOW.plusSeconds(30));
-
-        assertThat(engine.computeAll(line(), towardGamma(), rtWith(j), NOW)).isEmpty();
+        assertThat(engine.computeAll(line(), towardGamma(),
+            rtWith("Gamma", call("STIF:StopPoint:Q:999:", NOW.plusSeconds(30))), NOW)).isEmpty();
     }
 
     @Test
@@ -111,10 +149,10 @@ class PositionEngineTest {
                 new StopOnLine("3", "Gamma", 0.020, 8 * 3600),
                 new StopOnLine("2", "Beta", 0.010, 8 * 3600 + 600),
                 new StopOnLine("1", "Alpha", 0.000, 8 * 3600 + 1200)))));
-        LiveJourney j = new LiveJourney(
-            "STIF:Line::C01379:", "J2", "1", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(300), "ON_TIME");
+        List<LiveJourney> rt = List.of(new LiveJourney(
+            "STIF:Line::C01379:", "J2", "1", "Alpha", List.of(call("STIF:StopPoint:Q:2:", NOW.plusSeconds(300)))));
 
-        Vehicle v = engine.computeAll(line(), schedule, rtWith(j), NOW).getFirst();
+        Vehicle v = engine.computeAll(line(), schedule, rt, NOW).getFirst();
 
         assertThat(v.lng()).isCloseTo(2.315, within(1e-3)); // entre Gamma(2.320) et Beta(2.310)
         assertThat(v.bearing()).isCloseTo(270.0, within(5.0)); // cap vers l'ouest

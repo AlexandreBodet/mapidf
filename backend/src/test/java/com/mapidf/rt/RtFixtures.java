@@ -48,4 +48,34 @@ final class RtFixtures {
             """;
         return json.getBytes(StandardCharsets.UTF_8);
     }
+
+    // Une course ligne 9 dont les EstimatedCall NE sont PAS triés (cas réel constaté sur PRIM).
+    // Réf. asOf des tests = 14:00:00Z. Appels : un passé (13:58, Q:1), le vrai prochain (14:02, Q:2),
+    // puis des arrêts plus lointains dans un ordre quelconque (14:06 Q:5 en tête, 14:10 Q:8).
+    // Le prochain arrêt attendu est Q:2 (le plus tôt encore à venir), PAS Q:5 (le premier du tableau).
+    static byte[] siriUnorderedCallsSample() {
+        String json = """
+            {"Siri":{"ServiceDelivery":{"ResponseTimestamp":"2026-07-22T14:00:00.000Z",
+              "EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+                "EstimatedVehicleJourney":[{
+                  "LineRef":{"value":"STIF:Line::C01379:"},
+                  "DirectionRef":{"value":"0"},
+                  "DatedVehicleJourneyRef":{"value":"J1"},
+                  "DestinationName":[{"value":"Gamma"}],
+                  "EstimatedCalls":{"EstimatedCall":[
+                    {"StopPointRef":{"value":"STIF:StopPoint:Q:5:"},
+                     "ExpectedArrivalTime":"2026-07-22T14:06:00.000Z","DepartureStatus":"DELAYED"},
+                    {"StopPointRef":{"value":"STIF:StopPoint:Q:2:"},
+                     "ExpectedArrivalTime":"2026-07-22T14:02:00.000Z","DepartureStatus":"ON_TIME"},
+                    {"StopPointRef":{"value":"STIF:StopPoint:Q:1:"},
+                     "ExpectedArrivalTime":"2026-07-22T13:58:00.000Z","DepartureStatus":"ON_TIME"},
+                    {"StopPointRef":{"value":"STIF:StopPoint:Q:8:"},
+                     "ExpectedArrivalTime":"2026-07-22T14:10:00.000Z","DepartureStatus":"ON_TIME"}
+                  ]}
+                }]
+              }]}]
+            }}}
+            """;
+        return json.getBytes(StandardCharsets.UTF_8);
+    }
 }

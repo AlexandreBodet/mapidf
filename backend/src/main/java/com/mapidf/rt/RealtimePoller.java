@@ -87,6 +87,7 @@ public class RealtimePoller {
     void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
             snapshot.set(parse(objectMapper, fetcher.get(buildUrl()), asOf));
+            log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
                 pollFailures.increment();
@@ -142,21 +143,49 @@ public class RealtimePoller {
         return new RtSnapshot(asOf, byLine);
     }
 
+    // Construit la course = son identité + TOUS ses appels (arrêts estimés). La liste du flux
+    // n'est ni triée ni bornée au prochain arrêt : le tri et le choix de l'arrêt imminent se font
+    // dans PositionEngine (qui connaît l'instant de calcul). On ignore les appels sans arrêt/heure.
     private static RtSnapshot.LiveJourney toJourney(JsonNode journey) {
-        JsonNode calls = journey.path("EstimatedCalls").path("EstimatedCall");
-        JsonNode call = calls.isArray() ? calls.path(0) : calls;
-        String stopRef = call.path("StopPointRef").path("value").asString(null);
-        String eta = call.path("ExpectedDepartureTime").asString(call.path("ExpectedArrivalTime").asString(null));
-        if (stopRef == null || eta == null) {
+        List<RtSnapshot.LiveJourney.Call> calls = new ArrayList<>();
+        for (JsonNode call : callList(journey.path("EstimatedCalls").path("EstimatedCall"))) {
+            String stopRef = call.path("StopPointRef").path("value").asString(null);
+            Instant time = callTime(call);
+            if (stopRef == null || time == null) {
+                continue;
+            }
+            calls.add(new RtSnapshot.LiveJourney.Call(
+                stopRef, time, call.path("DepartureStatus").asString("")));
+        }
+        if (calls.isEmpty()) {
             return null;
         }
         String lineRef = journey.path("LineRef").path("value").asString("");
-        String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asString(stopRef);
+        String journeyRef = journey.path("DatedVehicleJourneyRef").path("value")
+            .asString(calls.getFirst().stopRef());
         String directionRef = journey.path("DirectionRef").path("value").asString("");
         String destination = firstValue(journey.path("DestinationName"));
-        String departureStatus = call.path("DepartureStatus").asString("");
-        return new RtSnapshot.LiveJourney(
-            lineRef, journeyRef, directionRef, destination, stopRef, Instant.parse(eta), departureStatus);
+        return new RtSnapshot.LiveJourney(lineRef, journeyRef, directionRef, destination, calls);
+    }
+
+    private static List<JsonNode> callList(JsonNode callsNode) {
+        if (callsNode.isArray()) {
+            List<JsonNode> list = new ArrayList<>();
+            callsNode.forEach(list::add);
+            return list;
+        }
+        if (callsNode.isMissingNode() || callsNode.isNull()) {
+            return List.of();
+        }
+        return List.of(callsNode);
+    }
+
+    // Heure de passage au prochain arrêt : arrivée en priorité (moment où le train l'atteint),
+    // départ à défaut.
+    private static Instant callTime(JsonNode call) {
+        String iso = call.path("ExpectedArrivalTime").asString(
+            call.path("ExpectedDepartureTime").asString(null));
+        return iso == null ? null : Instant.parse(iso);
     }
 
     private static String firstValue(JsonNode node) {

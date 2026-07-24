@@ -1,5 +1,7 @@
 package com.mapidf.controllers.lines;
 
+import java.time.Instant;
+
 import com.mapidf.position.Vehicle;
 import lombok.Builder;
 import lombok.Value;
@@ -15,6 +17,7 @@ public class VehicleResponse {
     String status;
     String headsign;
     String nextStop;
+    Instant expectedTime;
     String source;
 
     public static VehicleResponse from(Vehicle vehicle) {
@@ -26,6 +29,7 @@ public class VehicleResponse {
             .status(vehicle.status())
             .headsign(vehicle.headsign())
             .nextStop(vehicle.nextStop())
+            .expectedTime(vehicle.expectedTime())
             .source(vehicle.source().name())
             .build();
     }
