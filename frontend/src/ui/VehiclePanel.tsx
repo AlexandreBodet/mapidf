@@ -1,5 +1,7 @@
 interface Props {
   vehicle: { headsign: string; nextStop: string; status: string; source: string } | null;
+  following?: boolean;
+  onFollow?: () => void;
   onClose: () => void;
 }
 
@@ -12,7 +14,7 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELED: "supprimé",
 };
 
-export function VehiclePanel({ vehicle, onClose }: Props) {
+export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: Props) {
   if (!vehicle) {
     return null;
   }
@@ -42,6 +44,21 @@ export function VehiclePanel({ vehicle, onClose }: Props) {
       <p style={{ margin: "4px 0", color: "#666" }}>
         Position : {vehicle.source === "REALTIME" ? "GPS temps réel" : "estimée (horaire)"}
       </p>
+      <button
+        onClick={onFollow}
+        style={{
+          marginTop: 8,
+          padding: "6px 12px",
+          border: "1px solid #1d4ed8",
+          borderRadius: 6,
+          cursor: "pointer",
+          background: following ? "#1d4ed8" : "#fff",
+          color: following ? "#fff" : "#1d4ed8",
+          font: "13px sans-serif",
+        }}
+      >
+        {following ? "◉ Suivi actif" : "◉ Suivre"}
+      </button>
     </div>
   );
 }
