@@ -16,12 +16,22 @@ export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
   private cancelReady: (() => void) | null = null;
+  private selectedTripId: string | null = null;
+  private follow = false;
 
   constructor(
     private map: MlMap,
     private durationMs: number,
   ) {
     this.ensureLayer();
+  }
+
+  setSelected(tripId: string | null) {
+    this.selectedTripId = tripId;
+  }
+
+  setFollow(follow: boolean) {
+    this.follow = follow;
   }
 
   private ensureLayer() {
@@ -35,10 +45,10 @@ export class VehicleLayer {
         type: "circle",
         source: "vehicles",
         paint: {
-          "circle-radius": 7,
+          "circle-radius": ["case", ["get", "selected"], 11, 7],
           "circle-color": ["case", ["==", ["get", "source"], "REALTIME"], "#e30613", "#f7a600"],
-          "circle-stroke-color": "#fff",
-          "circle-stroke-width": 2,
+          "circle-stroke-color": ["case", ["get", "selected"], "#1d4ed8", "#fff"],
+          "circle-stroke-width": ["case", ["get", "selected"], 4, 2],
           "circle-opacity": ["case", ["==", ["get", "source"], "INTERPOLATED"], 0.7, 1.0],
         },
       });
@@ -87,8 +97,13 @@ export class VehicleLayer {
     const step = (now: number) => {
       const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
       if (source) {
+        let followPoint: [number, number] | null = null;
         const features = [...this.anims.values()].map((anim) => {
           const [lng, lat] = this.pointAt(anim, now);
+          const selected = anim.vehicle.tripId === this.selectedTripId;
+          if (selected && this.follow) {
+            followPoint = [lng, lat];
+          }
           return {
             type: "Feature",
             properties: {
@@ -98,11 +113,15 @@ export class VehicleLayer {
               headsign: anim.vehicle.headsign,
               nextStop: anim.vehicle.nextStop,
               status: anim.vehicle.status,
+              selected,
             },
             geometry: { type: "Point", coordinates: [lng, lat] },
           } as GeoJSON.Feature;
         });
         source.setData(this.featureCollection(features));
+        if (followPoint) {
+          this.map.jumpTo({ center: followPoint });
+        }
       }
       this.raf = requestAnimationFrame(step);
     };
