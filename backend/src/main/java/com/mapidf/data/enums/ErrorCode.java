@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum ErrorCode {
     LINE_NOT_FOUND("Line not found"),
+    STATION_NOT_FOUND("Station not found"),
     BAD_REQUEST("Invalid request"),
     INTERNAL_ERROR("Internal server error");
 
