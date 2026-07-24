@@ -12,8 +12,10 @@ export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
   const [selected, setSelected] = useState<Selected>(null);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [follow, setFollow] = useState(false);
   useLineShape(map, LINE_ID);
-  useVehicles(map, LINE_ID);
+  useVehicles(map, LINE_ID, selectedTripId, follow);
 
   useEffect(() => {
     if (!map) {
@@ -21,7 +23,12 @@ export default function App() {
     }
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
       const props = e.features?.[0]?.properties;
-      setSelected(props ? (props as Selected) : null);
+      if (!props) {
+        return;
+      }
+      setSelected(props as Selected);
+      setSelectedTripId(props.tripId as string);
+      setFollow(true);
     };
     map.on("click", "vehicles", onClick);
     return () => {
@@ -29,10 +36,36 @@ export default function App() {
     };
   }, [map]);
 
+  useEffect(() => {
+    if (!map) {
+      return;
+    }
+    const onMoveStart = (e: maplibregl.MapLibreEvent) => {
+      if ((e as { originalEvent?: unknown }).originalEvent) {
+        setFollow(false);
+      }
+    };
+    map.on("movestart", onMoveStart);
+    return () => {
+      map.off("movestart", onMoveStart);
+    };
+  }, [map]);
+
+  const clearSelection = () => {
+    setSelected(null);
+    setSelectedTripId(null);
+    setFollow(false);
+  };
+
   return (
     <>
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
-      <VehiclePanel vehicle={selected} onClose={() => setSelected(null)} />
+      <VehiclePanel
+        vehicle={selected}
+        following={follow}
+        onFollow={() => setFollow(true)}
+        onClose={clearSelection}
+      />
     </>
   );
 }
