@@ -1,7 +1,35 @@
-# MapIDF — Migration du temps réel vers GTFS-RT global
+# MapIDF — Migration du temps réel vers un flux global
 
 *Document de conception — 2026-07-23 — complète/supersede la section « temps réel »
 de `2026-07-22-mapidf-suivi-transport-design.md`.*
+
+> **MISE À JOUR 2026-07-23 (après vérification empirique — Task 0 GO).**
+> Le titre parlait de « GTFS-RT » mais la vérification sur données réelles a montré
+> une solution **plus simple et sans protobuf** : le endpoint SIRI **`estimated-timetable`**
+> (requête *globale*) renvoie **toutes les lignes en un seul appel, en JSON**, dans la
+> structure **exactement** consommée par notre `RealtimePoller.parse()` actuel.
+> Vérifié avec notre clé : `estimated-timetable?LineRef=STIF:Line::C01379:` → 200,
+> 129 Ko, **82 courses ligne 9** ; sans `LineRef` → 63,5 Mo, tout le réseau, ligne 9
+> incluse (métro couvert). **On abandonne donc la piste GTFS-RT/protobuf** (chemin
+> Cloudflare-bloqué + dépendance inutile) au profit de `estimated-timetable`.
+> Les sections 4.1 (protobuf) et le mapping 4.4 ci-dessous sont **caducs** ; voir la
+> section « Approche retenue » et le plan associé.
+
+## 0. Approche retenue (fait foi)
+
+- **Source** : `GET /marketplace/estimated-timetable` (en-tête `apikey`), SIRI-ET JSON.
+  - **Sans `LineRef`** → tout le réseau en 1 appel (≈63 Mo).
+  - **Avec `LineRef`** → une ligne (≈129 Ko), même structure.
+- **Parser** : `RealtimePoller.parse()` **inchangé** (mêmes chemins/ champs SIRI).
+- **Snapshot réseau** : indexer les courses **par `LineRef`** (`Map<String, List<LiveJourney>>`)
+  pour être prêt multi-lignes sans nouvel appel. Le MVP peut rester **filtré ligne 9**
+  (léger) via une liste de lignes configurée ; passer en global (sans filtre) quand on
+  élargit le réseau.
+- **`PositionEngine`, contrat `/vehicles`, front** : **inchangés**.
+- **Quota** : le coût devient **1 appel/poll quel que soit le nombre de lignes**. Reste
+  à caler la cadence sur le quota réel de `estimated-timetable` (doc : ~1000/j ;
+  à confirmer/relever dans la console PRIM). PT90S (≈960/j sur 24 h) ou PT60S borné
+  aux heures de service tiennent sous 1000/j.
 
 ## 1. Problème
 

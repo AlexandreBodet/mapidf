@@ -15,10 +15,10 @@ import org.springframework.stereotype.Component;
 public class PositionEngine {
 
     public List<Vehicle> computeAll(LineString line, LineSchedule schedule,
-                                    RtSnapshot rt, Instant now) {
+                                    List<RtSnapshot.LiveJourney> journeys, Instant now) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
         List<Vehicle> out = new ArrayList<>();
-        for (RtSnapshot.LiveJourney journey : rt.journeys()) {
+        for (RtSnapshot.LiveJourney journey : journeys) {
             Vehicle vehicle = compute(indexed, schedule, journey, now);
             if (vehicle != null) {
                 out.add(vehicle);
