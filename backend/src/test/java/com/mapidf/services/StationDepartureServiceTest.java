@@ -16,7 +16,11 @@ class StationDepartureServiceTest {
     private final StationDepartureService service = new StationDepartureService();
 
     private static LiveJourney journey(String dest, Call... calls) {
-        return new LiveJourney("STIF:Line::C01379:", "J-" + dest, "0", dest, List.of(calls));
+        return journey(dest, "0", dest, calls);
+    }
+
+    private static LiveJourney journey(String dest, String directionRef, String journeyRef, Call... calls) {
+        return new LiveJourney("STIF:Line::C01379:", journeyRef, directionRef, dest, List.of(calls));
     }
 
     private static Call call(String ref, Instant t) {
@@ -43,6 +47,8 @@ class StationDepartureServiceTest {
         // trié par heure, cap à 3 : 2 / 6 / 10 min
         assertThat(montreuil.passages()).extracting(DeparturesResponse.Passage::expectedTime)
             .containsExactly(NOW.plusSeconds(120), NOW.plusSeconds(360), NOW.plusSeconds(600));
+        // journeyRef propagé sur chaque passage (permet le clic → suivi côté front)
+        assertThat(montreuil.passages()).allSatisfy(p -> assertThat(p.journeyRef()).isNotBlank());
     }
 
     @Test
@@ -65,5 +71,18 @@ class StationDepartureServiceTest {
         DeparturesResponse r = service.departures("X", Set.of("1"),
             List.of(journey("Montreuil", call("STIF:StopPoint:Q:1:", NOW.minusSeconds(10)))), NOW, 3);
         assertThat(r.directions()).isEmpty();
+    }
+
+    @Test
+    void ordersDirectionsByDirectionRefThenDestination() {
+        // Peu importe l'ordre du flux : direction 0 (Montreuil) avant direction 1 (Pont de Sèvres).
+        List<LiveJourney> journeys = List.of(
+            journey("Pont de Sèvres", "1", "jA", call("STIF:StopPoint:Q:1:", NOW.plusSeconds(120))),
+            journey("Mairie de Montreuil", "0", "jB", call("STIF:StopPoint:Q:1:", NOW.plusSeconds(60))));
+
+        DeparturesResponse r = service.departures("X", Set.of("1"), journeys, NOW, 3);
+
+        assertThat(r.directions()).extracting(DeparturesResponse.Direction::destination)
+            .containsExactly("Mairie de Montreuil", "Pont de Sèvres");
     }
 }

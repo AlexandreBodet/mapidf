@@ -3,6 +3,7 @@ package com.mapidf.services;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,8 +26,10 @@ public class StationDepartureService {
 
     public DeparturesResponse departures(String stationName, Set<String> stopKeys,
                                          List<LiveJourney> journeys, Instant now, int perDirection) {
-        // destination -> passages futurs à cette station, dans l'ordre d'insertion des destinations
+        // destination -> passages futurs à cette station (ordre d'insertion, retrié ensuite)
         Map<String, List<Passage>> byDestination = new LinkedHashMap<>();
+        // destination -> directionRef (sens SIRI), pour un ordre d'affichage stable par ligne
+        Map<String, String> directionByDestination = new HashMap<>();
         for (LiveJourney journey : journeys) {
             for (LiveJourney.Call call : journey.calls()) {
                 if (call.time() == null || call.time().isBefore(now)) {
@@ -35,19 +38,22 @@ public class StationDepartureService {
                 if (!stopKeys.contains(PositionEngine.stopKey(call.stopRef()))) {
                     continue;
                 }
-                byDestination.computeIfAbsent(journey.destination(), k -> new ArrayList<>())
-                    .add(new Passage(call.time(), call.departureStatus()));
+                String destination = journey.destination();
+                byDestination.computeIfAbsent(destination, k -> new ArrayList<>())
+                    .add(new Passage(journey.journeyRef(), call.time(), call.departureStatus()));
+                directionByDestination.putIfAbsent(destination,
+                    journey.directionRef() == null ? "" : journey.directionRef());
             }
         }
 
-        List<Direction> directions = new ArrayList<>();
-        byDestination.forEach((destination, passages) -> {
-            List<Passage> sorted = passages.stream()
+        return new DeparturesResponse(stationName, byDestination.entrySet().stream()
+            .sorted(Comparator
+                .comparing((Map.Entry<String, List<Passage>> e) -> directionByDestination.get(e.getKey()))
+                .thenComparing(Map.Entry::getKey))
+            .map(e -> new Direction(e.getKey(), e.getValue().stream()
                 .sorted(Comparator.comparing(Passage::expectedTime))
                 .limit(perDirection)
-                .toList();
-            directions.add(new Direction(destination, sorted));
-        });
-        return new DeparturesResponse(stationName, directions);
+                .toList()))
+            .toList());
     }
 }
