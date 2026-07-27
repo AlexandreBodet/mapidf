@@ -1670,3 +1670,208 @@ git commit -m "feat(front): arrêt sélectionné surligné + centré, clic passa
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
+
+---
+
+# Addendum 2 — bugs panneau passages + taille au zoom (Tasks 12-13)
+
+Retours visuels : (#1) le panneau passages affiche des passages « imminent » fantômes
+(fetch unique jamais rafraîchi → les heures vieillissent et passent dans le passé) ;
+(#3) les métros gardent une taille fixe quel que soit le zoom.
+
+## Task 12: Front — panneau passages rafraîchi + suppression des passages passés (#1)
+
+**Files:**
+- Modify: `frontend/src/ui/StopPanel.tsx`
+- Modify: `frontend/src/App.tsx`
+
+**Interfaces:**
+- Consumes: `fetchDepartures`, `VEHICLE_POLL_MS`.
+- Produces: `App` garde un `selectedStationId` et re-fetch les passages au rythme du poll ; `StopPanel` masque les passages déjà partis (`expectedTime <= maintenant`), replie les directions vides et affiche « Aucun passage annoncé » s'il n'en reste aucun.
+
+- [ ] **Step 1: `StopPanel` filtre les passages passés**
+
+Dans `StopPanel.tsx`, calculer les directions filtrées avant le rendu (passages strictement futurs, directions non vides), et baser l'état vide dessus. Remplacer le corps de `StopPanel` (à partir du `if (!data)` jusqu'à la fin du composant) par :
+
+```tsx
+export function StopPanel({ data, onClose, onSelectTrain }: Props) {
+  if (!data) {
+    return null;
+  }
+  // On masque les passages déjà partis (le panneau peut vieillir entre deux rafraîchissements)
+  // et les directions qui n'ont plus aucun passage à venir.
+  const now = Date.now();
+  const directions = data.directions
+    .map((dir) => ({
+      ...dir,
+      passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
+    }))
+    .filter((dir) => dir.passages.length > 0);
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 12,
+        right: 12,
+        width: 260,
+        padding: 16,
+        background: "#fff",
+        borderRadius: 8,
+        boxShadow: "0 2px 12px rgba(0,0,0,.2)",
+        font: "14px sans-serif",
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{ float: "right", border: "none", background: "none", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}
+        aria-label="Fermer"
+      >
+        ✕
+      </button>
+      <h3 style={{ margin: "0 0 8px" }}>{data.stationName}</h3>
+      {directions.length === 0 && (
+        <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
+      )}
+      {directions.map((dir) => (
+        <div key={dir.destination} style={{ margin: "8px 0 0" }}>
+          <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
+          <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
+            {dir.passages.map((p, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => onSelectTrain?.(p.journeyRef)}
+                  style={{
+                    border: "none", background: "none", padding: "2px 0", cursor: "pointer",
+                    font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                  }}
+                  title="Suivre ce métro"
+                >
+                  {formatEta(p.expectedTime)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: `App` — id de station suivi + rafraîchissement**
+
+Dans `App.tsx`, importer `VEHICLE_POLL_MS` :
+
+```tsx
+import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
+```
+
+Ajouter l'état (après `station`) :
+
+```tsx
+  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+```
+
+Dans `onStationClick`, mémoriser l'id sélectionné (juste avant le `try`) :
+
+```tsx
+      setSelectedStationId(id);
+```
+
+Dans `closeStation`, arrêter le suivi de station :
+
+```tsx
+  const closeStation = () => {
+    setStation(null);
+    setSelectedStationId(null);
+    map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
+  };
+```
+
+Dans `onClick` (clic véhicule), ajouter l'oubli de la station suivie à côté de l'effacement existant :
+
+```tsx
+      setStation(null);
+      setSelectedStationId(null);
+      map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
+```
+
+Ajouter un effet de rafraîchissement (après l'effet de clic) :
+
+```tsx
+  // Le panneau passages est rafraîchi au rythme du poll tant qu'une station est sélectionnée,
+  // pour que les ETA vivent et que les passages partis disparaissent (sinon on affiche des
+  // « imminent » fantômes figés au fetch initial).
+  useEffect(() => {
+    if (!selectedStationId) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const fresh = await fetchDepartures(LINE_ID, selectedStationId);
+        if (!cancelled) {
+          setStation(fresh);
+        }
+      } catch {
+        // on conserve l'affichage courant
+      }
+    }, VEHICLE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedStationId]);
+```
+
+- [ ] **Step 3: Build**
+
+Run: `cd frontend && npm run build`
+Expected: build OK.
+
+- [ ] **Step 4: Contrôle visuel (utilisateur)**
+
+Ouvrir une station : les passages affichés sont réels (plus de triple « imminent » fantôme) ; les ETA décroissent et se rafraîchissent ; une station sans passage à venir (fin de service) affiche « Aucun passage annoncé ».
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/ui/StopPanel.tsx frontend/src/App.tsx
+git commit -m "fix(front): panneau passages rafraîchi + masque les passages déjà partis
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+## Task 13: Front — taille des véhicules variable selon le zoom (#3)
+
+**Files:**
+- Modify: `frontend/src/map/VehicleLayer.ts`
+
+**Interfaces:**
+- Produces: la couche symbol `vehicles` a un `icon-size` interpolé sur le zoom (petit de loin, plus gros en zoom rapproché).
+
+- [ ] **Step 1: `icon-size` interpolé sur le zoom**
+
+Dans `VehicleLayer.ts`, couche symbol `vehicles`, remplacer `"icon-size": 0.8` par une interpolation :
+
+```typescript
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 13, 0.85, 16, 1.5],
+```
+
+- [ ] **Step 2: Build**
+
+Run: `cd frontend && npm run build`
+Expected: build OK.
+
+- [ ] **Step 3: Contrôle visuel (utilisateur)**
+
+Les flèches grossissent en zoomant et rapetissent en dézoomant, de façon fluide.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add frontend/src/map/VehicleLayer.ts
+git commit -m "feat(front): taille des véhicules interpolée selon le zoom
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
