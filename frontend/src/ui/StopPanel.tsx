@@ -4,9 +4,10 @@ import { formatEta } from "./formatEta";
 interface Props {
   data: DeparturesResponse | null;
   onClose: () => void;
+  onSelectTrain?: (tripId: string) => void;
 }
 
-export function StopPanel({ data, onClose }: Props) {
+export function StopPanel({ data, onClose, onSelectTrain }: Props) {
   if (!data) {
     return null;
   }
@@ -38,9 +39,20 @@ export function StopPanel({ data, onClose }: Props) {
       {data.directions.map((dir) => (
         <div key={dir.destination} style={{ margin: "8px 0 0" }}>
           <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
-          <ul style={{ margin: "0 0 0 16px", padding: 0 }}>
+          <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
             {dir.passages.map((p, i) => (
-              <li key={i}>{formatEta(p.expectedTime)}</li>
+              <li key={i}>
+                <button
+                  onClick={() => onSelectTrain?.(p.journeyRef)}
+                  style={{
+                    border: "none", background: "none", padding: "2px 0", cursor: "pointer",
+                    font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                  }}
+                  title="Suivre ce métro"
+                >
+                  {formatEta(p.expectedTime)}
+                </button>
+              </li>
             ))}
           </ul>
         </div>

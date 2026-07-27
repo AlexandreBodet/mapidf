@@ -9,7 +9,7 @@ export interface DeparturesResponse {
   stationName: string;
   directions: {
     destination: string;
-    passages: { expectedTime: string; status: string }[];
+    passages: { journeyRef: string; expectedTime: string; status: string }[];
   }[];
 }
 

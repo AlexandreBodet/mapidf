@@ -74,6 +74,19 @@ export function useLineShape(map: MlMap | null, lineId: string) {
             "text-halo-width": 1.5,
           },
         });
+        // Anneau de mise en valeur de l'arrêt sélectionné (piloté par setFilter depuis App).
+        map.addLayer({
+          id: "stops-selected",
+          type: "circle",
+          source: "stops",
+          filter: ["==", ["get", "id"], "__none__"],
+          paint: {
+            "circle-radius": 10,
+            "circle-color": "rgba(29,78,216,0.15)",
+            "circle-stroke-color": "#1d4ed8",
+            "circle-stroke-width": 3,
+          },
+        });
         // Curseur main au survol des stations cliquables.
         map.on("mouseenter", "stops", () => { map.getCanvas().style.cursor = "pointer"; });
         map.on("mouseleave", "stops", () => { map.getCanvas().style.cursor = ""; });

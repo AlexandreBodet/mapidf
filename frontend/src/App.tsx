@@ -48,6 +48,7 @@ export default function App() {
         return;
       }
       setStation(null);
+      map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
       setSelected(props as Selected);
       setSelectedTripId(props.tripId as string);
       setFollow(true);
@@ -55,6 +56,7 @@ export default function App() {
     map.on("click", "vehicles", onClick);
     const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
+      const coords = (e.features?.[0]?.geometry as GeoJSON.Point | undefined)?.coordinates;
       if (!id) {
         return;
       }
@@ -62,6 +64,10 @@ export default function App() {
       setSelected(null);
       setSelectedTripId(null);
       setFollow(false);
+      map.setFilter("stops-selected", ["==", ["get", "id"], id]);
+      if (coords) {
+        map.easeTo({ center: coords as [number, number] });
+      }
       try {
         setStation(await fetchDepartures(LINE_ID, id));
       } catch {
@@ -105,6 +111,18 @@ export default function App() {
     setFollow(false);
   };
 
+  const closeStation = () => {
+    setStation(null);
+    map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
+  };
+
+  const followTrainFromPanel = (tripId: string) => {
+    closeStation();
+    setSelected(null);
+    setSelectedTripId(tripId);
+    setFollow(true);
+  };
+
   return (
     <>
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
@@ -114,7 +132,7 @@ export default function App() {
         onFollow={() => setFollow((f) => !f)}
         onClose={clearSelection}
       />
-      <StopPanel data={station} onClose={() => setStation(null)} />
+      <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
       <Legend color={lineColor} count={count} />
     </>
   );
