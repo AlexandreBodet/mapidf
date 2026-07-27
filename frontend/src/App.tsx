@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { useMap } from "./map/MapView";
 import { useLineShape } from "./map/useLineShape";
@@ -27,6 +27,11 @@ export default function App() {
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [lineColor, setLineColor] = useState("#e30613");
   const [count, setCount] = useState(0);
+  // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
+  const highlightedTripIds = useMemo(
+    () => new Set(station?.directions.flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? []),
+    [station],
+  );
   useLineShape(map, LINE_ID);
   useEffect(() => {
     fetchShape(LINE_ID).then((s) => setLineColor(s.color)).catch(() => {});
@@ -37,7 +42,7 @@ export default function App() {
     if (v) {
       setSelected(toSelected(v));
     }
-  }, setCount);
+  }, setCount, highlightedTripIds);
 
   useEffect(() => {
     if (!map) {

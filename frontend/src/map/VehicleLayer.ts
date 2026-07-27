@@ -35,6 +35,7 @@ export class VehicleLayer {
   private cancelReady: (() => void) | null = null;
   private selectedTripId: string | null = null;
   private follow = false;
+  private highlightedTripIds: Set<string> = new Set();
 
   constructor(
     private map: MlMap,
@@ -50,6 +51,10 @@ export class VehicleLayer {
 
   setFollow(follow: boolean) {
     this.follow = follow;
+  }
+
+  setHighlighted(ids: Set<string>) {
+    this.highlightedTripIds = ids;
   }
 
   setColor(color: string) {
@@ -101,6 +106,20 @@ export class VehicleLayer {
           "circle-color": "rgba(29,78,216,0.15)",
           "circle-stroke-color": "#1d4ed8",
           "circle-stroke-width": 3,
+        },
+      });
+      // Anneau sur les véhicules concernés par les passages de l'arrêt ouvert (distinct
+      // du halo bleu de sélection). Filtré sur la propriété `highlighted` des features.
+      this.map.addLayer({
+        id: "vehicles-highlight",
+        type: "circle",
+        source: "vehicles",
+        filter: ["==", ["get", "highlighted"], true],
+        paint: {
+          "circle-radius": 11,
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-color": "#111",
+          "circle-stroke-width": 2.5,
         },
       });
       // Flèches orientées sur le bearing (0 = nord), alignées à la carte.
@@ -168,6 +187,7 @@ export class VehicleLayer {
         const features = [...this.anims.values()].map((anim) => {
           const [lng, lat] = this.pointAt(anim, now);
           const selected = anim.vehicle.tripId === this.selectedTripId;
+          const highlighted = this.highlightedTripIds.has(anim.vehicle.tripId);
           if (selected && this.follow) {
             followPoint = [lng, lat];
           }
@@ -182,6 +202,7 @@ export class VehicleLayer {
               expectedTime: anim.vehicle.expectedTime,
               status: anim.vehicle.status,
               selected,
+              highlighted,
             },
             geometry: { type: "Point", coordinates: [lng, lat] },
           } as GeoJSON.Feature;

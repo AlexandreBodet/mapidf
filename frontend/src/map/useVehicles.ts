@@ -15,6 +15,7 @@ export function useVehicles(
   follow = false,
   onSelected?: (vehicle: V | null) => void,
   onCount?: (n: number) => void,
+  highlightedTripIds: Set<string> = new Set(),
 ) {
   const layerRef = useRef<VehicleLayer | null>(null);
   // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
@@ -74,4 +75,8 @@ export function useVehicles(
   useEffect(() => {
     layerRef.current?.setColor(color);
   }, [map, lineId, color]);
+
+  useEffect(() => {
+    layerRef.current?.setHighlighted(highlightedTripIds);
+  }, [map, lineId, highlightedTripIds]);
 }
