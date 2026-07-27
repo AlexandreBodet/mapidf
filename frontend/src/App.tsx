@@ -78,6 +78,7 @@ export default function App() {
       }
     };
     map.on("click", "stops", onStationClick);
+    map.on("click", "stops-labels", onStationClick);
     const enter = () => { map.getCanvas().style.cursor = "pointer"; };
     const leave = () => { map.getCanvas().style.cursor = ""; };
     map.on("mouseenter", "vehicles", enter);
@@ -85,6 +86,7 @@ export default function App() {
     return () => {
       map.off("click", "vehicles", onClick);
       map.off("click", "stops", onStationClick);
+      map.off("click", "stops-labels", onStationClick);
       map.off("mouseenter", "vehicles", enter);
       map.off("mouseleave", "vehicles", leave);
     };

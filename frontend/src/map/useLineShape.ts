@@ -47,6 +47,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
           id: "stops",
           type: "circle",
           source: "stops",
+          minzoom: 11,
           paint: {
             "circle-radius": 5,
             "circle-color": "#fff",
@@ -90,6 +91,8 @@ export function useLineShape(map: MlMap | null, lineId: string) {
         // Curseur main au survol des stations cliquables.
         map.on("mouseenter", "stops", () => { map.getCanvas().style.cursor = "pointer"; });
         map.on("mouseleave", "stops", () => { map.getCanvas().style.cursor = ""; });
+        map.on("mouseenter", "stops-labels", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "stops-labels", () => { map.getCanvas().style.cursor = ""; });
       };
       cancelReady = whenStyleReady(map, draw);
     });
