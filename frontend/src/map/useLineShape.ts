@@ -30,7 +30,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
           id: "line-shape",
           type: "line",
           source: "line-shape",
-          paint: { "line-color": shape.color, "line-width": 4 },
+          paint: { "line-color": shape.color, "line-width": 4, "line-opacity": 0.45 },
         });
         map.addSource("stops", {
           type: "geojson",
@@ -60,9 +60,10 @@ export function useLineShape(map: MlMap | null, lineId: string) {
           id: "stops-labels",
           type: "symbol",
           source: "stops",
-          minzoom: 13,
+          minzoom: 12,
           layout: {
             "text-field": ["get", "name"],
+            "text-font": ["Noto Sans Regular"],
             "text-size": 12,
             "text-offset": [0, 1.2],
             "text-anchor": "top",
