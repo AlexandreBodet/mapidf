@@ -96,7 +96,7 @@ export class VehicleLayer {
           "icon-rotate": ["get", "bearing"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
-          "icon-size": 0.8,
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 13, 0.85, 16, 1.5],
         },
       });
     };
