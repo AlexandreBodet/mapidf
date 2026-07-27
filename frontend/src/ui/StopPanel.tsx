@@ -11,6 +11,15 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
   if (!data) {
     return null;
   }
+  // On masque les passages déjà partis (le panneau peut vieillir entre deux rafraîchissements)
+  // et les directions qui n'ont plus aucun passage à venir.
+  const now = Date.now();
+  const directions = data.directions
+    .map((dir) => ({
+      ...dir,
+      passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
+    }))
+    .filter((dir) => dir.passages.length > 0);
   return (
     <div
       style={{
@@ -33,10 +42,10 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
         ✕
       </button>
       <h3 style={{ margin: "0 0 8px" }}>{data.stationName}</h3>
-      {data.directions.length === 0 && (
+      {directions.length === 0 && (
         <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
       )}
-      {data.directions.map((dir) => (
+      {directions.map((dir) => (
         <div key={dir.destination} style={{ margin: "8px 0 0" }}>
           <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
           <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>

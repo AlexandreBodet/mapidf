@@ -7,7 +7,7 @@ import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
 import { fetchShape, fetchDepartures } from "./api/lines";
-import { LINE_ID } from "./api/config";
+import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
 import type { VehiclesResponse, DeparturesResponse } from "./api/types";
 
 type V = VehiclesResponse["vehicles"][number];
@@ -24,6 +24,7 @@ export default function App() {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
+  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [lineColor, setLineColor] = useState("#e30613");
   const [count, setCount] = useState(0);
   useLineShape(map, LINE_ID);
@@ -48,6 +49,7 @@ export default function App() {
         return;
       }
       setStation(null);
+      setSelectedStationId(null);
       map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
       setSelected(props as Selected);
       setSelectedTripId(props.tripId as string);
@@ -68,6 +70,7 @@ export default function App() {
       if (coords) {
         map.easeTo({ center: coords as [number, number] });
       }
+      setSelectedStationId(id);
       try {
         setStation(await fetchDepartures(LINE_ID, id));
       } catch {
@@ -105,6 +108,30 @@ export default function App() {
     };
   }, [map]);
 
+  // Le panneau passages est rafraîchi au rythme du poll tant qu'une station est sélectionnée,
+  // pour que les ETA vivent et que les passages partis disparaissent (sinon on affiche des
+  // « imminent » fantômes figés au fetch initial).
+  useEffect(() => {
+    if (!selectedStationId) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const fresh = await fetchDepartures(LINE_ID, selectedStationId);
+        if (!cancelled) {
+          setStation(fresh);
+        }
+      } catch {
+        // on conserve l'affichage courant
+      }
+    }, VEHICLE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedStationId]);
+
   const clearSelection = () => {
     setSelected(null);
     setSelectedTripId(null);
@@ -113,6 +140,7 @@ export default function App() {
 
   const closeStation = () => {
     setStation(null);
+    setSelectedStationId(null);
     map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
   };
 
