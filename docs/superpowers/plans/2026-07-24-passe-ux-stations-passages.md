@@ -1306,3 +1306,367 @@ Sur l'app lancée par l'utilisateur : stations regroupées (un point par station
 - [ ] **Step 4: Finalisation de branche**
 
 REQUIRED SUB-SKILL: superpowers:finishing-a-development-branch (vérifier tests → présenter options merge/PR).
+
+---
+
+# Addendum — finitions post-revue visuelle (Tasks 9-11)
+
+Retours visuels utilisateur après la 1ʳᵉ passe (branche non encore mergée) :
+1. Trains peu distinguables du tracé (même couleur) → atténuer le tracé.
+2. Mettre en valeur l'arrêt sélectionné + centrer la caméra.
+3. Cliquer un passage dans la card → suivre le métro correspondant (nécessite `journeyRef`).
+4. Ordre des directions non uniforme entre arrêts → ordonner déterministiquement.
+5. Noms d'arrêts jamais visibles → BUG : couche `symbol` sans `text-font` (le style Liberty
+   ne fournit que `Noto Sans *`, la police par défaut `Open Sans` renvoie 404 → texte non rendu).
+
+## Task 9: Backend — ordre déterministe des directions + journeyRef dans les passages
+
+**Files:**
+- Modify: `backend/src/main/java/com/mapidf/controllers/lines/DeparturesResponse.java`
+- Modify: `backend/src/main/java/com/mapidf/services/StationDepartureService.java`
+- Test: `backend/src/test/java/com/mapidf/services/StationDepartureServiceTest.java`
+
+**Interfaces:**
+- Consumes: `LiveJourney.directionRef()`, `LiveJourney.journeyRef()`, `LiveJourney.destination()`.
+- Produces: `DeparturesResponse.Passage(String journeyRef, Instant expectedTime, String status)` ; directions triées par `(directionRef, destination)` (ordre stable par ligne, `directionRef` null normalisé en "").
+
+- [ ] **Step 1: Étendre les tests (RED)**
+
+Dans `StationDepartureServiceTest.java`, adapter le helper `journey` pour porter un `directionRef` et ajouter deux assertions. Remplacer le helper existant `journey(String dest, Call... calls)` par :
+
+```java
+    private static LiveJourney journey(String dest, Call... calls) {
+        return journey(dest, "0", dest, calls);
+    }
+
+    private static LiveJourney journey(String dest, String directionRef, String journeyRef, Call... calls) {
+        return new LiveJourney("STIF:Line::C01379:", journeyRef, directionRef, dest, List.of(calls));
+    }
+```
+
+Dans `groupsByDestinationSortsByTimeAndCapsPerDirection`, après les assertions existantes, ajouter :
+
+```java
+        // journeyRef propagé sur chaque passage (permet le clic → suivi côté front)
+        assertThat(montreuil.passages()).allSatisfy(p -> assertThat(p.journeyRef()).isNotBlank());
+```
+
+Ajouter un nouveau test :
+
+```java
+    @Test
+    void ordersDirectionsByDirectionRefThenDestination() {
+        // Peu importe l'ordre du flux : direction 0 (Montreuil) avant direction 1 (Pont de Sèvres).
+        List<LiveJourney> journeys = List.of(
+            journey("Pont de Sèvres", "1", "jA", call("STIF:StopPoint:Q:1:", NOW.plusSeconds(120))),
+            journey("Mairie de Montreuil", "0", "jB", call("STIF:StopPoint:Q:1:", NOW.plusSeconds(60))));
+
+        DeparturesResponse r = service.departures("X", Set.of("1"), journeys, NOW, 3);
+
+        assertThat(r.directions()).extracting(DeparturesResponse.Direction::destination)
+            .containsExactly("Mairie de Montreuil", "Pont de Sèvres");
+    }
+```
+
+- [ ] **Step 2: Lancer → échoue**
+
+Run: `cd backend && JAVA_HOME=/home/abodet/.jdks/temurin-25.0.3 ./mvnw test -Dtest=StationDepartureServiceTest`
+Expected: FAIL — `Passage` n'a pas de `journeyRef` (ne compile pas) / ordre non garanti.
+
+- [ ] **Step 3: Ajouter `journeyRef` au DTO**
+
+Dans `DeparturesResponse.java` :
+
+```java
+    public record Passage(String journeyRef, Instant expectedTime, String status) {
+    }
+```
+
+- [ ] **Step 4: Service — journeyRef + ordre déterministe**
+
+Remplacer le corps de `StationDepartureService.departures` par :
+
+```java
+    public DeparturesResponse departures(String stationName, Set<String> stopKeys,
+                                         List<LiveJourney> journeys, Instant now, int perDirection) {
+        // destination -> passages futurs à cette station (ordre d'insertion, retrié ensuite)
+        Map<String, List<Passage>> byDestination = new LinkedHashMap<>();
+        // destination -> directionRef (sens SIRI), pour un ordre d'affichage stable par ligne
+        Map<String, String> directionByDestination = new HashMap<>();
+        for (LiveJourney journey : journeys) {
+            for (LiveJourney.Call call : journey.calls()) {
+                if (call.time() == null || call.time().isBefore(now)) {
+                    continue;
+                }
+                if (!stopKeys.contains(PositionEngine.stopKey(call.stopRef()))) {
+                    continue;
+                }
+                String destination = journey.destination();
+                byDestination.computeIfAbsent(destination, k -> new ArrayList<>())
+                    .add(new Passage(journey.journeyRef(), call.time(), call.departureStatus()));
+                directionByDestination.putIfAbsent(destination,
+                    journey.directionRef() == null ? "" : journey.directionRef());
+            }
+        }
+
+        return new DeparturesResponse(stationName, byDestination.entrySet().stream()
+            .sorted(Comparator
+                .comparing((Map.Entry<String, List<Passage>> e) -> directionByDestination.get(e.getKey()))
+                .thenComparing(Map.Entry::getKey))
+            .map(e -> new Direction(e.getKey(), e.getValue().stream()
+                .sorted(Comparator.comparing(Passage::expectedTime))
+                .limit(perDirection)
+                .toList()))
+            .toList());
+    }
+```
+
+Ajouter l'import manquant : `import java.util.HashMap;`
+
+- [ ] **Step 5: Lancer → vert**
+
+Run: `cd backend && JAVA_HOME=/home/abodet/.jdks/temurin-25.0.3 ./mvnw test -Dtest=StationDepartureServiceTest`
+Expected: PASS (4 tests).
+
+- [ ] **Step 6: Suite backend complète**
+
+Run: `cd backend && JAVA_HOME=/home/abodet/.jdks/temurin-25.0.3 ./mvnw verify`
+Expected: BUILD SUCCESS (l'IT departures `directions: []` reste vert : pas de snapshot → aucune direction).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/src/main/java/com/mapidf/controllers/lines/DeparturesResponse.java \
+        backend/src/main/java/com/mapidf/services/StationDepartureService.java \
+        backend/src/test/java/com/mapidf/services/StationDepartureServiceTest.java
+git commit -m "feat(rt): ordre déterministe des directions + journeyRef par passage
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+## Task 10: Front — atténuer le tracé (#1) + corriger les noms d'arrêts (#5)
+
+**Files:**
+- Modify: `frontend/src/map/useLineShape.ts`
+
+**Interfaces:**
+- Produces: tracé `line-shape` à opacité réduite ; couche `stops-labels` avec `text-font` valide et seuil de zoom abaissé.
+
+- [ ] **Step 1: Atténuer le tracé**
+
+Dans `useLineShape.ts`, la couche `line-shape`, ajouter `line-opacity` au paint :
+
+```typescript
+        map.addLayer({
+          id: "line-shape",
+          type: "line",
+          source: "line-shape",
+          paint: { "line-color": shape.color, "line-width": 4, "line-opacity": 0.45 },
+        });
+```
+
+- [ ] **Step 2: Corriger les labels (police + seuil)**
+
+Dans la couche `stops-labels`, régler `minzoom` à 12 et ajouter `text-font` (police fournie par le style OpenFreeMap Liberty ; sans elle, les glyphes par défaut renvoient 404 et le texte ne s'affiche jamais) :
+
+```typescript
+        map.addLayer({
+          id: "stops-labels",
+          type: "symbol",
+          source: "stops",
+          minzoom: 12,
+          layout: {
+            "text-field": ["get", "name"],
+            "text-font": ["Noto Sans Regular"],
+            "text-size": 12,
+            "text-offset": [0, 1.2],
+            "text-anchor": "top",
+          },
+          paint: {
+            "text-color": "#111",
+            "text-halo-color": "#fff",
+            "text-halo-width": 1.5,
+          },
+        });
+```
+
+- [ ] **Step 3: Build**
+
+Run: `cd frontend && npm run build`
+Expected: build OK.
+
+- [ ] **Step 4: Contrôle visuel (utilisateur)**
+
+Les flèches ressortent nettement du tracé (tracé estompé) ; les noms de stations s'affichent à partir du zoom 12.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/map/useLineShape.ts
+git commit -m "fix(front): tracé atténué + noms d'arrêts (text-font Noto Sans, seuil zoom 12)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+## Task 11: Front — arrêt sélectionné mis en valeur + centrage (#2) + clic passage → suivi (#3)
+
+**Files:**
+- Modify: `frontend/src/api/types.ts`
+- Modify: `frontend/src/map/useLineShape.ts`
+- Modify: `frontend/src/ui/StopPanel.tsx`
+- Modify: `frontend/src/App.tsx`
+
+**Interfaces:**
+- Consumes: `journeyRef` dans les passages (Task 9), couche `stops` avec propriété `id`.
+- Produces: couche `stops-selected` (anneau bleu, filtrée par id) ; `StopPanel` avec passages cliquables (`onSelectTrain(tripId)`) ; `App` centre la caméra + surligne l'arrêt au clic, et sélectionne/suit le train au clic d'un passage.
+
+- [ ] **Step 1: `journeyRef` dans le type front**
+
+Dans `types.ts`, `DeparturesResponse` :
+
+```typescript
+export interface DeparturesResponse {
+  stationName: string;
+  directions: {
+    destination: string;
+    passages: { journeyRef: string; expectedTime: string; status: string }[];
+  }[];
+}
+```
+
+- [ ] **Step 2: Couche de surlignage de l'arrêt sélectionné**
+
+Dans `useLineShape.ts`, après la couche `stops-labels`, ajouter une couche anneau filtrée (invisible au départ) :
+
+```typescript
+        // Anneau de mise en valeur de l'arrêt sélectionné (piloté par setFilter depuis App).
+        map.addLayer({
+          id: "stops-selected",
+          type: "circle",
+          source: "stops",
+          filter: ["==", ["get", "id"], "__none__"],
+          paint: {
+            "circle-radius": 10,
+            "circle-color": "rgba(29,78,216,0.15)",
+            "circle-stroke-color": "#1d4ed8",
+            "circle-stroke-width": 3,
+          },
+        });
+```
+
+- [ ] **Step 3: `StopPanel` — passages cliquables**
+
+Dans `StopPanel.tsx`, ajouter la prop `onSelectTrain` et rendre chaque passage cliquable :
+
+```tsx
+interface Props {
+  data: DeparturesResponse | null;
+  onClose: () => void;
+  onSelectTrain?: (tripId: string) => void;
+}
+
+export function StopPanel({ data, onClose, onSelectTrain }: Props) {
+```
+
+Remplacer la liste des passages par des boutons cliquables :
+
+```tsx
+          <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
+            {dir.passages.map((p, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => onSelectTrain?.(p.journeyRef)}
+                  style={{
+                    border: "none", background: "none", padding: "2px 0", cursor: "pointer",
+                    font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                  }}
+                  title="Suivre ce métro"
+                >
+                  {formatEta(p.expectedTime)}
+                </button>
+              </li>
+            ))}
+          </ul>
+```
+
+- [ ] **Step 4: `App.tsx` — centrage + surlignage + clic passage**
+
+Dans `App.tsx`, factoriser la fermeture de station (avec effacement de l'anneau) et brancher le tout.
+
+Ajouter un helper de fermeture station (avant le `return`), qui efface aussi l'anneau :
+
+```tsx
+  const closeStation = () => {
+    setStation(null);
+    map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
+  };
+```
+
+Dans `onStationClick`, après avoir résolu `id`, surligner + centrer, et n'ouvrir la card qu'après succès :
+
+```tsx
+    const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
+      const id = e.features?.[0]?.properties?.id as string | undefined;
+      const coords = (e.features?.[0]?.geometry as GeoJSON.Point | undefined)?.coordinates;
+      if (!id) {
+        return;
+      }
+      // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
+      setSelected(null);
+      setSelectedTripId(null);
+      setFollow(false);
+      map.setFilter("stops-selected", ["==", ["get", "id"], id]);
+      if (coords) {
+        map.easeTo({ center: coords as [number, number] });
+      }
+      try {
+        setStation(await fetchDepartures(LINE_ID, id));
+      } catch {
+        setStation(null);
+      }
+    };
+```
+
+Dans `onClick` (clic véhicule), remplacer `setStation(null);` par la fermeture complète de la station (efface aussi l'anneau) :
+
+```tsx
+      setStation(null);
+      map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
+```
+
+Ajouter le handler de sélection d'un train depuis la card, et le passer à `StopPanel`. Handler (près de `clearSelection`) :
+
+```tsx
+  const followTrainFromPanel = (tripId: string) => {
+    closeStation();
+    setSelected(null);
+    setSelectedTripId(tripId);
+    setFollow(true);
+  };
+```
+
+Mettre à jour le rendu de `StopPanel` :
+
+```tsx
+      <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
+```
+
+> Note : le panneau train (`selected`) se remplit au prochain poll (≤ 4 s) via le callback de `useVehicles` ; en attendant, la carte surligne et centre déjà le train suivi (halo + `jumpTo`). Comportement acceptable, pas de donnée véhicule disponible dans la réponse `departures`.
+
+- [ ] **Step 5: Build**
+
+Run: `cd frontend && npm run build`
+Expected: build OK.
+
+- [ ] **Step 6: Contrôle visuel (utilisateur)**
+
+Clic station → anneau bleu sur l'arrêt + recentrage + card ; clic sur un passage → la card se ferme, le métro correspondant est suivi (halo + caméra) ; clic véhicule ou ✕ → l'anneau station disparaît.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add frontend/src/api/types.ts frontend/src/map/useLineShape.ts frontend/src/ui/StopPanel.tsx frontend/src/App.tsx
+git commit -m "feat(front): arrêt sélectionné surligné + centré, clic passage → suivi du métro
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
