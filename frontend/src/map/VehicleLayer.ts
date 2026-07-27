@@ -2,6 +2,23 @@ import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
 import type { VehiclesResponse } from "../api/types";
 import { whenStyleReady } from "./mapReady";
 
+// Au-delà de cette distance entre deux polls, ce n'est pas un déplacement réel de métro
+// (~quelques dizaines de mètres par poll) mais une correction/flip de données : on place
+// le train directement (snap) au lieu d'animer un glissement trompeur à travers la carte.
+const SNAP_DISTANCE_M = 300;
+
+// Distance approximative entre deux [lng, lat] en mètres (équirectangulaire avec cos(lat)),
+// suffisante à l'échelle d'une ligne parisienne.
+function distanceMeters(a: [number, number], b: [number, number]): number {
+  const R = 6371000;
+  const rad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * rad;
+  const dLng = (b[0] - a[0]) * rad;
+  const meanLat = ((a[1] + b[1]) / 2) * rad;
+  const x = dLng * Math.cos(meanLat);
+  return R * Math.sqrt(x * x + dLat * dLat);
+}
+
 type V = VehiclesResponse["vehicles"][number];
 
 interface Anim {
@@ -113,9 +130,12 @@ export class VehicleLayer {
       seen.add(vehicle.tripId);
       const prev = this.anims.get(vehicle.tripId);
       const current = prev ? this.pointAt(prev, now) : ([vehicle.lng, vehicle.lat] as [number, number]);
+      const target: [number, number] = [vehicle.lng, vehicle.lat];
+      // Saut invraisemblable → snap (pas d'animation) : from = target. Sinon, tween normal.
+      const from = distanceMeters(current, target) > SNAP_DISTANCE_M ? target : current;
       this.anims.set(vehicle.tripId, {
-        from: current,
-        to: [vehicle.lng, vehicle.lat],
+        from,
+        to: target,
         bearing: vehicle.bearing,
         start: now,
         vehicle,
