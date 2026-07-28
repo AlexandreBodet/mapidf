@@ -46,8 +46,22 @@ export class VehicleLayer {
     this.ensureLayer();
   }
 
+  private applySelectionState() {
+    if (!this.map.getSource("vehicles")) {
+      return;
+    }
+    this.map.removeFeatureState({ source: "vehicles" });
+    if (this.selectedTripId) {
+      this.map.setFeatureState({ source: "vehicles", id: this.selectedTripId }, { selected: true });
+    }
+    for (const id of this.highlightedTripIds) {
+      this.map.setFeatureState({ source: "vehicles", id }, { highlighted: true });
+    }
+  }
+
   setSelected(tripId: string | null) {
     this.selectedTripId = tripId;
+    this.applySelectionState();
   }
 
   setFollow(follow: boolean) {
@@ -56,6 +70,7 @@ export class VehicleLayer {
 
   setHighlighted(ids: Set<string>) {
     this.highlightedTripIds = ids;
+    this.applySelectionState();
   }
 
   setColor(color: string) {
@@ -92,35 +107,42 @@ export class VehicleLayer {
       if (this.map.getSource("vehicles")) {
         return;
       }
-      this.map.addSource("vehicles", { type: "geojson", data: this.featureCollection([]) });
+      this.map.addSource("vehicles", {
+        type: "geojson",
+        promoteId: "tripId",
+        data: this.featureCollection([]),
+      });
       if (!this.map.hasImage("vehicle-arrow")) {
         this.map.addImage("vehicle-arrow", this.arrowImage());
       }
       // Halo de sélection SOUS les flèches : anneau bleu, uniquement la feature sélectionnée.
+      // Couche permanente (les filtres ne lisent pas feature-state) : visibilité pilotée
+      // par l'opacité, via feature-state "selected".
       this.map.addLayer({
         id: "vehicles-halo",
         type: "circle",
         source: "vehicles",
-        filter: ["==", ["get", "selected"], true],
         paint: {
           "circle-radius": 12,
           "circle-color": "rgba(29,78,216,0.15)",
           "circle-stroke-color": "#1d4ed8",
           "circle-stroke-width": 3,
+          "circle-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
+          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
         },
       });
       // Anneau sur les véhicules concernés par les passages de l'arrêt ouvert (distinct
-      // du halo bleu de sélection). Filtré sur la propriété `highlighted` des features.
+      // du halo bleu de sélection). Couche permanente pilotée par feature-state "highlighted".
       this.map.addLayer({
         id: "vehicles-highlight",
         type: "circle",
         source: "vehicles",
-        filter: ["==", ["get", "highlighted"], true],
         paint: {
           "circle-radius": 11,
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-color": "#111",
           "circle-stroke-width": 2.5,
+          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "highlighted"], false], 1, 0],
         },
       });
       // Flèches orientées sur le bearing (0 = nord), alignées à la carte.
@@ -136,6 +158,7 @@ export class VehicleLayer {
           "icon-size": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 13, 0.85, 16, 1.5],
         },
       });
+      this.applySelectionState();
     };
     this.cancelReady = whenStyleReady(this.map, add);
   }
@@ -190,9 +213,7 @@ export class VehicleLayer {
         let followPoint: [number, number] | null = null;
         const features = [...this.anims.values()].map((anim) => {
           const [lng, lat] = this.pointAt(anim, now);
-          const selected = anim.vehicle.tripId === this.selectedTripId;
-          const highlighted = this.highlightedTripIds.has(anim.vehicle.tripId);
-          if (selected && this.follow) {
+          if (anim.vehicle.tripId === this.selectedTripId && this.follow) {
             followPoint = [lng, lat];
           }
           return {
@@ -205,13 +226,12 @@ export class VehicleLayer {
               nextStop: anim.vehicle.nextStop,
               expectedTime: anim.vehicle.expectedTime,
               status: anim.vehicle.status,
-              selected,
-              highlighted,
             },
             geometry: { type: "Point", coordinates: [lng, lat] },
           } as GeoJSON.Feature;
         });
         source.setData(this.featureCollection(features));
+        this.applySelectionState();
         if (followPoint) {
           this.map.jumpTo({ center: followPoint });
         }
