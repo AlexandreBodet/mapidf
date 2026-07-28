@@ -147,6 +147,9 @@ export class VehicleLayer {
   update(vehicles: V[], now: number) {
     const seen = new Set<string>();
     for (const vehicle of vehicles) {
+      if (!Number.isFinite(vehicle.lng) || !Number.isFinite(vehicle.lat) || !Number.isFinite(vehicle.bearing)) {
+        continue; // position/orientation invalide → on n'anime pas une géométrie NaN
+      }
       seen.add(vehicle.tripId);
       const prev = this.anims.get(vehicle.tripId);
       const current = prev ? this.pointAt(prev, now) : ([vehicle.lng, vehicle.lat] as [number, number]);
