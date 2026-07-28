@@ -28,6 +28,18 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
         center: [2.34, 48.86],
         zoom: 11,
       });
+      // Le style de fond (OpenFreeMap Liberty) référence des icônes de POI absentes de son
+      // sprite (equestrian, ferry_terminal, office…), ce qui spamme la console d'erreurs
+      // « Image X could not be loaded ». On fournit un pixel transparent à la demande : même
+      // rendu (ces POI n'apparaissaient déjà pas), console propre. Nos propres images (ex.
+      // vehicle-arrow) sont ajoutées explicitement avant leur couche et ne passent pas ici.
+      ref.current.instance.on("styleimagemissing", (e) => {
+        const map = ref.current.instance;
+        if (!map || map.hasImage(e.id)) {
+          return;
+        }
+        map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+      });
       ref.current.instance.addControl(
         new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
         "top-left",

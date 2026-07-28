@@ -1,7 +1,8 @@
 import { formatEta } from "./formatEta";
+import type { VehicleSummary } from "../api/types";
 
 interface Props {
-  vehicle: { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
+  vehicle: VehicleSummary | null;
   following?: boolean;
   onFollow?: () => void;
   onClose: () => void;

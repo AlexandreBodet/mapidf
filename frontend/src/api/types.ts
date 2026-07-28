@@ -13,6 +13,15 @@ export interface DeparturesResponse {
   }[];
 }
 
+// Sous-ensemble d'un véhicule affiché dans le panneau de détail (sélection courante).
+export interface VehicleSummary {
+  headsign: string;
+  nextStop: string;
+  status: string;
+  source: string;
+  expectedTime: string;
+}
+
 export interface VehiclesResponse {
   asOf: string;
   vehicles: {

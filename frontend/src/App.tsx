@@ -8,10 +8,10 @@ import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
 import { fetchDepartures } from "./api/lines";
 import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
-import type { VehiclesResponse, DeparturesResponse } from "./api/types";
+import type { VehiclesResponse, DeparturesResponse, VehicleSummary } from "./api/types";
 
 type V = VehiclesResponse["vehicles"][number];
-type Selected = { headsign: string; nextStop: string; status: string; source: string; expectedTime: string } | null;
+type Selected = VehicleSummary | null;
 
 function toSelected(v: V): Selected {
   return { headsign: v.headsign, nextStop: v.nextStop, status: v.status, source: v.source, expectedTime: v.expectedTime };
