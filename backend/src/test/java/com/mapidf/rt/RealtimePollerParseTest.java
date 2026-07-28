@@ -1,5 +1,6 @@
 package com.mapidf.rt;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
@@ -53,5 +54,26 @@ class RealtimePollerParseTest {
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(5, 45))).isTrue();  // juste après ouverture
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(3, 0))).isFalse();  // nuit
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(5, 0))).isFalse();  // avant ouverture
+    }
+
+    @Test
+    void skipsMalformedJourneyButKeepsValidOnes() {
+        String json = """
+            {"Siri":{"ServiceDelivery":{"EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+              "EstimatedVehicleJourney":[
+                {"LineRef":{"value":"L"},"DirectionRef":{"value":"Aller"},
+                 "DatedVehicleJourneyRef":{"value":"BON"},"DestinationName":[{"value":"Terminus"}],
+                 "EstimatedCalls":{"EstimatedCall":[
+                   {"StopPointRef":{"value":"STIF:StopPoint:Q:111:"},"ExpectedArrivalTime":"2026-07-28T09:00:00.000Z","DepartureStatus":"ON_TIME"}]}},
+                {"LineRef":{"value":"L"},"DirectionRef":{"value":"Aller"},
+                 "DatedVehicleJourneyRef":{"value":"POURRI"},"DestinationName":[{"value":"Terminus"}],
+                 "EstimatedCalls":{"EstimatedCall":[
+                   {"StopPointRef":{"value":"STIF:StopPoint:Q:222:"},"ExpectedArrivalTime":"pas-une-date","DepartureStatus":"ON_TIME"}]}}
+              ]}]}]}}}
+            """;
+        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(), json.getBytes(StandardCharsets.UTF_8), Instant.now());
+        List<RtSnapshot.LiveJourney> journeys = snapshot.forLine("L");
+        assertThat(journeys).hasSize(1);
+        assertThat(journeys.getFirst().journeyRef()).isEqualTo("BON");
     }
 }

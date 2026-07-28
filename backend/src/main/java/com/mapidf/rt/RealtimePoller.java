@@ -133,9 +133,15 @@ public class RealtimePoller {
         for (JsonNode delivery : deliveries) {
             for (JsonNode frame : delivery.path("EstimatedJourneyVersionFrame")) {
                 for (JsonNode journey : frame.path("EstimatedVehicleJourney")) {
-                    RtSnapshot.LiveJourney live = toJourney(journey);
-                    if (live != null) {
-                        byLine.computeIfAbsent(live.lineRef(), key -> new ArrayList<>()).add(live);
+                    try {
+                        RtSnapshot.LiveJourney live = toJourney(journey);
+                        if (live != null) {
+                            byLine.computeIfAbsent(live.lineRef(), key -> new ArrayList<>()).add(live);
+                        }
+                    } catch (RuntimeException e) {
+                        // Une course pourrie (horodatage illisible, structure inattendue) ne doit pas
+                        // faire perdre tout le snapshot — surtout en réseau complet (multi-ligne).
+                        log.warn("[RT] Course ignorée (parse impossible): {}", e.getMessage());
                     }
                 }
             }
