@@ -21,7 +21,9 @@ public class GtfsStaticService {
     private final RouteRepository routeRepository;
     private final PrimProperties prim;
     private final LineProperties line;
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+        .connectTimeout(java.time.Duration.ofSeconds(15))
+        .build();
 
     private volatile LineString routeGeometry;
 

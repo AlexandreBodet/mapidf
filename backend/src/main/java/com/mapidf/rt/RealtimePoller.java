@@ -46,7 +46,9 @@ public class RealtimePoller {
     private final LineProperties line;
     private final ObjectMapper objectMapper;
     private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .build();
     private Counter pollFailures;
 
     public RealtimePoller(PrimProperties prim, LineProperties line, ObjectMapper objectMapper) {
@@ -68,7 +70,9 @@ public class RealtimePoller {
         return snapshot.get();
     }
 
-    @Scheduled(fixedRateString = "${app.prim.poll-interval}")
+    // fixedDelay : le prochain poll ne démarre qu'après la fin du précédent → pas de
+    // chevauchement ni de rafale de connexions vers PRIM si un appel traîne.
+    @Scheduled(fixedDelayString = "${app.prim.poll-interval}")
     public void poll() {
         if (prim.realtimeBaseUrl() == null || prim.realtimeBaseUrl().isBlank()) {
             return;
@@ -109,6 +113,7 @@ public class RealtimePoller {
     private byte[] fetch(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
             .header(prim.authHeader(), prim.apiKey())
+            .timeout(Duration.ofSeconds(10))  // bien < l'intervalle de poll (60 s)
             .GET()
             .build();
         HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
