@@ -10,6 +10,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
     }
     let cancelled = false;
     let cancelReady: (() => void) | null = null;
+    let cleanupCursors: (() => void) | null = null;
     fetchShape(lineId).then((shape) => {
       if (cancelled) {
         return;
@@ -89,10 +90,18 @@ export function useLineShape(map: MlMap | null, lineId: string) {
           },
         });
         // Curseur main au survol des stations cliquables.
-        map.on("mouseenter", "stops", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "stops", () => { map.getCanvas().style.cursor = ""; });
-        map.on("mouseenter", "stops-labels", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "stops-labels", () => { map.getCanvas().style.cursor = ""; });
+        const cursorEnter = () => { map.getCanvas().style.cursor = "pointer"; };
+        const cursorLeave = () => { map.getCanvas().style.cursor = ""; };
+        map.on("mouseenter", "stops", cursorEnter);
+        map.on("mouseleave", "stops", cursorLeave);
+        map.on("mouseenter", "stops-labels", cursorEnter);
+        map.on("mouseleave", "stops-labels", cursorLeave);
+        cleanupCursors = () => {
+          map.off("mouseenter", "stops", cursorEnter);
+          map.off("mouseleave", "stops", cursorLeave);
+          map.off("mouseenter", "stops-labels", cursorEnter);
+          map.off("mouseleave", "stops-labels", cursorLeave);
+        };
       };
       cancelReady = whenStyleReady(map, draw);
     });
@@ -100,6 +109,9 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       cancelled = true;
       if (cancelReady) {
         cancelReady();
+      }
+      if (cleanupCursors) {
+        cleanupCursors();
       }
     };
   }, [map, lineId]);

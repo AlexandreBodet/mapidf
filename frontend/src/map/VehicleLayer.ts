@@ -36,6 +36,7 @@ export class VehicleLayer {
   private selectedTripId: string | null = null;
   private follow = false;
   private highlightedTripIds: Set<string> = new Set();
+  private moveHandler: (() => void) | null = null;
 
   constructor(
     private map: MlMap,
@@ -225,6 +226,21 @@ export class VehicleLayer {
     if (this.cancelReady) {
       this.cancelReady();
       this.cancelReady = null;
+    }
+    if (this.moveHandler) {
+      this.map.off("move", this.moveHandler);
+      this.moveHandler = null;
+    }
+    for (const id of ["vehicles", "vehicles-halo", "vehicles-highlight"]) {
+      if (this.map.getLayer(id)) {
+        this.map.removeLayer(id);
+      }
+    }
+    if (this.map.getSource("vehicles")) {
+      this.map.removeSource("vehicles");
+    }
+    if (this.map.hasImage("vehicle-arrow")) {
+      this.map.removeImage("vehicle-arrow");
     }
     this.anims.clear();
   }
