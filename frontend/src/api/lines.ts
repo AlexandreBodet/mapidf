@@ -17,8 +17,14 @@ export async function fetchVehicles(lineId: string): Promise<VehiclesResponse> {
   return response.json();
 }
 
-export async function fetchDepartures(lineId: string, stationId: string): Promise<DeparturesResponse> {
-  const response = await fetch(`${API_BASE}/lines/${lineId}/stations/${encodeURIComponent(stationId)}/departures`);
+export async function fetchDepartures(
+  lineId: string,
+  stationId: string,
+  signal?: AbortSignal,
+): Promise<DeparturesResponse> {
+  const response = await fetch(`${API_BASE}/lines/${lineId}/stations/${encodeURIComponent(stationId)}/departures`, {
+    signal,
+  });
   if (!response.ok) {
     throw new Error(`departures ${response.status}`);
   }

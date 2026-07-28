@@ -20,6 +20,7 @@ function toSelected(v: V): Selected {
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
+  const departuresAbort = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
@@ -76,10 +77,18 @@ export default function App() {
         map.easeTo({ center: coords as [number, number] });
       }
       setSelectedStationId(id);
+      departuresAbort.current?.abort();
+      const controller = new AbortController();
+      departuresAbort.current = controller;
       try {
-        setStation(await fetchDepartures(LINE_ID, id));
+        const fresh = await fetchDepartures(LINE_ID, id, controller.signal);
+        if (!controller.signal.aborted) {
+          setStation(fresh);
+        }
       } catch {
-        setStation(null);
+        if (!controller.signal.aborted) {
+          setStation(null);
+        }
       }
     };
     map.on("click", "stops", onStationClick);
@@ -123,19 +132,26 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    const timer = window.setInterval(async () => {
+    let timer: number;
+    const controller = new AbortController();
+    const tick = async () => {
       try {
-        const fresh = await fetchDepartures(LINE_ID, selectedStationId);
+        const fresh = await fetchDepartures(LINE_ID, selectedStationId, controller.signal);
         if (!cancelled) {
           setStation(fresh);
         }
       } catch {
         // on conserve l'affichage courant
       }
-    }, VEHICLE_POLL_MS);
+      if (!cancelled) {
+        timer = window.setTimeout(tick, VEHICLE_POLL_MS);
+      }
+    };
+    timer = window.setTimeout(tick, VEHICLE_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [selectedStationId]);
 
