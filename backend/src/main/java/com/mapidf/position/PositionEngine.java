@@ -141,7 +141,20 @@ public class PositionEngine {
         return Math.max(low, Math.min(high, value));
     }
 
+    private static final java.util.regex.Pattern DIGIT_GROUP = java.util.regex.Pattern.compile("\\d+");
+
+    // On extrait le DERNIER groupe de chiffres de la référence : les ids réels (SIRI
+    // "STIF:StopPoint:Q:463221:", GTFS "IDFM:463221") n'en ont qu'un, mais un id à préfixe
+    // numérique ("IDFM:StopPoint:59:463221") casserait un simple strip de tous les non-chiffres.
     public static String stopKey(String rawRef) {
-        return rawRef == null ? "" : rawRef.replaceAll("\\D", "");
+        if (rawRef == null) {
+            return "";
+        }
+        java.util.regex.Matcher matcher = DIGIT_GROUP.matcher(rawRef);
+        String last = "";
+        while (matcher.find()) {
+            last = matcher.group();
+        }
+        return last;
     }
 }

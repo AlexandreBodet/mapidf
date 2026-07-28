@@ -157,4 +157,13 @@ class PositionEngineTest {
         assertThat(v.lng()).isCloseTo(2.315, within(1e-3)); // entre Gamma(2.320) et Beta(2.310)
         assertThat(v.bearing()).isCloseTo(270.0, within(5.0)); // cap vers l'ouest
     }
+
+    @Test
+    void stopKeyExtractsLastNumericGroup() {
+        assertThat(PositionEngine.stopKey("STIF:StopPoint:Q:463221:")).isEqualTo("463221");
+        assertThat(PositionEngine.stopKey("IDFM:463221")).isEqualTo("463221");
+        assertThat(PositionEngine.stopKey("IDFM:StopPoint:59:463221")).isEqualTo("463221");
+        assertThat(PositionEngine.stopKey(null)).isEmpty();
+        assertThat(PositionEngine.stopKey("aucun-chiffre")).isEmpty();
+    }
 }
