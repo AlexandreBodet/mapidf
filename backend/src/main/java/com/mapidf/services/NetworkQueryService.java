@@ -4,9 +4,9 @@ import com.mapidf.controllers.lines.ShapeResponse;
 import com.mapidf.controllers.lines.ShapeResponse.StopDto;
 import com.mapidf.data.entity.Route;
 import com.mapidf.data.entity.Stop;
-import com.mapidf.data.entity.StopTime;
 import com.mapidf.data.enums.ErrorCode;
 import com.mapidf.data.repositories.RouteRepository;
+import com.mapidf.data.repositories.StopRepository;
 import com.mapidf.data.repositories.StopTimeRepository;
 import com.mapidf.exceptions.ApiException;
 import lombok.AllArgsConstructor;
@@ -26,6 +26,7 @@ public class NetworkQueryService {
 
     private final RouteRepository routeRepository;
     private final StopTimeRepository stopTimeRepository;
+    private final StopRepository stopRepository;
 
     @Transactional(readOnly = true)
     public ShapeResponse getShape(String gtfsRouteId) {
@@ -41,9 +42,7 @@ public class NetworkQueryService {
         // Un quai par sens ⇒ deux arrêts GTFS par station physique. On les regroupe par
         // parent_station (clé canonique GTFS) ; à défaut on garde le quai seul (gtfs_id),
         // ce qui gère les arrêts à sens unique. lat/lng = centroïde des quais membres.
-        Map<String, List<Stop>> byStation = stopTimeRepository.findScheduleByRouteGtfsId(gtfsRouteId).stream()
-            .map(StopTime::getStop)
-            .distinct()
+        Map<String, List<Stop>> byStation = stopRepository.findDistinctStopsByRouteGtfsId(gtfsRouteId).stream()
             .collect(Collectors.groupingBy(NetworkQueryService::stationKey, LinkedHashMap::new, Collectors.toList()));
 
         List<StopDto> stops = byStation.entrySet().stream()
