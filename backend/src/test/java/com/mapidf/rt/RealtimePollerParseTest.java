@@ -76,4 +76,23 @@ class RealtimePollerParseTest {
         assertThat(journeys).hasSize(1);
         assertThat(journeys.getFirst().journeyRef()).isEqualTo("BON");
     }
+
+    @Test
+    void fallsBackToCompositeJourneyRefWhenDatedRefMissing() {
+        String json = """
+            {"Siri":{"ServiceDelivery":{"EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+              "EstimatedVehicleJourney":[
+                {"LineRef":{"value":"L"},"DirectionRef":{"value":"Aller"},"DestinationName":[{"value":"A"}],
+                 "EstimatedCalls":{"EstimatedCall":[
+                   {"StopPointRef":{"value":"STIF:StopPoint:Q:111:"},"ExpectedArrivalTime":"2026-07-28T09:00:00.000Z"}]}},
+                {"LineRef":{"value":"L"},"DirectionRef":{"value":"Retour"},"DestinationName":[{"value":"B"}],
+                 "EstimatedCalls":{"EstimatedCall":[
+                   {"StopPointRef":{"value":"STIF:StopPoint:Q:111:"},"ExpectedArrivalTime":"2026-07-28T09:00:00.000Z"}]}}
+              ]}]}]}}}
+            """;
+        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(), json.getBytes(StandardCharsets.UTF_8), Instant.now());
+        List<RtSnapshot.LiveJourney> journeys = snapshot.forLine("L");
+        assertThat(journeys).hasSize(2);
+        assertThat(journeys.get(0).journeyRef()).isNotEqualTo(journeys.get(1).journeyRef());
+    }
 }

@@ -167,10 +167,15 @@ public class RealtimePoller {
             return null;
         }
         String lineRef = journey.path("LineRef").path("value").asString("");
-        String journeyRef = journey.path("DatedVehicleJourneyRef").path("value")
-            .asString(calls.getFirst().stopRef());
         String directionRef = journey.path("DirectionRef").path("value").asString("");
         String destination = firstValue(journey.path("DestinationName"));
+        // DatedVehicleJourneyRef est souvent absent : on replie sur une identité composite
+        // (et non sur le seul stopRef, qui collisionnerait entre deux courses de sens opposés
+        // partageant leur premier arrêt du flux non trié) → pas de fusion de trains côté front.
+        String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asString(null);
+        if (journeyRef == null) {
+            journeyRef = lineRef + "|" + directionRef + "|" + destination + "|" + calls.getFirst().time();
+        }
         return new RtSnapshot.LiveJourney(lineRef, journeyRef, directionRef, destination, calls);
     }
 
