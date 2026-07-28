@@ -19,9 +19,26 @@ import org.springframework.transaction.annotation.Transactional;
 public class ScheduleProvider {
 
     private final StopTimeRepository stopTimeRepository;
+    private final java.util.Map<String, LineSchedule> cache = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Transactional(readOnly = true)
     public LineSchedule getLineSchedule(LineString line, String gtfsRouteId) {
+        LineSchedule cached = cache.get(gtfsRouteId);
+        if (cached != null) {
+            return cached;
+        }
+        LineSchedule computed = computeSchedule(line, gtfsRouteId);
+        cache.put(gtfsRouteId, computed);
+        return computed;
+    }
+
+    // Vidé au rechargement du GTFS (cf. GtfsStaticService.refresh) : l'horaire ne change
+    // qu'à ce moment-là, inutile de le recalculer depuis la base à chaque poll /vehicles.
+    public void invalidate() {
+        cache.clear();
+    }
+
+    private LineSchedule computeSchedule(LineString line, String gtfsRouteId) {
         LengthIndexedLine indexed = new LengthIndexedLine(line);
 
         Map<String, List<StopTime>> stopTimesByTrip = new LinkedHashMap<>();
