@@ -162,6 +162,8 @@ export default function App() {
   };
 
   const closeStation = () => {
+    departuresAbort.current?.abort();
+    departuresAbort.current = null;
     setStation(null);
     setSelectedStationId(null);
     map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
