@@ -18,6 +18,8 @@ export function useVehicles(
   highlightedTripIds: Set<string> = new Set(),
 ) {
   const layerRef = useRef<VehicleLayer | null>(null);
+  // Véhicules du dernier poll : permet de remplir le panneau immédiatement à la sélection.
+  const lastVehiclesRef = useRef<V[]>([]);
   // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
   const selectedRef = useRef(selectedTripId);
   const onSelectedRef = useRef(onSelected);
@@ -40,6 +42,7 @@ export function useVehicles(
         if (cancelled) {
           return;
         }
+        lastVehiclesRef.current = response.vehicles;
         layer.update(response.vehicles, performance.now());
         onCountRef.current?.(response.vehicles.length);
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
@@ -66,6 +69,11 @@ export function useVehicles(
 
   useEffect(() => {
     layerRef.current?.setSelected(selectedTripId);
+    // Remplit le panneau immédiatement depuis le dernier poll connu — sinon, après un clic
+    // sur un passage (qui ne fournit qu'un journeyRef), la card n'apparaît qu'au tick suivant (~4 s).
+    if (selectedTripId) {
+      onSelectedRef.current?.(lastVehiclesRef.current.find((v) => v.tripId === selectedTripId) ?? null);
+    }
   }, [map, lineId, selectedTripId]);
 
   useEffect(() => {
