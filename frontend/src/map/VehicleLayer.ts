@@ -7,6 +7,10 @@ import { whenStyleReady } from "./mapReady";
 // le train directement (snap) au lieu d'animer un glissement trompeur à travers la carte.
 const SNAP_DISTANCE_M = 300;
 
+// Le métro est lent : reconstruire la source ~15 fps au lieu de 60 suffit visuellement
+// et divise d'autant le coût de setData (goulot à l'échelle réseau).
+const RENDER_INTERVAL_MS = 66;
+
 // Distance approximative entre deux [lng, lat] en mètres (équirectangulaire avec cos(lat)),
 // suffisante à l'échelle d'une ligne parisienne.
 function distanceMeters(a: [number, number], b: [number, number]): number {
@@ -32,6 +36,7 @@ interface Anim {
 export class VehicleLayer {
   private anims = new Map<string, Anim>();
   private raf = 0;
+  private lastRenderAt = 0;
   private cancelReady: (() => void) | null = null;
   private selectedTripId: string | null = null;
   private follow = false;
@@ -66,6 +71,9 @@ export class VehicleLayer {
 
   setFollow(follow: boolean) {
     this.follow = follow;
+    if (follow) {
+      this.startLoop();
+    }
   }
 
   setHighlighted(ids: Set<string>) {
@@ -159,6 +167,18 @@ export class VehicleLayer {
         },
       });
       this.applySelectionState();
+      this.moveHandler = () => {
+        if (this.raf) {
+          return; // la boucle rend déjà
+        }
+        const now = performance.now();
+        if (now - this.lastRenderAt < RENDER_INTERVAL_MS) {
+          return; // throttle
+        }
+        this.lastRenderAt = now;
+        this.render(now);
+      };
+      this.map.on("move", this.moveHandler);
     };
     this.cancelReady = whenStyleReady(this.map, add);
   }
@@ -203,40 +223,81 @@ export class VehicleLayer {
     ];
   }
 
+  private isAnimating(now: number): boolean {
+    for (const anim of this.anims.values()) {
+      if (now - anim.start < this.durationMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private render(now: number) {
+    const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
+    if (!source) {
+      return;
+    }
+    // Culling : on n'envoie à la source que les véhicules dans le viewport élargi (marge 20 %).
+    // Les anims restent maintenues pour tous → le tween survit à une sortie/entrée d'écran.
+    const bounds = this.map.getBounds();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const padX = (east - west) * 0.2;
+    const padY = (north - south) * 0.2;
+
+    let followPoint: [number, number] | null = null;
+    const features: GeoJSON.Feature[] = [];
+    for (const anim of this.anims.values()) {
+      const [lng, lat] = this.pointAt(anim, now);
+      if (anim.vehicle.tripId === this.selectedTripId && this.follow) {
+        followPoint = [lng, lat];
+      }
+      if (lng < west - padX || lng > east + padX || lat < south - padY || lat > north + padY) {
+        continue;
+      }
+      features.push({
+        type: "Feature",
+        properties: {
+          tripId: anim.vehicle.tripId,
+          source: anim.vehicle.source,
+          bearing: anim.bearing,
+          headsign: anim.vehicle.headsign,
+          nextStop: anim.vehicle.nextStop,
+          expectedTime: anim.vehicle.expectedTime,
+          status: anim.vehicle.status,
+        },
+        geometry: { type: "Point", coordinates: [lng, lat] },
+      } as GeoJSON.Feature);
+    }
+    source.setData(this.featureCollection(features));
+    // Pas d'applySelectionState() ici : feature-state est stocké séparément du GeoJSON,
+    // par id promu ("tripId"), et survit à setData ainsi qu'au culling (une feature qui
+    // sort puis revient dans le viewport garde son état). Le réappliquer à chaque frame
+    // serait un travail redondant ; il n'est fait que dans setSelected/setHighlighted et
+    // à la fin de ensureLayer's add().
+    if (followPoint) {
+      this.map.jumpTo({ center: followPoint });
+    }
+  }
+
   private startLoop() {
     if (this.raf) {
       return;
     }
     const step = (now: number) => {
-      const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
-      if (source) {
-        let followPoint: [number, number] | null = null;
-        const features = [...this.anims.values()].map((anim) => {
-          const [lng, lat] = this.pointAt(anim, now);
-          if (anim.vehicle.tripId === this.selectedTripId && this.follow) {
-            followPoint = [lng, lat];
-          }
-          return {
-            type: "Feature",
-            properties: {
-              tripId: anim.vehicle.tripId,
-              source: anim.vehicle.source,
-              bearing: anim.bearing,
-              headsign: anim.vehicle.headsign,
-              nextStop: anim.vehicle.nextStop,
-              expectedTime: anim.vehicle.expectedTime,
-              status: anim.vehicle.status,
-            },
-            geometry: { type: "Point", coordinates: [lng, lat] },
-          } as GeoJSON.Feature;
-        });
-        source.setData(this.featureCollection(features));
-        this.applySelectionState();
-        if (followPoint) {
-          this.map.jumpTo({ center: followPoint });
-        }
+      if (now - this.lastRenderAt >= RENDER_INTERVAL_MS) {
+        this.render(now);
+        this.lastRenderAt = now;
       }
-      this.raf = requestAnimationFrame(step);
+      if (this.isAnimating(now)) {
+        this.raf = requestAnimationFrame(step);
+      } else {
+        // Plus rien à animer : rendu final puis arrêt de la boucle (CPU au repos).
+        this.raf = 0;
+        this.render(now);
+      }
     };
     this.raf = requestAnimationFrame(step);
   }
