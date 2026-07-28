@@ -7,7 +7,6 @@ import com.mapidf.data.entity.Stop;
 import com.mapidf.data.enums.ErrorCode;
 import com.mapidf.data.repositories.RouteRepository;
 import com.mapidf.data.repositories.StopRepository;
-import com.mapidf.data.repositories.StopTimeRepository;
 import com.mapidf.exceptions.ApiException;
 import lombok.AllArgsConstructor;
 import org.locationtech.jts.geom.Coordinate;
@@ -25,7 +24,6 @@ import java.util.stream.Collectors;
 public class NetworkQueryService {
 
     private final RouteRepository routeRepository;
-    private final StopTimeRepository stopTimeRepository;
     private final StopRepository stopRepository;
 
     @Transactional(readOnly = true)
