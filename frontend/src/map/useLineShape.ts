@@ -3,7 +3,7 @@ import type { Map as MlMap } from "maplibre-gl";
 import { fetchShape } from "../api/lines";
 import { whenStyleReady } from "./mapReady";
 
-export function useLineShape(map: MlMap | null, lineId: string) {
+export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color: string) => void) {
   useEffect(() => {
     if (!map) {
       return;
@@ -15,6 +15,7 @@ export function useLineShape(map: MlMap | null, lineId: string) {
       if (cancelled) {
         return;
       }
+      onColor?.(shape.color);
       const draw = () => {
         if (cancelled || map.getSource("line-shape")) {
           return;

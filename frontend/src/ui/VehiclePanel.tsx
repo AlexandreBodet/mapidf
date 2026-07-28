@@ -51,7 +51,7 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
       </p>
       <p style={{ margin: "4px 0" }}>État : {statusLabel}</p>
       <p style={{ margin: "4px 0", color: "#666" }}>
-        Position : {vehicle.source === "REALTIME" ? "GPS temps réel" : "estimée (horaire)"}
+        Position : {vehicle.source === "REALTIME" ? "temps réel" : "estimée (horaire)"}
       </p>
       <button
         onClick={onFollow}

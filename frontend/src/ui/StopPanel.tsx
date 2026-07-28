@@ -49,8 +49,8 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
         <div key={dir.destination} style={{ margin: "8px 0 0" }}>
           <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
           <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
-            {dir.passages.map((p, i) => (
-              <li key={i}>
+            {dir.passages.map((p) => (
+              <li key={p.journeyRef}>
                 <button
                   onClick={() => onSelectTrain?.(p.journeyRef)}
                   style={{

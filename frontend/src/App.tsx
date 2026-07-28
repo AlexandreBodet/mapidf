@@ -6,7 +6,7 @@ import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
-import { fetchShape, fetchDepartures } from "./api/lines";
+import { fetchDepartures } from "./api/lines";
 import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
 import type { VehiclesResponse, DeparturesResponse } from "./api/types";
 
@@ -33,10 +33,7 @@ export default function App() {
     () => new Set(station?.directions.flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? []),
     [station],
   );
-  useLineShape(map, LINE_ID);
-  useEffect(() => {
-    fetchShape(LINE_ID).then((s) => setLineColor(s.color)).catch(() => {});
-  }, []);
+  useLineShape(map, LINE_ID, setLineColor);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, LINE_ID, lineColor, selectedTripId, follow, (v) => {
