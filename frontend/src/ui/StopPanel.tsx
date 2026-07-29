@@ -9,7 +9,7 @@ interface Props {
 
 /** DepartureStatus est transmis depuis toujours et n'était jamais affiché. */
 function DelayBadge({ status }: { status: string }) {
-  if (status?.toUpperCase() !== "DELAYED") {
+  if (status.toUpperCase() !== "DELAYED") {
     return null;
   }
   return (
@@ -86,8 +86,11 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
               {line.shortName}
             </span>
           </div>
-          {line.directions.map((dir) => (
-            <div key={dir.destination} style={{ margin: "4px 0 0 4px" }}>
+          {line.directions.map((dir, i) => (
+            // Une ligne à embranchement (7, 13) peut présenter deux directions de même
+            // libellé pour deux branches distinctes : la seule clé `destination` n'est donc
+            // pas garantie unique au sein d'une ligne. L'index de l'itération referme le sujet.
+            <div key={`${dir.destination}-${i}`} style={{ margin: "4px 0 0 4px" }}>
               <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
               <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
                 {dir.passages.map((p) => (
