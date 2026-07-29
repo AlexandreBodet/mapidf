@@ -20,7 +20,7 @@ class StationDepartureServiceTest {
     }
 
     private static LiveJourney journey(String dest, String directionRef, String journeyRef, Call... calls) {
-        return new LiveJourney("STIF:Line::C01379:", journeyRef, directionRef, dest, List.of(calls));
+        return new LiveJourney("STIF:Line::C01379:", journeyRef, directionRef, dest, null, List.of(calls));
     }
 
     private static Call call(String ref, Instant t) {
