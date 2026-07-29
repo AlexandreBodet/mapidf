@@ -45,10 +45,19 @@ public class NetworkController {
                 station.lat(), station.lng(), station.lineIds()))
             .toList();
 
-        // Statique entre deux rechargements GTFS (un par jour) : on laisse le navigateur
-        // cacher plutôt que de resérialiser 8 110 points à chaque onglet ouvert.
+        // Statique entre deux rechargements GTFS (un par jour) : on laisse le navigateur cacher
+        // plutôt que de resérialiser 8 110 points à chaque onglet ouvert.
+        //
+        // MAIS jamais quand le registry est vide. Après la migration V4 la base est vide par
+        // construction, hydrateOnStartup publie alors un NetworkSnapshot.empty() sans lever, et
+        // cette méthode répond 200 avec un réseau vide. Le cacher 10 minutes en public
+        // survivrait au retour à la normale du backend, et tout proxy intermédiaire propagerait
+        // la carte vide à tous les clients — d'autant que useNetwork ne refetche jamais.
+        boolean ready = !snapshot.lines().isEmpty();
         return ResponseEntity.ok()
-            .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePublic())
+            .cacheControl(ready
+                ? CacheControl.maxAge(Duration.ofMinutes(10)).cachePublic()
+                : CacheControl.noStore())
             .body(new NetworkResponse(lines, shapes, stations));
     }
 

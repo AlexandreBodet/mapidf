@@ -3,8 +3,11 @@
 -- fausse de 1547 m. La géométrie migre donc de route vers branch.
 --
 -- Migration destructrice : les données sont intégralement régénérées au premier refresh
--- GTFS, déclenché au démarrage (initialDelay = 0). Conséquence assumée : une fenêtre de 404
--- entre la migration et la fin de ce premier chargement.
+-- GTFS, déclenché au démarrage (initialDelay = 0). Conséquence assumée : entre la migration et
+-- la fin de ce premier chargement, /network répond 200 avec un réseau VIDE — et non 404, car
+-- GtfsStaticService.hydrateOnStartup publie un NetworkSnapshot.empty() sans lever. Cette
+-- réponse est explicitement marquée Cache-Control: no-store par NetworkController, pour qu'un
+-- navigateur ou un proxy ne fige pas une carte vide pendant 10 minutes.
 
 CREATE TABLE branch (
     id                  UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

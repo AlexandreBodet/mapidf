@@ -3,6 +3,8 @@ package com.mapidf.controllers.network;
 import com.mapidf.MapIdfTest;
 import com.mapidf.gtfs.GtfsStaticLoader;
 import com.mapidf.gtfs.GtfsStaticService;
+import com.mapidf.network.LineRegistry;
+import com.mapidf.network.NetworkSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,7 @@ class NetworkControllerIT {
     @Autowired WebApplicationContext wac;
     @Autowired GtfsStaticLoader loader;
     @Autowired GtfsStaticService staticService;
+    @Autowired LineRegistry registry;
     MockMvc mockMvc;
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -94,6 +97,20 @@ class NetworkControllerIT {
         mockMvc.perform(get("/network"))
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "max-age=600, public"));
+    }
+
+    @Test
+    void neverCachesTheEmptyNetworkOfAColdStart() throws Exception {
+        // Cas certain au premier déploiement de la branche : après la migration V4 la base est
+        // vide, hydrateOnStartup publie un snapshot vide sans lever, et /network répond 200 avec
+        // {lines:[],shapes:[],stations:[]}. Cachée 10 min en public, cette carte vide survivrait
+        // au retour à la normale du backend et se propagerait par tout proxy intermédiaire.
+        registry.publish(NetworkSnapshot.empty());
+
+        mockMvc.perform(get("/network"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(0)))
+            .andExpect(header().string("Cache-Control", "no-store"));
     }
 
     private static JsonNode findShapeByTerminus(JsonNode root, String terminusName) {

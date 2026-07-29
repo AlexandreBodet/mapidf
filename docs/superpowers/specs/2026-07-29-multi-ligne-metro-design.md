@@ -227,8 +227,11 @@ CREATE INDEX idx_stop_time_branch ON stop_time (branch_id);
 ```
 
 Migration destructrice : les données sont intégralement régénérées au refresh, déclenché au
-démarrage (`initialDelay = 0`). Conséquence à assumer : une fenêtre de 404 entre la
-migration et la fin du premier chargement.
+démarrage (`initialDelay = 0`). Conséquence à assumer : entre la migration et la fin du
+premier chargement, `/network` répond **200 avec un réseau vide** — et non 404, car la
+réhydratation au démarrage publie un `NetworkSnapshot.empty()` sans lever. Cette réponse doit
+donc être marquée `Cache-Control: no-store` (corrigé après revue globale) : cachée 10 min en
+public, elle survivrait au retour à la normale du backend et se propagerait par tout proxy.
 
 ### Modèle d'accès à la base — la sortir du chemin de requête
 
@@ -496,8 +499,9 @@ vérification.
 - **La dérivation du LineRef est vérifiée sur un snapshot.** Si IDFM introduit une ligne au
   code atypique, elle apparaîtra à zéro train ; la gauge par ligne le rend visible, et la
   clé `exclude` permet de l'écarter en attendant.
-- **Fenêtre de 404 au déploiement**, entre la migration V4 et la fin du premier chargement
-  GTFS.
+- **Fenêtre de réseau vide au déploiement**, entre la migration V4 et la fin du premier
+  chargement GTFS : `/network` répond 200 avec `{lines:[],shapes:[],stations:[]}`, marqué
+  `no-store` pour ne pas être figé côté client.
 - **Durée du chargement** : deux passes sur 909 Mo. À mesurer en Java ; si c'est trop long au
   démarrage, l'option est de conserver le référentiel en base entre deux refresh (ce que
   permet déjà la réhydratation du registry) et de ne recharger qu'en tâche de fond.
