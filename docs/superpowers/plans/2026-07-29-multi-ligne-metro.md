@@ -96,7 +96,9 @@ Pendant cet intervalle, `./mvnw verify` doit rester **vert** (il reste `SmokeIT`
 
 ## Task 1: Tests déterministes et configuration réseau
 
-`@EnableScheduling` est actif et `GtfsStaticService.refresh()` a `initialDelay = 0` : **la suite de tests télécharge aujourd'hui le vrai GTFS IDFM de 109 Mo et interroge PRIM**. Les échecs sont avalés par des `try/catch`, donc invisibles. C'est déjà fragile ; ça devient bloquant maintenant que le registry est un état global qu'un refresh de fond peut écraser en pleine IT.
+> **Correction apportée pendant l'exécution.** Ce préambule affirmait que la suite de tests téléchargeait le GTFS IDFM réel et interrogeait PRIM. C'était **faux** : un `application-test.yml` existait déjà dans `backend/src/main/resources/` et neutralisait les deux (`gtfs-static-url` et `realtime-base-url` vides). Il n'avait pas été vu parce que seul `src/test/resources/` avait été inspecté à la rédaction. Le défaut réel est ailleurs, et la tâche le corrige quand même : cette configuration de test vivait dans `main/resources`, donc **embarquée dans le jar de production**, où un `--spring.profiles.active=test` aurait silencieusement coupé le chargement GTFS et le poller.
+
+`@EnableScheduling` est actif et `GtfsStaticService.refresh()` a `initialDelay = 0` : sans neutralisation, chaque IT déclencherait le téléchargement du GTFS et un appel PRIM, échecs avalés par les `try/catch`. Cette configuration doit donc rester — mais **au bon endroit**, d'autant que le registry devient un état global qu'un refresh de fond pourrait écraser en pleine IT.
 
 **Files:**
 - Create: `backend/src/test/resources/application-test.yml`
