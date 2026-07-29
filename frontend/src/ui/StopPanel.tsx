@@ -7,34 +7,55 @@ interface Props {
   onSelectTrain?: (journeyRef: string) => void;
 }
 
+/** DepartureStatus est transmis depuis toujours et n'était jamais affiché. */
+function DelayBadge({ status }: { status: string }) {
+  if (status?.toUpperCase() !== "DELAYED") {
+    return null;
+  }
+  return (
+    <span
+      style={{
+        marginLeft: 6,
+        padding: "0 5px",
+        borderRadius: 8,
+        background: "#fde68a",
+        color: "#92400e",
+        font: "bold 11px sans-serif",
+      }}
+    >
+      retardé
+    </span>
+  );
+}
+
 export function StopPanel({ data, onClose, onSelectTrain }: Props) {
   if (!data) {
     return null;
   }
-  // On masque les passages déjà partis (le panneau peut vieillir entre deux rafraîchissements)
-  // et les directions qui n'ont plus aucun passage à venir.
-  // NOTE tâche 13 : DeparturesResponse groupe désormais par ligne (une correspondance peut en
-  // desservir jusqu'à 5) ; on aplatit ici sans distinguer visuellement la ligne pour rester
-  // minimal — le panneau lui-même (regroupement visuel par ligne) est repris en tâche 15.
-  // On garde toutefois `lineId` sur chaque direction aplatie : deux lignes différentes
-  // peuvent desservir une destination de même libellé (ex. Étoile : la 2 et la 6 ont toutes
-  // deux une direction « Nation »), donc `destination` seul ne suffit pas comme clé de liste
-  // sans perdre silencieusement les passages de l'une des deux lignes.
+  // Le panneau peut vieillir entre deux rafraîchissements : on masque les passages déjà partis
+  // et les groupes qui n'ont plus rien à venir.
   const now = Date.now();
-  const directions = data.lines
-    .flatMap((line) => line.directions.map((dir) => ({ ...dir, lineId: line.lineId })))
-    .map((dir) => ({
-      ...dir,
-      passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
+  const lines = data.lines
+    .map((line) => ({
+      ...line,
+      directions: line.directions
+        .map((dir) => ({
+          ...dir,
+          passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
+        }))
+        .filter((dir) => dir.passages.length > 0),
     }))
-    .filter((dir) => dir.passages.length > 0);
+    .filter((line) => line.directions.length > 0);
+
   return (
     <div
       style={{
         position: "absolute",
         top: 12,
         right: 12,
-        width: 260,
+        width: 280,
+        maxHeight: "70vh",
+        overflowY: "auto",
         padding: 16,
         background: "#fff",
         borderRadius: 8,
@@ -50,28 +71,43 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
         ✕
       </button>
       <h3 style={{ margin: "0 0 8px" }}>{data.stationName}</h3>
-      {directions.length === 0 && (
+      {lines.length === 0 && (
         <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
       )}
-      {directions.map((dir) => (
-        <div key={`${dir.lineId}-${dir.destination}`} style={{ margin: "8px 0 0" }}>
-          <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
-          <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
-            {dir.passages.map((p) => (
-              <li key={p.journeyRef}>
-                <button
-                  onClick={() => onSelectTrain?.(p.journeyRef)}
-                  style={{
-                    border: "none", background: "none", padding: "2px 0", cursor: "pointer",
-                    font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
-                  }}
-                  title="Suivre ce métro"
-                >
-                  {formatEta(p.expectedTime)}
-                </button>
-              </li>
-            ))}
-          </ul>
+      {lines.map((line) => (
+        <div key={line.lineId} style={{ margin: "10px 0 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span
+              style={{
+                width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
+                font: "bold 11px sans-serif", display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              {line.shortName}
+            </span>
+          </div>
+          {line.directions.map((dir) => (
+            <div key={dir.destination} style={{ margin: "4px 0 0 4px" }}>
+              <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
+              <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
+                {dir.passages.map((p) => (
+                  <li key={p.journeyRef}>
+                    <button
+                      onClick={() => onSelectTrain?.(p.journeyRef)}
+                      style={{
+                        border: "none", background: "none", padding: "2px 0", cursor: "pointer",
+                        font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                      }}
+                      title="Suivre ce métro"
+                    >
+                      {formatEta(p.expectedTime)}
+                      <DelayBadge status={p.status} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       ))}
     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Map as MlMap } from "maplibre-gl";
+import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
 import { fetchNetwork } from "../api/network";
 import { lightenForTrack } from "../ui/color";
 import { whenStyleReady } from "./mapReady";
@@ -10,7 +10,7 @@ import type { NetworkResponse } from "../api/types";
  * (une feature par branche, coloriée par sa propriété) et `stops` (stations dédoublonnées
  * côté serveur). Le nombre de lignes n'ajoute donc aucune couche.
  */
-export function useNetwork(map: MlMap | null): NetworkResponse | null {
+export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null): NetworkResponse | null {
   const [network, setNetwork] = useState<NetworkResponse | null>(null);
 
   useEffect(() => {
@@ -136,6 +136,35 @@ export function useNetwork(map: MlMap | null): NetworkResponse | null {
       cleanupCursors?.();
     };
   }, [map]);
+
+  // Filtre client : aucun appel réseau. Les tracés se filtrent par expression ; les stations
+  // demandent un recalcul de la collection, car une expression MapLibre sur un tableau
+  // lineIds est malcommode — 321 features, c'est trivial.
+  useEffect(() => {
+    if (!map || !network || !map.getSource("stops")) {
+      return;
+    }
+    const colorByLine = new Map(network.lines.map((line) => [line.id, line.color]));
+    map.setFilter("line-shapes", visibleLines
+      ? ["in", ["get", "lineId"], ["literal", [...visibleLines]]]
+      : null);
+    const stations = network.stations.filter(
+      (station) => !visibleLines || station.lineIds.some((id) => visibleLines.has(id)));
+    (map.getSource("stops") as GeoJSONSource).setData({
+      type: "FeatureCollection",
+      features: stations.map((station) => ({
+        type: "Feature",
+        properties: {
+          id: station.id,
+          name: station.name,
+          color: colorByLine.get(
+            station.lineIds.find((id) => !visibleLines || visibleLines.has(id)) ?? station.lineIds[0]
+          ) ?? "#666666",
+        },
+        geometry: { type: "Point", coordinates: [station.lng, station.lat] },
+      })),
+    });
+  }, [map, network, visibleLines]);
 
   return network;
 }

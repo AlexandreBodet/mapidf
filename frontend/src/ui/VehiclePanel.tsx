@@ -58,6 +58,16 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
       <p style={{ margin: "4px 0", color: "#666" }}>
         Position : {vehicle.source === "REALTIME" ? "temps réel" : "estimée (horaire)"}
       </p>
+      {vehicle.confidence === "APPROXIMATE" && (
+        <p style={{ margin: "8px 0 0", padding: "6px 8px", background: "#fef3c7", borderRadius: 6, color: "#92400e" }}>
+          Position approximative : le flux temps réel n'annonce qu'un seul arrêt pour ce train.
+        </p>
+      )}
+      {vehicle.recordedAt && (
+        <p style={{ margin: "4px 0", color: "#666" }}>
+          Donnée du {new Date(vehicle.recordedAt).toLocaleTimeString("fr-FR")}
+        </p>
+      )}
       <button
         onClick={onFollow}
         style={{

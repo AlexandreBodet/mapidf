@@ -5,7 +5,7 @@ import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
-import { Legend } from "./ui/Legend";
+import { LinePicker } from "./ui/LinePicker";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -25,7 +25,8 @@ export default function App() {
   const [follow, setFollow] = useState(false);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [count, setCount] = useState(0);
+  const [visibleLines, setVisibleLines] = useState<Set<string> | null>(null);
+  const [counts, setCounts] = useState<Map<string, number>>(new Map());
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -35,20 +36,29 @@ export default function App() {
       ),
     [station],
   );
-  const network = useNetwork(map);
+  const network = useNetwork(map, visibleLines);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
     if (v) {
       setSelected(v);
     }
-  }, (counts) => {
-    let total = 0;
-    for (const n of counts.values()) {
-      total += n;
-    }
-    setCount(total);
-  }, highlightedJourneyRefs);
+  }, setCounts, highlightedJourneyRefs, visibleLines);
+
+  const toggleLine = (lineId: string) => {
+    setVisibleLines((current) => {
+      // Premier clic depuis « toutes » : on isole la ligne cliquée, ce qui est l'intention la
+      // plus fréquente sur 16 lignes.
+      const all = new Set(network?.lines.map((line) => line.id) ?? []);
+      const next = new Set(current ?? all);
+      if (next.has(lineId)) {
+        next.delete(lineId);
+      } else {
+        next.add(lineId);
+      }
+      return next.size === all.size ? null : next;
+    });
+  };
 
   useEffect(() => {
     if (!map) {
@@ -193,8 +203,13 @@ export default function App() {
         onClose={clearSelection}
       />
       <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
-      {/* Sélecteur de lignes, panneaux détaillés et filtre : tâche 15. Compteur total en attendant. */}
-      <Legend color="#666" count={count} />
+      <LinePicker
+        lines={network?.lines ?? []}
+        counts={counts}
+        visible={visibleLines}
+        onToggle={toggleLine}
+        onShowAll={() => setVisibleLines(null)}
+      />
     </>
   );
 }
