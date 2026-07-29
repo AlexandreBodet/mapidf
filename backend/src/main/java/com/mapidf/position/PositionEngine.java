@@ -1,28 +1,154 @@
 package com.mapidf.position;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
+import com.mapidf.network.LineBranch;
+import com.mapidf.network.TrackedLine;
+import com.mapidf.rt.RtSnapshot;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.linearref.LengthIndexedLine;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Placement des véhicules sur le tracé. Le calcul lui-même est neutralisé le temps de la
- * bascule vers les branches : il reposait sur {@code LineSchedule} (un tracé, N sens),
- * supprimé avec la table {@code trip}. Ne subsistent ici que les primitives réutilisées
- * telles quelles par la suite — {@link #stopKey(String)} est déjà consommée par
- * {@code StationDepartureService}. La tâche 9 réécrit le moteur sur les branches.
+ * Placement des véhicules sur le tracé. Le moteur reçoit désormais une {@link TrackedLine} et
+ * choisit la branche avant d'interpoler : un tracé unique par ligne place mal les trains des
+ * branches divergentes (mesuré : 1547 m d'écart sur la branche Ivry de la ligne 7).
  */
 @Component
 public class PositionEngine {
 
-    static int indexOfStop(List<StopOnLine> stops, String key) {
-        for (int i = 0; i < stops.size(); i++) {
-            if (stops.get(i).stopKey().equals(key)) {
-                return i;
+    private Counter unplaced;
+
+    @Autowired
+    public void attachMetrics(MeterRegistry registry) {
+        this.unplaced = registry.counter("mapidf.position.unplaced");
+    }
+
+    public List<Vehicle> computeAll(TrackedLine line, List<RtSnapshot.LiveJourney> journeys, Instant now) {
+        List<Vehicle> out = new ArrayList<>();
+        for (RtSnapshot.LiveJourney journey : journeys) {
+            Vehicle vehicle = compute(line, journey, now);
+            if (vehicle != null) {
+                out.add(vehicle);
+            } else if (unplaced != null) {
+                // Mesuré : 0,6 % du flux métro après couverture gloutonne. La dégradation reste
+                // mesurable au lieu d'être silencieuse.
+                unplaced.increment();
             }
         }
-        return -1;
+        return out;
+    }
+
+    private Vehicle compute(TrackedLine line, RtSnapshot.LiveJourney journey, Instant now) {
+        List<RtSnapshot.LiveJourney.Call> sorted = journey.calls().stream()
+            .sorted(Comparator.comparing(RtSnapshot.LiveJourney.Call::time))
+            .toList();
+        // Arrêt imminent = premier encore à venir ; s'il n'y en a plus, le dernier connu.
+        // On n'exclut jamais un train qui a des données.
+        RtSnapshot.LiveJourney.Call next = sorted.stream()
+            .filter(call -> !call.time().isBefore(now))
+            .findFirst()
+            .orElse(sorted.getLast());
+        RtSnapshot.LiveJourney.Call prev = sorted.stream()
+            .filter(call -> call.time().isBefore(now))
+            .reduce((a, b) -> b)
+            .orElse(null);
+
+        String nextKey = stopKey(next.stopRef());
+        LineBranch branch = pickBranch(line, nextKey, journey.destination());
+        if (branch == null) {
+            return null;
+        }
+        List<StopOnLine> stops = branch.stops();
+        int nextIdx = branch.indexOf(nextKey);
+        StopOnLine to = stops.get(nextIdx);
+        Vehicle.Confidence confidence = journey.calls().size() == 1
+            ? Vehicle.Confidence.APPROXIMATE
+            : Vehicle.Confidence.RELIABLE;
+
+        if (nextIdx == 0) {
+            // Prochain arrêt = tête de branche → placé à l'origine.
+            StopOnLine after = stops.size() > 1 ? stops.get(1) : to;
+            return vehicleAt(line, branch, journey, to, next, confidence,
+                to.distanceAlongLine(), to.distanceAlongLine(), after.distanceAlongLine());
+        }
+
+        // Origine du segment : le dernier arrêt SIRI passé s'il est en amont sur cette branche
+        // (interpolation aux VRAIES heures → capte le temps à quai) ; sinon l'arrêt précédent
+        // du tracé, dont on estime l'heure de départ via l'horaire théorique.
+        int prevIdx = prev == null ? -1 : branch.indexOf(stopKey(prev.stopRef()));
+        double fromDist;
+        Instant fromTime;
+        if (prev != null && prevIdx >= 0 && prevIdx < nextIdx) {
+            fromDist = stops.get(prevIdx).distanceAlongLine();
+            fromTime = prev.time();
+        } else {
+            StopOnLine routePrev = stops.get(nextIdx - 1);
+            int segmentSec = to.scheduledSec() - routePrev.scheduledSec();
+            fromDist = routePrev.distanceAlongLine();
+            fromTime = next.time().minusSeconds(Math.max(1, segmentSec));
+        }
+
+        long total = Duration.between(fromTime, next.time()).getSeconds();
+        double fraction = total > 0
+            ? clamp((double) Duration.between(fromTime, now).getSeconds() / total, 0.0, 1.0)
+            : 1.0;
+        double distance = fromDist + fraction * (to.distanceAlongLine() - fromDist);
+        return vehicleAt(line, branch, journey, to, next, confidence,
+            distance, fromDist, to.distanceAlongLine());
+    }
+
+    private Vehicle vehicleAt(TrackedLine line, LineBranch branch, RtSnapshot.LiveJourney journey,
+                              StopOnLine next, RtSnapshot.LiveJourney.Call call,
+                              Vehicle.Confidence confidence,
+                              double distance, double fromDist, double toDist) {
+        Coordinate point = branch.indexed().extractPoint(distance);
+        return new Vehicle(journey.journeyRef(), line.id(), point.y, point.x,
+            bearing(branch.indexed(), fromDist, toDist), call.departureStatus(),
+            journey.destination(), next.stopName(), call.time(), journey.recordedAt(),
+            Vehicle.Source.INTERPOLATED, confidence);
+    }
+
+    /**
+     * Généralisation directe de l'ancien {@code pickDirection} : les candidates sont les
+     * branches contenant l'arrêt imminent (lookup O(1)), départagées par correspondance
+     * terminus / destination.
+     */
+    private LineBranch pickBranch(TrackedLine line, String nextStopKey, String destination) {
+        List<LineBranch> candidates = line.branches().stream()
+            .filter(branch -> branch.indexOf(nextStopKey) >= 0)
+            .toList();
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        if (candidates.size() == 1) {
+            return candidates.getFirst();
+        }
+        return candidates.stream()
+            .filter(branch -> terminusMatches(branch.terminusName(), destination))
+            .findFirst()
+            .orElse(candidates.getFirst());
+    }
+
+    /**
+     * Comparaison insensible à la casse entre un nom de terminus et une destination SIRI : vraie
+     * si elles sont égales ou si l'une contient l'autre (les libellés SIRI et GTFS diffèrent
+     * parfois sur des suffixes), fausse si l'une des deux est nulle.
+     */
+    static boolean terminusMatches(String terminusName, String destination) {
+        if (terminusName == null || destination == null) {
+            return false;
+        }
+        String a = terminusName.toLowerCase();
+        String b = destination.toLowerCase();
+        return a.equals(b) || a.contains(b) || b.contains(a);
     }
 
     static double bearing(LengthIndexedLine indexed, double fromDistance, double toDistance) {
