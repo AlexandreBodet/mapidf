@@ -46,23 +46,28 @@ class NetworkControllerIT {
     void returnsTheTrackedLines() throws Exception {
         mockMvc.perform(get("/network"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.lines", hasSize(2)))
-            .andExpect(jsonPath("$.lines[*].id", containsInAnyOrder("7", "9")))
+            .andExpect(jsonPath("$.lines", hasSize(3)))
+            .andExpect(jsonPath("$.lines[*].id", containsInAnyOrder("7", "9", "3b")))
             .andExpect(jsonPath("$.lines[?(@.id == '7')].color").value("#FF82B4"))
-            .andExpect(jsonPath("$.lines[?(@.id == '7')].mode").value("METRO"));
+            .andExpect(jsonPath("$.lines[?(@.id == '7')].mode").value("METRO"))
+            // La fixture écrit route_short_name=3B : l'identifiant qui atteint l'API doit être
+            // normalisé en "3b" (exigence nommée par la spec), et le shortName rester "3B" pour
+            // l'affichage. C'est le seul test qui exerce cette règle sur le CHEMIN RÉEL —
+            // route.short_name est persisté brut puis normalisé au build du registry.
+            .andExpect(jsonPath("$.lines[?(@.id == '3b')].shortName").value("3B"));
     }
 
     @Test
     void returnsOnePolylinePerBranch() throws Exception {
-        // 4 branches : SH9 + SH9R pour la 9, SH7A + SH7B pour la 7.
+        // 5 branches : SH9 + SH9R pour la 9, SH7A + SH7B pour la 7, SH3B pour la 3B.
         MvcResult result = mockMvc.perform(get("/network"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.shapes", hasSize(4)))
+            .andExpect(jsonPath("$.shapes", hasSize(5)))
             .andExpect(jsonPath("$.shapes[?(@.terminusName == 'Villejuif')].coordinates", hasSize(1)))
             .andReturn();
 
-        // Pouvoir discriminant : hasSize(4) seul passerait même si les 4 branches
-        // renvoyaient quatre fois la même géométrie (un bug déjà rencontré sur ce
+        // Pouvoir discriminant : hasSize(5) seul passerait même si les 5 branches
+        // renvoyaient cinq fois la même géométrie (un bug déjà rencontré sur ce
         // chantier : la géométrie d'une seule branche recopiée pour toutes). SH7A
         // (Villejuif) et SH7B (Ivry) partagent leurs 3 premiers points dans la fixture
         // et ne divergent qu'au dernier — on vérifie donc ce point précis pour prouver
@@ -85,7 +90,7 @@ class NetworkControllerIT {
     void returnsStationsDeduplicatedWithTheirLines() throws Exception {
         mockMvc.perform(get("/network"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.stations", hasSize(7)))
+            .andExpect(jsonPath("$.stations", hasSize(9)))
             .andExpect(jsonPath("$.stations[?(@.id == 'STC')].name").value("Correspondance"))
             .andExpect(jsonPath("$.stations[?(@.id == 'STC')].lineIds[*]",
                 containsInAnyOrder("7", "9")));

@@ -23,13 +23,17 @@ class LineDescriptorTest {
 
     @Test
     void normalisesThePublicIdToLowercaseWithoutSpaces() {
-        // Le GTFS écrit "3B" et "7B" ; les URL publiques doivent être /lines/3b et /lines/7b.
-        assertThat(LineDescriptor.of("IDFM:C01386", "3B", "82C8E6", TransportMode.METRO).id())
-            .isEqualTo("3b");
-        assertThat(LineDescriptor.of("IDFM:C01387", " 7B ", "82DC73", TransportMode.METRO).id())
-            .isEqualTo("7b");
-        assertThat(LineDescriptor.of("IDFM:C01384", "14", "640082", TransportMode.METRO).id())
-            .isEqualTo("14");
+        // Le GTFS écrit "3B" et "7B" ; l'identifiant public est "3b" et "7b". Ce n'est plus un
+        // espace d'URL (les endpoints /lines/{id} ont disparu en tâche 4) mais la CLÉ DE JOINTURE
+        // entre /network, /vehicles, /stations/{id}/departures, le filtre client et les compteurs
+        // du sélecteur.
+        //
+        // C'est bien la règle en vigueur en production qui est testée ici : NetworkRegistryBuilder
+        // appelle cette même méthode statique au build du registry (elle ne vit plus en double).
+        assertThat(LineDescriptor.publicId("3B")).isEqualTo("3b");
+        assertThat(LineDescriptor.publicId(" 7B ")).isEqualTo("7b");
+        assertThat(LineDescriptor.publicId("14")).isEqualTo("14");
+        assertThat(LineDescriptor.publicId(null)).isEmpty();
     }
 
     @Test

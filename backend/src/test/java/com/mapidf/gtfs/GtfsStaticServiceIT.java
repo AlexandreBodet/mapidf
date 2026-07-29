@@ -25,7 +25,7 @@ class GtfsStaticServiceIT {
 
         // C'est le chemin emprunté à chaque redémarrage, sans retélécharger les 109 Mo.
         assertThat(registry.current().lines()).extracting(TrackedLine::id)
-            .containsExactlyInAnyOrder("7", "9");
+            .containsExactlyInAnyOrder("7", "9", "3b");
         assertThat(registry.trackedSiriLineRefs())
             .contains("STIF:Line::C01379:", "STIF:Line::C01377:");
     }

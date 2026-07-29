@@ -15,6 +15,7 @@ import com.mapidf.data.entity.StopTime;
 import com.mapidf.data.repositories.BranchRepository;
 import com.mapidf.data.repositories.StopRepository;
 import com.mapidf.data.repositories.StopTimeRepository;
+import com.mapidf.gtfs.LineDescriptor;
 import com.mapidf.position.PositionEngine;
 import com.mapidf.position.StopOnLine;
 import lombok.AllArgsConstructor;
@@ -77,7 +78,7 @@ public class NetworkRegistryBuilder {
                 .add(LineBranch.of(branch.getGtfsShapeId(), branch.getDirection(),
                     branch.getTerminusName(), branch.getGeom(), stops));
 
-            String lineId = publicId(route.getShortName());
+            String lineId = LineDescriptor.publicId(route.getShortName());
             for (StopTime st : ordered) {
                 String stationId = stationKey(st.getStop());
                 platformsByStation.computeIfAbsent(stationId, key -> new TreeSet<>())
@@ -88,9 +89,11 @@ public class NetworkRegistryBuilder {
 
         List<TrackedLine> lines = routesByGtfsId.values().stream()
             .map(route -> new TrackedLine(
-                publicId(route.getShortName()), route.getGtfsId(), route.getSiriLineRef(),
-                route.getShortName(), route.getColor(), route.getMode(),
-                branchesByRoute.getOrDefault(route.getGtfsId(), List.of())))
+                LineDescriptor.publicId(route.getShortName()), route.getGtfsId(),
+                route.getSiriLineRef(), route.getShortName(), route.getColor(), route.getMode(),
+                // Pas de getOrDefault : routesByGtfsId n'est peuplé que dans la boucle
+                // ci-dessus, qui alimente branchesByRoute pour la même clé au même tour.
+                branchesByRoute.get(route.getGtfsId())))
             .sorted(Comparator.comparing(TrackedLine::id))
             .toList();
 
@@ -130,9 +133,5 @@ public class NetworkRegistryBuilder {
     private static String stationKey(Stop stop) {
         String parent = stop.getParentStation();
         return (parent == null || parent.isBlank()) ? stop.getGtfsId() : parent;
-    }
-
-    private static String publicId(String shortName) {
-        return shortName == null ? "" : shortName.trim().toLowerCase().replace(" ", "");
     }
 }

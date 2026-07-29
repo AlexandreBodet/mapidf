@@ -94,10 +94,10 @@ class GtfsStaticLoaderIT {
         // Ligne 9 : SH9 (3 arrêts) couvre S1,S2,S3 ; SH9S (S1,S2) est un service partiel
         // inclus, donc écarté. Sens 1 : SH9R. => 2 branches.
         // Ligne 7 : SH7A (P1..P4) et SH7B (P1,P2,P3,P5) apportent chacune un arrêt propre.
-        // => 2 branches. Total 4.
-        assertThat(branchRepository.findAllWithRoute()).hasSize(4);
+        // => 2 branches. Ligne 3B : SH3B seule. Total 5.
+        assertThat(branchRepository.findAllWithRoute()).hasSize(5);
         assertThat(branchRepository.findAllWithRoute()).extracting(Branch::getGtfsShapeId)
-            .containsExactlyInAnyOrder("SH9", "SH9R", "SH7A", "SH7B");
+            .containsExactlyInAnyOrder("SH9", "SH9R", "SH7A", "SH7B", "SH3B");
     }
 
     @Test
@@ -110,10 +110,12 @@ class GtfsStaticLoaderIT {
         // deux règles coïncideraient et le test ne prouverait rien. Le terminus départage deux
         // branches d'un même sens face au DestinationName du flux temps réel, qui nomme un arrêt.
         List<Branch> branches = branchRepository.findAllWithRoute();
+        // Ordre de findAllWithRoute : route.gtfsId, puis direction, puis shapeId — donc
+        // C01377 (7), C01379 (9), C01386 (3B).
         assertThat(branches).extracting(Branch::getGtfsShapeId)
-            .containsExactly("SH7A", "SH7B", "SH9", "SH9R");
+            .containsExactly("SH7A", "SH7B", "SH9", "SH9R", "SH3B");
         assertThat(branches).extracting(Branch::getTerminusName)
-            .containsExactly("Villejuif", "Ivry", "Gamma", "Alpha");
+            .containsExactly("Villejuif", "Ivry", "Gamma", "Alpha", "Gambetta");
     }
 
     @Test
@@ -132,9 +134,10 @@ class GtfsStaticLoaderIT {
         try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
             loader.load(in);
         }
-        // 3 (SH9) + 3 (SH9R) + 4 (SH7A) + 4 (SH7B) = 14. Les 2 lignes de T9S et les 2 du bus
-        // ne sont pas matérialisées : c'est ce qui fait passer le métro réel de 941 959 à 915.
-        assertThat(stopTimeRepository.findAllForRegistry()).hasSize(14);
+        // 3 (SH9) + 3 (SH9R) + 4 (SH7A) + 4 (SH7B) + 2 (SH3B) = 16. Les 2 lignes de T9S et les
+        // 2 du bus ne sont pas matérialisées : c'est ce qui fait passer le métro réel de
+        // 941 959 à 915.
+        assertThat(stopTimeRepository.findAllForRegistry()).hasSize(16);
     }
 
     @Test
@@ -142,10 +145,10 @@ class GtfsStaticLoaderIT {
         try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
             loader.load(in);
         }
-        // 8 quais métro (S1..S3, P1..P5) + 7 stations parentes = 15. Les parents portent leur
-        // propre nom et leurs propres coordonnées : c'est ce qui rend le nom de station
-        // déterministe sur une correspondance.
-        assertThat(stopRepository.count()).isEqualTo(15);
+        // 10 quais métro (S1..S3, P1..P5, Q31, Q32) + 9 stations parentes = 19. Les parents
+        // portent leur propre nom et leurs propres coordonnées : c'est ce qui rend le nom de
+        // station déterministe sur une correspondance.
+        assertThat(stopRepository.count()).isEqualTo(19);
         assertThat(stopRepository.findByGtfsId("STC")).isPresent()
             .get().extracting(Stop::getName).isEqualTo("Correspondance");
         assertThat(stopRepository.findByParentStation("STC")).extracting(Stop::getGtfsId)

@@ -23,11 +23,14 @@ class NetworkRegistryBuilderIT {
     }
 
     @Test
-    void buildsTheTwoTrackedLinesWithTheirBranches() {
+    void buildsTheTrackedLinesWithTheirBranches() {
         NetworkSnapshot snapshot = builder.build();
 
+        // "3b" et non "3B" : le registry est le seul producteur des identifiants publics que
+        // voit l'API, il normalise route.short_name (persisté brut) à la construction.
         assertThat(snapshot.lines()).extracting(TrackedLine::id)
-            .containsExactlyInAnyOrder("9", "7");
+            .containsExactlyInAnyOrder("9", "7", "3b");
+        assertThat(snapshot.linesById().get("3b").branches()).hasSize(1);
         assertThat(snapshot.linesById().get("9").branches()).hasSize(2);
         assertThat(snapshot.linesById().get("7").branches()).hasSize(2);
         assertThat(snapshot.linesBySiriRef()).containsKey("STIF:Line::C01379:");
@@ -89,8 +92,9 @@ class NetworkRegistryBuilderIT {
     void deduplicatesStationsAndListsTheirLines() {
         NetworkSnapshot snapshot = builder.build();
 
-        // 7 stations : ST1, STC, ST3 (ligne 9) + PT1, PT3, PT4, PT5 (ligne 7), STC partagée.
-        assertThat(snapshot.stations()).hasSize(7);
+        // 9 stations : ST1, STC, ST3 (ligne 9) + PT1, PT3, PT4, PT5 (ligne 7), STC partagée,
+        // + T31, T32 (ligne 3B).
+        assertThat(snapshot.stations()).hasSize(9);
 
         Station correspondence = snapshot.stationsById().get("STC");
         assertThat(correspondence.name()).isEqualTo("Correspondance");
