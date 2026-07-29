@@ -9,9 +9,10 @@ session. Pour le détail, suis les liens vers les docs.
 ## En deux mots
 
 Appli perso de **suivi temps réel des transports d'Île-de-France sur une carte**.
-MVP = **métro ligne 9** (mono-ligne, identifiant paramétrable). Backend Spring Boot
-(proxy PRIM + moteur de positions) + PostGIS ; frontend React + MapLibre GL qui poll le
-backend toutes les ~4 s et interpole les positions au `requestAnimationFrame`.
+Périmètre = **le métro complet (16 lignes)**, découvert automatiquement par mode GTFS —
+ce n'est plus la seule ligne 9 du MVP initial. Backend Spring Boot (proxy PRIM + moteur de
+positions) + PostGIS ; frontend React + MapLibre GL qui poll le backend toutes les ~4 s et
+interpole les positions au `requestAnimationFrame`.
 
 Le métro n'a **pas de GPS** : les positions sont **estimées** par interpolation à partir
 des horaires temps réel SIRI (prochain arrêt + heure estimée), pas mesurées.
@@ -45,19 +46,24 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
 - Secrets : `PRIM_API_KEY` vit dans **`.env` (gitignoré) — à ne JAMAIS commiter.**
   `.env.example` documente les variables attendues.
 
-## Configuration de la ligne suivie
+## Configuration du réseau suivi
 
-Le MVP est mono-ligne, piloté par `app.line.*` dans
-[application.yml](backend/src/main/resources/application.yml) :
-`gtfs-route-id` (route GTFS), `siri-line-ref` (LineRef SIRI temps réel), `color`. Le
-`LINE_ID` côté front n'est qu'un libellé d'URL (`/api/lines/{id}/...`), pas la résolution
-de la ligne. Le GTFS IDFM complet (~109 Mo) est filtré **en streaming** par le loader pour
-ne garder que la ligne cible (pas d'OOM).
+Le périmètre est piloté par `app.network.modes` (liste de `TransportMode`, ex. `[METRO]`)
+et `app.network.exclude` (route_id à écarter) dans
+[application.yml](backend/src/main/resources/application.yml). Les lignes ne sont **pas**
+listées à la main : `GtfsStaticLoader.discoverLines` parcourt `routes.txt`, dérive le mode
+depuis `route_type`, et ne retient une route que si son mode est suivi et qu'elle n'est pas
+exclue. Le GTFS IDFM complet (~109 Mo) reste filtré **en streaming** par le loader, mais sur
+tout ce périmètre (plus une seule ligne cible). Le front n'a **plus de `LINE_ID`** : il
+charge le réseau dynamiquement via `GET /network`, il n'y a plus de résolution de ligne
+côté URL.
 
 ## Données temps réel — pièges à connaître (IMPORTANT)
 
 La source est le endpoint SIRI-ET **`estimated-timetable`** de PRIM (en-tête `apikey`).
-Un seul appel couvre **tout le réseau** en JSON → le coût quota est indépendant du nombre
+Un seul appel couvre **tout le réseau**, désormais servi **en gzip** (45,6 Mo → 3,96 Mo ;
+le `HttpClient` Java ne le négocie pas seul, il faut poser `Accept-Encoding: gzip` et
+décompresser soi-même) et **parsé en streaming**. Le coût quota est indépendant du nombre
 de lignes. Détails et structure exacte : [backend/docs/prim-integration.md](backend/docs/prim-integration.md).
 
 Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
@@ -67,8 +73,16 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   venir**. C'est ce que fait `PositionEngine`.
 - **Aucun `RecordedCalls`** : les arrêts passés sont absents. Un train en marche a donc
   souvent **tous ses appels dans le futur** ; ne pas en conclure qu'il n'est pas parti.
-- `OriginRef` est souvent `null` ; ~1/3 des courses n'ont qu'un seul appel (terminus
-  lointain) → mal plaçables (limitation connue, voir plus bas).
+- `OriginRef` est **présent comme clé mais toujours vide** (`{}`), pas `null` — inexploitable
+  dans les deux cas. `DatedVehicleJourneyRef`, en revanche, **est toujours renseigné pour le
+  métro** (705/705 courses mesurées) : l'identité d'un train est stable entre deux polls, le
+  repli composite de `RealtimePoller` ne sert jamais pour ce mode.
+- `RecordedAtTime` (horodatage de dernière mise à jour de la course) est capté mais **n'est
+  pas un signal de perturbation** : mesuré en pleine perturbation ligne 8, cette ligne avait
+  la donnée la plus fraîche du réseau. Une perturbation se lit dans `DepartureStatus:
+  DELAYED`, pas dans la fraîcheur de `RecordedAtTime`.
+- ~1/3 des courses n'ont qu'un seul appel (terminus lointain) → mal plaçables (signalé par
+  `confidence`, voir limitations ci-dessous).
 - **Décision produit ferme : PAS de seuil d'ETA pour masquer un train.** Un seuil ferait
   disparaître les trains lors des perturbations de trafic — exactement ce qu'on veut voir.
   Tout filtrage doit s'appuyer sur un **signal non temporel** (fiabilité du placement).
@@ -84,8 +98,18 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
 
 ## Limitations connues (ne pas re-débugguer sans lire d'abord)
 
-- **Courses à un seul appel = terminus lointain** (~1/3 du flux) : train mal placé et ETA
-  aberrante (ex. Billancourt→Pont de Sèvres annoncé à 13 min). À traiter par un signal
-  non temporel — **jamais** par un seuil d'ETA (cf. décision ci-dessus). Ticket ouvert.
+- **Courses à un seul appel = terminus lointain** (~1/3 du flux) : désormais **signalées
+  par `confidence: APPROXIMATE`** sur le véhicule (opacité réduite côté front), pas
+  corrigées — le train reste rendu avec sa position bornée à l'arrêt précédent. À traiter
+  un jour par un signal non temporel — **jamais** par un seuil d'ETA (cf. décision
+  ci-dessus).
+- **~0,6 % des trains métro ne sont pas plaçables** (aucune branche ne contient l'arrêt
+  imminent, après couverture gloutonne des tracés) : exclus du résultat de `/vehicles`,
+  comptés par le métrique `mapidf.position.unplaced`.
+- **Couleurs partagées entre lignes** : 13/3bis (`#82C8E6`) et 6/7bis (`#82DC73`, aussi
+  celle du T4) — aucune distinction visuelle entre ces paires sur la carte.
+- **Aucun calendrier de service chargé** (`calendar.txt`/`calendar_dates.txt`) : le GTFS
+  statique ne répond pas à un horaire théorique daté, seulement à l'ordre et l'espacement
+  des arrêts par branche.
 - L'étiquette « prochain arrêt » peut sauter une station absente du flux SIRI : c'est
   cosmétique (trou de données), la position reste correcte.

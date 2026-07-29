@@ -129,3 +129,62 @@ Conséquence : on ne dispose PAS de la séquence horaire complète par course, s
 - [ ] Mapping `StopPointRef` (`STIF:StopPoint:Q:<n>:`) ↔ `stop_id` GTFS.
 - [ ] Rattachement `DatedVehicleJourneyRef` (SIRI) ↔ `trip_id` (GTFS), si possible.
 - [ ] Quotas d'appel PRIM (à surveiller côté poller).
+
+## Mise à jour 2026-07-29 — mesures sur le flux global et corrections
+
+Relevé sur un snapshot réel de `estimated-timetable` (09h52) et sur le GTFS IDFM du jour,
+à l'occasion du passage du MVP mono-ligne (9) au métro complet (16 lignes).
+
+### Volumétrie
+
+| Mesure | Valeur |
+|---|---|
+| Flux global brut | 45,6 Mo JSON |
+| **Avec `Accept-Encoding: gzip`** | **3,96 Mo** (×11,5), 5,8 s |
+| Projection | ~4,7 Go/jour (vs ~55 Go sans gzip) |
+| Courses, toutes lignes | 12 018 sur 1 013 lignes |
+| **Courses métro** | **705** |
+| Courses à un seul `EstimatedCall` | 254 / 705 = **36 %** |
+| Courses dont la donnée dépasse 2 min | 110 / 705 = 16 % (médiane 0,4 min, max 16,8) |
+
+**PRIM sert le flux global en gzip** — le `HttpClient` de Java ne le négocie pas seul, il
+faut poser l'en-tête `Accept-Encoding: gzip` et décompresser soi-même (`RealtimePoller`,
+cf. `com/mapidf/rt/RealtimePoller.java`).
+
+### Corrections
+
+- **`DatedVehicleJourneyRef` est renseigné sur les 705 courses métro.** La doc plus haut
+  (« obsolète », section suivante) supposait l'inverse ; l'identité composite de secours
+  (`lineRef|directionRef|destination|premierAppel`) construite par `RealtimePoller` ne
+  sert donc jamais pour le métro, et l'identité des trains est stable entre deux polls —
+  c'est ce qui permet l'animation continue d'un snapshot à l'autre.
+- **`OriginRef` est présent comme clé mais vide (`{}`)** sur les 705 courses — la doc avait
+  raison de le dire inexploitable, il manquait juste la précision que la clé existe et que
+  seule sa valeur est vide. Idem `RouteRef`, `OriginName`, `VehicleJourneyName`.
+- **`RecordedAtTime` existe sur chaque course** et n'était pas exploité jusqu'ici (il est
+  désormais parsé par `RealtimePoller` mais pas utilisé pour du filtrage). **Ce n'est pas
+  un signal de perturbation** : mesuré pendant une perturbation réelle de la ligne 8,
+  celle-ci avait la donnée **la plus fraîche** du réseau (2 % de courses au-delà de 2 min,
+  contre 73 % sur la 3bis). La perturbation se lit dans `DepartureStatus: DELAYED` — 14 %
+  de ses appels, le taux le plus élevé du réseau. Ne pas s'en servir comme proxy de retard.
+- Pas de champ `Order` sur les `EstimatedCall` (confirmé, cf. correction 2026-07-24
+  ci-dessus). `DestinationDisplay` est en revanche présent sur chaque appel.
+
+### Référentiel GTFS
+
+- `route_type=1` donne **exactement 16 routes**, une par ligne commerciale, aucun
+  `route_short_name` en doublon. La dérivation `IDFM:<code>` → `STIF:Line::<code>:` est
+  valide sur les 16, toutes présentes dans le flux.
+- **14 couleurs distinctes pour 16 lignes** : la 13 et la 3bis partagent `#82C8E6`, la 6 et
+  la 7bis `#82DC73` (le T4 aussi, à retenir pour le tram).
+- `stop_times.txt` fait 909 Mo décompressé (10,5 M lignes) dont **941 959 pour le métro** ;
+  **915** suffisent avec les seuls parcours représentatifs des branches retenues.
+- Tracés : 112 candidats sur le métro → **37 retenus** par couverture gloutonne. Sans elle,
+  la ligne 7 a 8 arrêts jusqu'à **1547 m** du tracé retenu. Trains écartés : 4,1 % →
+  **0,6 %** (véhicules dont aucune branche ne contient l'arrêt imminent, cf.
+  `PositionEngine.computeAll`, compteur `mapidf.position.unplaced`).
+- Stations : 781 quais, tous dotés d'un `parent_station` présent en `location_type=1` →
+  **321 stations**, dont **61 correspondances** (jusqu'à 5 lignes).
+- Aucun `calendar.txt`/`calendar_dates.txt` chargé : le loader ne répond pas à un horaire
+  théorique daté, seulement à l'ordre et l'espacement des arrêts (limitation assumée,
+  cf. Javadoc de `GtfsStaticLoader`).

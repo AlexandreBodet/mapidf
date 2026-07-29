@@ -416,7 +416,9 @@ public class GtfsStaticLoader {
      * aucune ambiguïté à lever, et un tel filtre ne pourrait que faire disparaître silencieusement
      * un parent que des quais référencent — les quais garderaient alors un
      * {@code parent_station} pendant vers un arrêt inexistant. La colonne est en outre absente de
-     * certains feeds (et de trois de nos fixtures), où filtrer dessus supprimerait tous les parents.
+     * certains feeds (et de quatre de nos fixtures — {@code gtfs-mini}, {@code gtfs-multi},
+     * {@code gtfs-twoshapes} et {@code gtfs-parent} ; seule {@code gtfs-branch} la porte), où
+     * filtrer dessus supprimerait tous les parents.
      */
     private Map<String, Stop> persistStopsWithParents(ZipFile zipFile, Set<String> stopIds) throws IOException {
         // Mesuré sur le métro : les 781 quais ont TOUS un parent, présent dans stops.txt.
