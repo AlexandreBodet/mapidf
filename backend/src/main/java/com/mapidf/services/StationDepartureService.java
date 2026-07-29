@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.mapidf.controllers.lines.DeparturesResponse;
-import com.mapidf.controllers.lines.DeparturesResponse.Direction;
-import com.mapidf.controllers.lines.DeparturesResponse.Passage;
+import com.mapidf.controllers.stations.DeparturesResponse;
+import com.mapidf.controllers.stations.DeparturesResponse.Direction;
+import com.mapidf.controllers.stations.DeparturesResponse.Passage;
 import com.mapidf.position.PositionEngine;
 import com.mapidf.rt.RtSnapshot.LiveJourney;
 import org.springframework.stereotype.Service;

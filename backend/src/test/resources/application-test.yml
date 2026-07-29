@@ -6,18 +6,12 @@
 #
 # Ce fichier remplace l'ancien backend/src/main/resources/application-test.yml (supprimé) :
 # les deux portaient le même nom classpath:/application-test.yml et se shadowaient
-# silencieusement (seul celui du classpath de test était résolu), ce qui a fait disparaître
-# app.line.* et cassé LineControllerShapeIT/LineControllerDeparturesIT. app.line reste ici
-# tant que LineProperties est utilisée (LineController, GtfsStaticService, RealtimePoller) ;
-# sa suppression est portée par la tâche 4.
+# silencieusement (seul celui du classpath de test était résolu).
 app:
   prim:
     gtfs-static-url: ""
     realtime-base-url: ""
     api-key: "test-key-not-a-secret"
-  line:
-    gtfs-route-id: "TEST9"
-    siri-line-ref: "STIF:Line::C01379:"
   network:
     modes: [METRO]
     exclude: []

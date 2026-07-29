@@ -17,33 +17,45 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.locationtech.jts.geom.LineString;
 
+/**
+ * Une branche d'une ligne : un tracé, un sens, son terminus. Une ligne simple en a une par
+ * sens ; la 7 et la 13 en ont deux par sens, la 10 deux dans un sens.
+ */
 @Getter
 @ToString
 @Entity
-@Table(name = "trip")
+@Table(name = "branch")
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 @EqualsAndHashCode
-public class Trip {
+public class Branch {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", columnDefinition = "uuid")
     private UUID id;
 
-    @Column(name = "gtfs_id")
-    private String gtfsId;
-
     @ManyToOne
     @JoinColumn(name = "route_id")
     @ToString.Exclude
     private Route route;
 
-    @Column(name = "headsign")
-    private String headsign;
+    @Column(name = "gtfs_shape_id")
+    private String gtfsShapeId;
+
+    /** {@code trip_id} GTFS de la course représentative retenue — traçabilité seulement. */
+    @Column(name = "representative_trip")
+    private String representativeTrip;
 
     @Column(name = "direction")
     private Short direction;
+
+    @Column(name = "terminus_name")
+    private String terminusName;
+
+    @Column(name = "geom", columnDefinition = "geometry(LineString,4326)")
+    private LineString geom;
 }

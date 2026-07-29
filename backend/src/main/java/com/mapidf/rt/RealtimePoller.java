@@ -1,6 +1,5 @@
 package com.mapidf.rt;
 
-import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -13,11 +12,9 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -43,7 +40,6 @@ public class RealtimePoller {
     private static final LocalTime SERVICE_END = LocalTime.of(1, 30);
 
     private final PrimProperties prim;
-    private final LineProperties line;
     private final ObjectMapper objectMapper;
     private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -51,9 +47,8 @@ public class RealtimePoller {
         .build();
     private Counter pollFailures;
 
-    public RealtimePoller(PrimProperties prim, LineProperties line, ObjectMapper objectMapper) {
+    public RealtimePoller(PrimProperties prim, ObjectMapper objectMapper) {
         this.prim = prim;
-        this.line = line;
         this.objectMapper = objectMapper;
     }
 
@@ -88,9 +83,12 @@ public class RealtimePoller {
         return !now.isBefore(SERVICE_START) || now.isBefore(SERVICE_END);
     }
 
+    // estimated-timetable est appelé SANS ?LineRef= : un seul appel couvre tout le réseau, et
+    // le snapshot indexe les courses par LineRef. Le filtre par ligne suivie revient en tâche 8,
+    // porté par le registry (il vivait ici sur LineProperties, supprimée avec l'API mono-ligne).
     void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
-            snapshot.set(parse(objectMapper, fetcher.get(buildUrl()), asOf));
+            snapshot.set(parse(objectMapper, fetcher.get(prim.realtimeBaseUrl()), asOf));
             log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
@@ -98,16 +96,6 @@ public class RealtimePoller {
             }
             log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
         }
-    }
-
-    // estimated-timetable : sans LineRef = tout le réseau (prêt multi-lignes) ;
-    // avec LineRef = filtré sur la ligne suivie (réponse légère au MVP mono-ligne).
-    private String buildUrl() {
-        String base = prim.realtimeBaseUrl();
-        if (line.siriLineRef() == null || line.siriLineRef().isBlank()) {
-            return base;
-        }
-        return base + "?LineRef=" + URLEncoder.encode(line.siriLineRef(), StandardCharsets.UTF_8);
     }
 
     private byte[] fetch(String url) throws Exception {

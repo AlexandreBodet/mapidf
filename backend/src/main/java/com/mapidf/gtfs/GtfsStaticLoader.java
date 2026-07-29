@@ -18,14 +18,15 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import com.mapidf.data.entity.Branch;
 import com.mapidf.data.entity.Route;
 import com.mapidf.data.entity.Stop;
 import com.mapidf.data.entity.StopTime;
-import com.mapidf.data.entity.Trip;
+import com.mapidf.data.enums.TransportMode;
+import com.mapidf.data.repositories.BranchRepository;
 import com.mapidf.data.repositories.RouteRepository;
 import com.mapidf.data.repositories.StopRepository;
 import com.mapidf.data.repositories.StopTimeRepository;
-import com.mapidf.data.repositories.TripRepository;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
@@ -58,7 +59,7 @@ public class GtfsStaticLoader {
 
     private final RouteRepository routeRepository;
     private final StopRepository stopRepository;
-    private final TripRepository tripRepository;
+    private final BranchRepository branchRepository;
     private final StopTimeRepository stopTimeRepository;
     private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), SRID);
 
@@ -76,26 +77,30 @@ public class GtfsStaticLoader {
     private void loadFromZipFile(Path zipPath, String routeId) throws IOException {
         try (ZipFile zipFile = new ZipFile(zipPath.toFile())) {
             stopTimeRepository.deleteAllInBatch();
-            tripRepository.deleteAllInBatch();
+            branchRepository.deleteAllInBatch();
             stopRepository.deleteAllInBatch();
             routeRepository.deleteAllInBatch();
 
             RouteInfo routeInfo = findRoute(zipFile, routeId);
             TripsParseResult tripsParsed = parseTrips(zipFile, routeId);
+            LineDescriptor descriptor =
+                LineDescriptor.of(routeId, routeInfo.shortName(), routeInfo.color(), TransportMode.METRO);
 
             Route route = routeRepository.save(Route.builder()
                 .gtfsId(routeId)
                 .shortName(routeInfo.shortName())
-                .color(routeInfo.color())
-                .geom(buildLongestShape(zipFile, tripsParsed.shapeIds()))
+                .color(descriptor.color())
+                .mode(TransportMode.METRO.name())
+                .siriLineRef(descriptor.siriLineRef())
                 .build());
 
-            Map<String, Trip> tripsByGtfsId = persistTrips(route, tripsParsed.tripRows());
+            Map<String, Branch> branchesByTripId = persistBranches(
+                route, tripsParsed.tripRows(), buildLongestShape(zipFile, tripsParsed.shapeIds()));
 
-            StopTimesParseResult stopTimesParsed = parseStopTimes(zipFile, tripsByGtfsId);
+            StopTimesParseResult stopTimesParsed = parseStopTimes(zipFile, branchesByTripId);
             Map<String, Stop> stopsByGtfsId = persistStops(zipFile, stopTimesParsed.stopIds());
 
-            persistStopTimes(tripsByGtfsId, stopsByGtfsId, stopTimesParsed.rows());
+            persistStopTimes(branchesByTripId, stopsByGtfsId, stopTimesParsed.rows());
         }
     }
 
@@ -137,29 +142,42 @@ public class GtfsStaticLoader {
         return new TripsParseResult(tripRows, shapeIds);
     }
 
-    private Map<String, Trip> persistTrips(Route route, List<TripRow> tripRows) {
-        List<Trip> tripsToSave = tripRows.stream()
-            .map(tr -> Trip.builder()
-                .gtfsId(tr.tripId())
-                .route(route)
-                .headsign(tr.headsign())
-                .direction(tr.direction())
-                .build())
-            .toList();
-        Map<String, Trip> tripsByGtfsId = new HashMap<>();
-        for (Trip trip : saveAllInBatches(tripRepository, tripsToSave)) {
-            tripsByGtfsId.put(trip.getGtfsId(), trip);
+    /**
+     * Port mécanique sur Branch de la logique existante : un tracé unique (le plus long) et
+     * une branche par sens, portée par la première course rencontrée dans ce sens. La tâche 5
+     * remplace cette sélection par la couverture gloutonne des tracés réels.
+     *
+     * @return la branche indexée par le {@code trip_id} de sa course représentative — c'est la
+     *     clé qui permet ensuite de ne retenir que les {@code stop_times} de cette course.
+     */
+    private Map<String, Branch> persistBranches(Route route, List<TripRow> tripRows, LineString shape) {
+        Map<Short, TripRow> representativeByDirection = new HashMap<>();
+        for (TripRow row : tripRows) {
+            representativeByDirection.putIfAbsent(row.direction(), row);
         }
-        return tripsByGtfsId;
+        Map<String, Branch> branchesByTripId = new HashMap<>();
+        for (Map.Entry<Short, TripRow> entry : representativeByDirection.entrySet()) {
+            Branch branch = branchRepository.save(Branch.builder()
+                .route(route)
+                .gtfsShapeId(route.getGtfsId() + ":" + entry.getKey())
+                .representativeTrip(entry.getValue().tripId())
+                .direction(entry.getKey())
+                .terminusName(entry.getValue().headsign())
+                .geom(shape)
+                .build());
+            branchesByTripId.put(entry.getValue().tripId(), branch);
+        }
+        return branchesByTripId;
     }
 
-    private StopTimesParseResult parseStopTimes(ZipFile zipFile, Map<String, Trip> tripsByGtfsId) throws IOException {
+    private StopTimesParseResult parseStopTimes(ZipFile zipFile, Map<String, Branch> branchesByTripId)
+        throws IOException {
         List<StopTimeRow> rows = new ArrayList<>();
         Set<String> stopIds = new HashSet<>();
         try (CSVParser parser = openCsv(zipFile, "stop_times.txt")) {
             for (CSVRecord r : parser) {
                 String tripId = r.get("trip_id");
-                if (!tripsByGtfsId.containsKey(tripId)) {
+                if (!branchesByTripId.containsKey(tripId)) {
                     continue;
                 }
                 String stopId = r.get("stop_id");
@@ -199,11 +217,11 @@ public class GtfsStaticLoader {
         return stopsByGtfsId;
     }
 
-    private void persistStopTimes(Map<String, Trip> tripsByGtfsId, Map<String, Stop> stopsByGtfsId,
+    private void persistStopTimes(Map<String, Branch> branchesByTripId, Map<String, Stop> stopsByGtfsId,
                                    List<StopTimeRow> rows) {
         List<StopTime> stopTimesToSave = rows.stream()
             .map(row -> StopTime.builder()
-                .trip(tripsByGtfsId.get(row.tripId()))
+                .branch(branchesByTripId.get(row.tripId()))
                 .stop(stopsByGtfsId.get(row.stopId()))
                 .stopSequence(row.stopSequence())
                 .arrivalSec(row.arrivalSec())

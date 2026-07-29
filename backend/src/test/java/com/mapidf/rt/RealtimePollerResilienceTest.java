@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 
 import tools.jackson.databind.ObjectMapper;
-import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -16,14 +15,10 @@ class RealtimePollerResilienceTest {
         return new PrimProperties("", "apikey", "", "http://realtime", Duration.ofSeconds(10));
     }
 
-    private static LineProperties line() {
-        return new LineProperties("TEST9", "STIF:Line::C01379:", "#D5C900");
-    }
-
     @Test
     void keepsLastSnapshotOnFetchFailure() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        RealtimePoller poller = new RealtimePoller(prim(), line(), new ObjectMapper());
+        RealtimePoller poller = new RealtimePoller(prim(), new ObjectMapper());
         poller.attachMetrics(registry);
 
         byte[] siri = RtFixtures.siriLineNineSample();

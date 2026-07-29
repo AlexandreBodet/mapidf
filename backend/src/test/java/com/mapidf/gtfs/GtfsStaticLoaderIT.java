@@ -1,11 +1,12 @@
 package com.mapidf.gtfs;
 
 import com.mapidf.MapIdfTest;
+import com.mapidf.data.entity.Branch;
 import com.mapidf.data.entity.Route;
+import com.mapidf.data.repositories.BranchRepository;
 import com.mapidf.data.repositories.RouteRepository;
 import com.mapidf.data.repositories.StopRepository;
 import com.mapidf.data.repositories.StopTimeRepository;
-import com.mapidf.data.repositories.TripRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,7 +18,7 @@ class GtfsStaticLoaderIT {
     @Autowired RouteRepository routeRepository;
     @Autowired StopRepository stopRepository;
     @Autowired StopTimeRepository stopTimeRepository;
-    @Autowired TripRepository tripRepository;
+    @Autowired BranchRepository branchRepository;
 
     @Test
     void loadsLineIntoDb() throws Exception {
@@ -25,9 +26,11 @@ class GtfsStaticLoaderIT {
             loader.loadFromZip(in, "TEST9");
         }
         Route route = routeRepository.findByGtfsId("TEST9").orElseThrow();
-        assertThat(route.getGeom().getNumPoints()).isEqualTo(3);
+        assertThat(route.getSiriLineRef()).isEqualTo("STIF:Line::TEST9:");
+        assertThat(branchRepository.findAllWithRoute()).singleElement()
+            .satisfies(branch -> assertThat(branch.getGeom().getNumPoints()).isEqualTo(3));
         assertThat(stopRepository.count()).isEqualTo(3);
-        assertThat(stopTimeRepository.findScheduleByRouteGtfsId("TEST9")).hasSize(3);
+        assertThat(stopTimeRepository.findAllForRegistry()).hasSize(3);
     }
 
     @Test
@@ -36,11 +39,10 @@ class GtfsStaticLoaderIT {
             loader.loadFromZip(in, "TEST9");
         }
 
-        Route route = routeRepository.findByGtfsId("TEST9").orElseThrow();
-        assertThat(route.getGeom().getNumPoints()).isEqualTo(3);
+        assertThat(routeRepository.findByGtfsId("TEST9")).isPresent();
         assertThat(stopRepository.count()).isEqualTo(3);
-        assertThat(tripRepository.count()).isEqualTo(1);
-        assertThat(stopTimeRepository.findScheduleByRouteGtfsId("TEST9")).hasSize(3);
+        assertThat(branchRepository.count()).isEqualTo(1);
+        assertThat(stopTimeRepository.findAllForRegistry()).hasSize(3);
 
         assertThat(routeRepository.findByGtfsId("TESTX")).isEmpty();
         assertThat(stopRepository.findAll())
@@ -50,15 +52,17 @@ class GtfsStaticLoaderIT {
 
     @Test
     void usesTheLongestShapeWhenRouteHasSeveralVariants() throws Exception {
-        // R1 a 2 trips : SH_SHORT (2 points, ~0.001°) et SH_LONG (4 points, ~0.03°).
-        // Le tracé retenu doit être le plus long (SH_LONG, 4 points), sinon les arrêts
-        // hors emprise se projetteraient sur l'extrémité du tracé court.
+        // R1 a 2 trips, un par sens : TA/SH_SHORT (2 points, ~0.001°) et TB/SH_LONG (4 points,
+        // ~0.03°). Le tracé retenu doit être le plus long (SH_LONG) pour les DEUX branches, sinon
+        // les arrêts hors emprise se projetteraient sur l'extrémité du tracé court.
         try (var in = getClass().getResourceAsStream("/gtfs-twoshapes.zip")) {
             loader.loadFromZip(in, "R1");
         }
 
-        Route route = routeRepository.findByGtfsId("R1").orElseThrow();
-        assertThat(route.getGeom().getNumPoints()).isEqualTo(4);
+        assertThat(branchRepository.findAllWithRoute()).hasSize(2)
+            .allSatisfy(branch -> assertThat(branch.getGeom().getNumPoints()).isEqualTo(4))
+            .extracting(Branch::getDirection)
+            .containsExactly((short) 0, (short) 1);
     }
 
     @Test

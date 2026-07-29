@@ -34,9 +34,9 @@ public class StopTime {
     private UUID id;
 
     @ManyToOne
-    @JoinColumn(name = "trip_id")
+    @JoinColumn(name = "branch_id")
     @ToString.Exclude
-    private Trip trip;
+    private Branch branch;
 
     @ManyToOne
     @JoinColumn(name = "stop_id")

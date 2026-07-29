@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
-import com.mapidf.controllers.lines.DeparturesResponse;
+import com.mapidf.controllers.stations.DeparturesResponse;
 import com.mapidf.rt.RtSnapshot.LiveJourney;
 import com.mapidf.rt.RtSnapshot.LiveJourney.Call;
 import org.junit.jupiter.api.Test;

@@ -15,7 +15,6 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
-import org.locationtech.jts.geom.LineString;
 
 @Getter
 @ToString
@@ -41,6 +40,9 @@ public class Route {
     @Column(name = "color")
     private String color;
 
-    @Column(name = "geom", columnDefinition = "geometry(LineString,4326)")
-    private LineString geom;
+    @Column(name = "mode")
+    private String mode;
+
+    @Column(name = "siri_line_ref")
+    private String siriLineRef;
 }
