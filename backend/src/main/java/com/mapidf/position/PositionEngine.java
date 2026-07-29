@@ -10,7 +10,6 @@ import java.util.Locale;
 import com.mapidf.network.LineBranch;
 import com.mapidf.network.TrackedLine;
 import com.mapidf.rt.RtSnapshot;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.Coordinate;
@@ -27,13 +26,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class PositionEngine {
 
-    private Counter unplaced;
-    private Counter branchUnresolved;
+    // Le MeterRegistry est gardé (et non deux Counter résolus une fois) parce que les deux
+    // compteurs sont taggés PAR LIGNE, comme la spec le demande : agrégés sur tout le réseau, ils
+    // ne diraient pas QUELLE ligne dégrade. counter(name, tags) est un lookup en table de
+    // hachage, et ces deux chemins sont rares (0,6 % du flux mesuré).
+    private MeterRegistry meters;
 
     @Autowired
-    public void attachMetrics(MeterRegistry registry) {
-        this.unplaced = registry.counter("mapidf.position.unplaced");
-        this.branchUnresolved = registry.counter("mapidf.position.branch.unresolved");
+    public void attachMetrics(MeterRegistry meterRegistry) {
+        this.meters = meterRegistry;
+    }
+
+    private void count(String name, TrackedLine line) {
+        if (meters != null) {
+            meters.counter(name, "line", line.id()).increment();
+        }
     }
 
     public List<Vehicle> computeAll(TrackedLine line, List<RtSnapshot.LiveJourney> journeys, Instant now) {
@@ -42,10 +49,10 @@ public class PositionEngine {
             Vehicle vehicle = compute(line, journey, now);
             if (vehicle != null) {
                 out.add(vehicle);
-            } else if (unplaced != null) {
+            } else {
                 // Mesuré : 0,6 % du flux métro après couverture gloutonne. La dégradation reste
                 // mesurable au lieu d'être silencieuse.
-                unplaced.increment();
+                count("mapidf.position.unplaced", line);
             }
         }
         return out;
@@ -149,9 +156,7 @@ public class PositionEngine {
      * jamais masqué ni filtré par un seuil de temps.
      */
     private LineBranch unresolvedBranch(TrackedLine line, List<LineBranch> candidates, String destination) {
-        if (branchUnresolved != null) {
-            branchUnresolved.increment();
-        }
+        count("mapidf.position.branch.unresolved", line);
         log.debug("[{}] départage de branche non résolu : destination='{}' ne correspond à aucun "
             + "terminus parmi {} — repli sur '{}'", line.id(), destination,
             candidates.stream().map(LineBranch::terminusName).toList(),

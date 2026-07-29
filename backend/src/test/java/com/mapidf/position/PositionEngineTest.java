@@ -7,6 +7,7 @@ import com.mapidf.network.LineBranch;
 import com.mapidf.network.TrackedLine;
 import com.mapidf.rt.RtSnapshot.LiveJourney;
 import com.mapidf.rt.RtSnapshot.LiveJourney.Call;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -308,6 +309,41 @@ class PositionEngineTest {
         assertThat(engine.computeAll(branchedLine(), List.of(unordered), NOW))
             .singleElement()
             .extracting(Vehicle::nextStop).isEqualTo("Sud");
+    }
+
+    @Test
+    void countsUnplaceableJourneysPerLine() {
+        // La spec veut la dégradation résiduelle mesurable PAR LIGNE (0,6 % du flux métro, tous
+        // sur la ligne 4 dans la mesure du 2026-07-29) : agrégée, la métrique ne dirait pas
+        // quelle ligne dégrade. Elle n'était exercée par aucun test.
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        PositionEngine measured = new PositionEngine();
+        measured.attachMetrics(meters);
+        LiveJourney orphan = journey("Ailleurs", List.of(
+            new Call("STIF:StopPoint:Q:999:", NOW.plusSeconds(60), "ON_TIME")));
+
+        assertThat(measured.computeAll(branchedLine(), List.of(orphan), NOW)).isEmpty();
+
+        assertThat(meters.get("mapidf.position.unplaced").tag("line", "line-7").counter().count())
+            .isEqualTo(1.0);
+    }
+
+    @Test
+    void countsUnresolvedBranchChoicesPerLine() {
+        // Arrêt de tronc (Sud, présent sur Villejuif ET Ivry) avec une destination qui ne
+        // correspond à aucun terminus : le repli est admissible (signal structurel, jamais un
+        // seuil d'ETA) mais doit rester compté, et par ligne.
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        PositionEngine measured = new PositionEngine();
+        measured.attachMetrics(meters);
+        LiveJourney ambiguous = journey("Destination inconnue", List.of(
+            new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(60), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:2:", NOW.minusSeconds(60), "ON_TIME")));
+
+        assertThat(measured.computeAll(branchedLine(), List.of(ambiguous), NOW)).hasSize(1);
+
+        assertThat(meters.get("mapidf.position.branch.unresolved")
+            .tag("line", "line-7").counter().count()).isEqualTo(1.0);
     }
 
     @Test

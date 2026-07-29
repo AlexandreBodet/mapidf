@@ -55,21 +55,56 @@ class RealtimePollerResilienceTest {
     }
 
     @Test
-    void decodesAGzippedBody() throws Exception {
-        // Mesuré : PRIM répond Content-Encoding: gzip, 3,96 Mo au lieu de 45,6 Mo.
-        byte[] gzipped = RtFixtures.gzip(RtFixtures.siriMultiLineSample());
-        RtSnapshot snapshot = RealtimePoller.parse(
-            new ObjectMapper(), new java.util.zip.GZIPInputStream(RtFixtures.stream(gzipped)),
-            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
+    void publishesAJourneyGaugePerTrackedLineIncludingLinesAbsentFromTheFeed() {
+        // Garde-fou du risque n°1 de la spec : si IDFM introduit une ligne au code atypique, la
+        // dérivation de son LineRef échoue et elle tombe à zéro train. Agrégée sur le réseau, la
+        // métrique resterait de l'ordre de 700 et ne dirait rien ; taggée par ligne, le zéro se
+        // voit. La jauge est donc publiée pour TOUTES les lignes du registry, y compris celles
+        // absentes du flux — ici la 7, que la fixture ne contient pas.
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        LineRegistry lines = new LineRegistry();
+        lines.publish(NetworkSnapshot.of(List.of(
+            new TrackedLine("9", "IDFM:C01379", LINE_NINE, "9", "#D2D200", "METRO", List.of()),
+            new TrackedLine("7", "IDFM:C01377", "STIF:Line::C01377:", "7", "#FF82B4", "METRO",
+                List.of())), List.of()));
+        RealtimePoller poller = new RealtimePoller(prim(), new ObjectMapper(), lines);
+        poller.attachMetrics(meterRegistry);
+
+        poller.pollOnce(url -> RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.ofEpochSecond(100));
+
+        assertThat(meterRegistry.get("mapidf.rt.journeys").tag("line", "9").gauge().value())
+            .isEqualTo(1.0);
+        assertThat(meterRegistry.get("mapidf.rt.journeys").tag("line", "7").gauge().value())
+            .isEqualTo(0.0);
+    }
+
+    @Test
+    void parseReadsAnAlreadyDecompressedStream() {
+        // Ce test ne prouve RIEN sur le décodage HTTP : il gzippe puis dégzippe lui-même avant
+        // d'appeler parse(), qui ignore totalement l'encodage et ne lit qu'un InputStream. Il vaut
+        // pour ce qu'il dit : un flux multi-lignes déjà décompressé est parsé et filtré sur les
+        // LineRef suivis. Le décodage réel du Content-Encoding est couvert par le test suivant.
+        byte[] gzipped;
+        try {
+            gzipped = RtFixtures.gzip(RtFixtures.siriMultiLineSample());
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
+        RtSnapshot snapshot;
+        try (var in = new java.util.zip.GZIPInputStream(RtFixtures.stream(gzipped))) {
+            snapshot = RealtimePoller.parse(new ObjectMapper(), in,
+                Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
 
         assertThat(snapshot.forLine(LINE_NINE)).hasSize(1);
     }
 
-    // La démonstration ci-dessus (decodesAGzippedBody) gzippe puis dégzippe elle-même avant
-    // d'appeler parse() : elle prouve seulement que parse() lit un InputStream quelconque, pas
-    // que le poller décode réellement le Content-Encoding: gzip renvoyé par PRIM. On vérifie
-    // donc ici, au niveau HTTP réel (serveur JDK embarqué), que fetch() décode bien un corps
-    // gzippé quand le serveur annonce Content-Encoding: gzip.
+    // Ici en revanche on vérifie, au niveau HTTP réel (serveur JDK embarqué), que fetch() décode
+    // bien un corps gzippé quand le serveur annonce Content-Encoding: gzip. Mesuré sur PRIM :
+    // 3,96 Mo au lieu de 45,6 Mo (×11,5).
     @Test
     void fetchDecodesAGzipContentEncodedHttpResponse() throws Exception {
         byte[] raw = RtFixtures.siriMultiLineSample();

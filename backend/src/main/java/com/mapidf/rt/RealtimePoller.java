@@ -4,6 +4,7 @@ import com.mapidf.configurations.properties.PrimProperties;
 import com.mapidf.network.LineRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,6 +29,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.GZIPInputStream;
 
@@ -57,6 +60,13 @@ public class RealtimePoller {
         .connectTimeout(Duration.ofSeconds(10))
         .build();
     private Counter pollFailures;
+    private MeterRegistry meters;
+    // Une jauge par ligne suivie, exigée par la spec comme garde-fou de son risque n°1 : si IDFM
+    // introduit une ligne au code atypique, la dérivation du LineRef échoue et la ligne tombe à
+    // zéro train. Agrégé sur le réseau, le total resterait de l'ordre de 700 et ne dirait rien.
+    // Micrometer ne garde qu'une référence FAIBLE vers l'état d'une jauge : ces AtomicInteger
+    // doivent donc vivre dans le poller, sinon la jauge renverrait NaN après un GC.
+    private final Map<String, AtomicInteger> journeysByLine = new ConcurrentHashMap<>();
 
     public RealtimePoller(PrimProperties prim, ObjectMapper objectMapper, LineRegistry registry) {
         this.prim = prim;
@@ -65,12 +75,31 @@ public class RealtimePoller {
     }
 
     @Autowired
-    public void attachMetrics(MeterRegistry registry) {
-        this.pollFailures = registry.counter("mapidf.rt.poll.failures");
-        registry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
+    public void attachMetrics(MeterRegistry meterRegistry) {
+        this.meters = meterRegistry;
+        this.pollFailures = meterRegistry.counter("mapidf.rt.poll.failures");
+        meterRegistry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
             ref -> ref.get().asOf().equals(Instant.EPOCH)
                 ? 0.0
                 : Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
+    }
+
+    /**
+     * Nombre de courses temps réel retenues, par ligne suivie. Publié pour TOUTES les lignes du
+     * registry, y compris celles absentes du flux : c'est précisément le zéro qu'on veut voir.
+     */
+    private void publishJourneyGauges(RtSnapshot fresh) {
+        if (meters == null) {
+            return;
+        }
+        registry.current().linesBySiriRef().forEach((siriLineRef, line) -> journeysByLine
+            .computeIfAbsent(line.id(), id -> {
+                AtomicInteger holder = new AtomicInteger();
+                meters.gauge("mapidf.rt.journeys", List.of(Tag.of("line", id)),
+                    holder, AtomicInteger::get);
+                return holder;
+            })
+            .set(fresh.forLine(siriLineRef).size()));
     }
 
     public RtSnapshot current() {
@@ -104,7 +133,9 @@ public class RealtimePoller {
     // snapshot déterministe sans appeler PRIM : le poll réel passe par poll(), planifié.
     public void pollOnce(Fetcher fetcher, Instant asOf) {
         try (InputStream body = fetcher.get(prim.realtimeBaseUrl())) {
-            snapshot.set(parse(objectMapper, body, asOf, registry.trackedSiriLineRefs()));
+            RtSnapshot fresh = parse(objectMapper, body, asOf, registry.trackedSiriLineRefs());
+            snapshot.set(fresh);
+            publishJourneyGauges(fresh);
             log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
