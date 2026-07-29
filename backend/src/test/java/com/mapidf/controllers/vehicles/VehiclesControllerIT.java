@@ -2,6 +2,7 @@ package com.mapidf.controllers.vehicles;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 
 import com.mapidf.MapIdfTest;
@@ -14,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
@@ -29,6 +32,12 @@ class VehiclesControllerIT {
     @Autowired GtfsStaticService staticService;
     @Autowired RealtimePoller poller;
     MockMvc mockMvc;
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    // Généreux à dessein : le but est de détecter un asOf figé/absent (ex. Instant.EPOCH), pas
+    // de mesurer la latence de la suite de tests — un seuil serré rendrait le test intermittent
+    // sur une machine chargée.
+    private static final Duration FRESHNESS_TOLERANCE = Duration.ofSeconds(30);
 
     // Arrêt Q:3: pour la 9 (S3 "Gamma", partagé par SH9 et SH9R : le départage se fait par
     // DestinationName="Gamma" == terminus de SH9, pas par unicité de l'arrêt) et Q:4: pour la 7
@@ -78,15 +87,19 @@ class VehiclesControllerIT {
     @Test
     void returnsAnEnvelopeCoveringTheWholeTrackedNetwork() throws Exception {
         // Le poller n'a rien ingéré en profil test (realtime-base-url vide), donc la liste est
-        // vide — mais l'endpoint doit répondre 200 avec une enveloppe complète et un asOf frais,
-        // et surtout NE PAS lever alors que le registry contient deux lignes et quatre branches.
-        String asOf = mockMvc.perform(get("/vehicles"))
+        // vide — mais l'endpoint doit répondre 200 avec une enveloppe complète et un asOf frais
+        // (proche de l'instant de la requête, pas une valeur figée ou absente), et surtout NE
+        // PAS lever alors que le registry contient deux lignes et quatre branches.
+        String body = mockMvc.perform(get("/vehicles"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.vehicles").isArray())
             .andExpect(jsonPath("$.vehicles", hasSize(0)))
             .andReturn().getResponse().getContentAsString();
 
-        assertThat(asOf).contains("\"asOf\"");
+        JsonNode root = JSON.readTree(body);
+        Instant asOf = Instant.parse(root.path("asOf").asString());
+        assertThat(Duration.between(asOf, Instant.now()).abs())
+            .isLessThan(FRESHNESS_TOLERANCE);
     }
 
     @Test
