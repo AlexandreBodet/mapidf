@@ -1,12 +1,12 @@
 import { formatEta } from "./formatEta";
-import type { VehicleFeatureProperties } from "../map/VehicleLayer";
+import type { Vehicle } from "../api/types";
 
 interface Props {
-  // Sous-ensemble réel de `Vehicle` (voir `VehicleFeatureProperties`) : un clic direct sur
-  // une flèche ne fournit que les champs posés sur la feature MapLibre, pas le `Vehicle`
-  // complet (lineId/lat/lng/recordedAt/confidence en sont absents à cet instant). Le
-  // panneau ne lit que headsign/nextStop/status/source/expectedTime, tous couverts.
-  vehicle: VehicleFeatureProperties | null;
+  // Vehicle complet, obtenu via la Map<journeyRef, Vehicle> tenue par useVehicles : la
+  // feature MapLibre cliquée ne porte plus headsign/nextStop/expectedTime/status depuis la
+  // tâche 14 (allègement de la boucle de rendu), donc le panneau ne peut plus les lire
+  // depuis les propriétés de la feature.
+  vehicle: Vehicle | null;
   following?: boolean;
   onFollow?: () => void;
   onClose: () => void;

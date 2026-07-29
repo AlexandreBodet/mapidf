@@ -1,42 +1,41 @@
 import { useEffect, useRef } from "react";
 import type { Map as MlMap } from "maplibre-gl";
-import type { NetworkResponse, VehiclesResponse } from "../api/types";
+import type { NetworkResponse, Vehicle } from "../api/types";
 import { fetchVehicles } from "../api/network";
 import { VEHICLE_POLL_MS } from "../api/config";
 import { VehicleLayer } from "./VehicleLayer";
-
-type V = VehiclesResponse["vehicles"][number];
-
-// Rendu multi-lignes (couleur par véhicule selon sa ligne, atténuation par confiance) : tâche 14.
-// Ici on ne fait que le minimum pour compiler après le passage à /vehicles (réseau entier, un
-// seul poll) : tous les véhicules partagent provisoirement cette couleur neutre.
-const PLACEHOLDER_VEHICLE_COLOR = "#666";
 
 export function useVehicles(
   map: MlMap | null,
   network: NetworkResponse | null,
   selectedJourneyRef: string | null = null,
   follow = false,
-  onSelected?: (vehicle: V | null) => void,
-  onCount?: (n: number) => void,
+  onSelected?: (vehicle: Vehicle | null) => void,
+  onCounts?: (counts: Map<string, number>) => void,
   highlightedJourneyRefs: Set<string> = new Set(),
+  visibleLines: Set<string> | null = null,
 ) {
   const layerRef = useRef<VehicleLayer | null>(null);
-  // Véhicules du dernier poll : permet de remplir le panneau immédiatement à la sélection.
-  const lastVehiclesRef = useRef<V[]>([]);
+  // Véhicules du dernier poll, indexés par journeyRef : alimente les panneaux, puisque
+  // headsign/nextStop/expectedTime/status ne sont plus posés sur les features GeoJSON
+  // (allègement de la boucle de rendu, tâche 14).
+  const vehiclesByRef = useRef<Map<string, Vehicle>>(new Map());
   // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
   const selectedRef = useRef(selectedJourneyRef);
   const onSelectedRef = useRef(onSelected);
-  const onCountRef = useRef(onCount);
+  const onCountsRef = useRef(onCounts);
   selectedRef.current = selectedJourneyRef;
   onSelectedRef.current = onSelected;
-  onCountRef.current = onCount;
+  onCountsRef.current = onCounts;
 
   useEffect(() => {
-    if (!map) {
+    // La couche n'est créée qu'une fois le réseau connu : c'est lui qui fournit les
+    // couleurs par ligne (colorByLine), nécessaires à la construction des icônes.
+    if (!map || !network) {
       return;
     }
-    const layer = new VehicleLayer(map, VEHICLE_POLL_MS, PLACEHOLDER_VEHICLE_COLOR);
+    const colorByLine = new Map(network.lines.map((line) => [line.id, line.color]));
+    const layer = new VehicleLayer(map, VEHICLE_POLL_MS, colorByLine);
     layerRef.current = layer;
     let cancelled = false;
     let timer: number;
@@ -46,13 +45,18 @@ export function useVehicles(
         if (cancelled) {
           return;
         }
-        lastVehiclesRef.current = response.vehicles;
+        const byRef = new Map(response.vehicles.map((v) => [v.journeyRef, v]));
+        vehiclesByRef.current = byRef;
         layer.update(response.vehicles, performance.now());
-        onCountRef.current?.(response.vehicles.length);
+        const counts = new Map<string, number>();
+        for (const vehicle of response.vehicles) {
+          counts.set(vehicle.lineId, (counts.get(vehicle.lineId) ?? 0) + 1);
+        }
+        onCountsRef.current?.(counts);
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
-        const id = selectedRef.current;
-        if (id) {
-          onSelectedRef.current?.(response.vehicles.find((v) => v.journeyRef === id) ?? null);
+        const ref = selectedRef.current;
+        if (ref) {
+          onSelectedRef.current?.(byRef.get(ref) ?? null);
         }
       } catch {
         // on conserve l'affichage courant
@@ -69,16 +73,15 @@ export function useVehicles(
       layer.destroy();
       layerRef.current = null;
     };
-  }, [map]);
+  }, [map, network]);
 
   useEffect(() => {
     layerRef.current?.setSelected(selectedJourneyRef);
     // Remplit le panneau immédiatement depuis le dernier poll connu — sinon, après un clic
-    // sur un passage (qui ne fournit qu'un journeyRef), la card n'apparaît qu'au tick suivant (~4 s).
+    // sur une flèche ou un passage (qui ne fournit qu'un journeyRef), la card n'apparaît
+    // qu'au tick suivant (~4 s).
     if (selectedJourneyRef) {
-      onSelectedRef.current?.(
-        lastVehiclesRef.current.find((v) => v.journeyRef === selectedJourneyRef) ?? null,
-      );
+      onSelectedRef.current?.(vehiclesByRef.current.get(selectedJourneyRef) ?? null);
     }
   }, [map, selectedJourneyRef]);
 
@@ -89,4 +92,8 @@ export function useVehicles(
   useEffect(() => {
     layerRef.current?.setHighlighted(highlightedJourneyRefs);
   }, [map, highlightedJourneyRefs]);
+
+  useEffect(() => {
+    layerRef.current?.setVisibleLines(visibleLines);
+  }, [map, network, visibleLines]);
 }

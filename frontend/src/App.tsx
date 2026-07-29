@@ -8,13 +8,13 @@ import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
-import type { DeparturesResponse } from "./api/types";
+import type { DeparturesResponse, Vehicle } from "./api/types";
 import type { VehicleFeatureProperties } from "./map/VehicleLayer";
 
-// Un clic direct sur une flèche ne fournit que le sous-ensemble posé sur la feature
-// MapLibre (VehicleFeatureProperties) ; le poll suivant (~4 s) élargira au Vehicle complet
-// via useVehicles, qui est bien assignable ici (Vehicle est un sur-ensemble de ce type).
-type Selected = VehicleFeatureProperties | null;
+// Un clic direct sur une flèche ne fournit que journeyRef (VehicleFeatureProperties, allégée
+// tâche 14 : headsign/nextStop/expectedTime/status n'y sont plus). Le Vehicle complet vient
+// de la Map tenue par useVehicles, qui rappelle onSelected dès que selectedJourneyRef change.
+type Selected = Vehicle | null;
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
@@ -42,22 +42,30 @@ export default function App() {
     if (v) {
       setSelected(v);
     }
-  }, setCount, highlightedJourneyRefs);
+  }, (counts) => {
+    let total = 0;
+    for (const n of counts.values()) {
+      total += n;
+    }
+    setCount(total);
+  }, highlightedJourneyRefs);
 
   useEffect(() => {
     if (!map) {
       return;
     }
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      const props = e.features?.[0]?.properties;
+      const props = e.features?.[0]?.properties as VehicleFeatureProperties | undefined;
       if (!props) {
         return;
       }
       setStation(null);
       setSelectedStationId(null);
       map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
-      setSelected(props as VehicleFeatureProperties);
-      setSelectedJourneyRef(props.journeyRef as string);
+      // Pas de setSelected ici : la feature ne porte plus le Vehicle complet (tâche 14).
+      // useVehicles rappelle onSelected avec le Vehicle depuis sa Map dès que
+      // selectedJourneyRef change, ci-dessous.
+      setSelectedJourneyRef(props.journeyRef);
       setFollow(true);
     };
     map.on("click", "vehicles", onClick);
