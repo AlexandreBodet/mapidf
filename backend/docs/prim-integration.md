@@ -182,7 +182,9 @@ cf. `com/mapidf/rt/RealtimePoller.java`).
 - Tracés : 112 candidats sur le métro → **37 retenus** par couverture gloutonne. Sans elle,
   la ligne 7 a 8 arrêts jusqu'à **1547 m** du tracé retenu. Trains écartés : 4,1 % →
   **0,6 %** (véhicules dont aucune branche ne contient l'arrêt imminent, cf.
-  `PositionEngine.computeAll`, compteur `mapidf.position.unplaced`).
+  `PositionEngine.computeAll`, compteur `mapidf.position.unplaced`, taggé `line`). Le nombre de
+  courses retenues par ligne est exposé en jauge `mapidf.rt.journeys` (tag `line`) : c'est le
+  garde-fou qui rend visible une ligne tombée à zéro train.
 - Stations : 781 quais, tous dotés d'un `parent_station` présent en `location_type=1` →
   **321 stations**, dont **61 correspondances** (jusqu'à 5 lignes).
 - Aucun `calendar.txt`/`calendar_dates.txt` chargé : le loader ne répond pas à un horaire
