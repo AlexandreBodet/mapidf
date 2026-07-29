@@ -38,9 +38,9 @@ public class GtfsStaticService {
                 .build();
             HttpResponse<java.io.InputStream> response =
                 httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            // route_id en dur : provisoire assumé le temps de la bascule (app.line a disparu avec
-            // l'API mono-ligne). La tâche 5 la remplace par la découverte via NetworkProperties.
-            loader.loadFromZip(response.body(), "IDFM:C01379");
+            // Le périmètre chargé vient de app.network.modes : le loader découvre les lignes
+            // dans routes.txt par route_type, sans route_id en dur.
+            loader.load(response.body());
             log.info("[GTFS] Réseau rechargé");
         } catch (Exception e) {
             log.error("[GTFS] Échec du refresh statique", e);
