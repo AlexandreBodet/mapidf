@@ -2378,13 +2378,23 @@ class GtfsStaticServiceIT {
     }
 
     @Test
-    void skipsTheRefreshWhenNoStaticUrlIsConfigured() {
+    void refreshLeavesTheRegistryUntouchedWhenNoStaticUrlIsConfigured() throws Exception {
+        try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
+            loader.load(in);
+        }
+        service.publishFromDatabase();
+        NetworkSnapshot before = registry.current();
+
         // Profil test : app.prim.gtfs-static-url est vide, refresh() doit sortir immédiatement
-        // sans lever et sans toucher au réseau.
+        // sans lever, sans accès réseau et SANS republier.
         service.refresh();
+
+        assertThat(registry.current()).isSameAs(before);
     }
 }
 ```
+
+**Attention, piège de test** : `LineRegistry` est un singleton dont l'état **survit au rollback transactionnel** des IT (il est en mémoire, pas en base) et à l'enchaînement des tests. Un test ne doit donc jamais supposer un registry vide : chaque IT qui le lit publie d'abord son propre état, comme ci-dessus. C'est aussi pour cette raison que `hydrateOnStartup` ne doit rien casser quand la base est vide au démarrage du contexte de test.
 
 - [ ] **Step 2: Lancer l'IT pour vérifier qu'il échoue**
 
@@ -3417,15 +3427,95 @@ class VehiclesControllerIT {
 
     @Test
     void returnsAnEnvelopeCoveringTheWholeTrackedNetwork() throws Exception {
-        // Le poller n'a rien ingéré en profil test (URL vide) : l'enveloppe doit être valide
-        // et la liste vide, jamais une erreur.
+        // Le poller n'a rien ingéré en profil test (realtime-base-url vide), donc la liste est
+        // vide — mais l'endpoint doit répondre 200 avec une enveloppe complète et un asOf frais,
+        // et surtout NE PAS lever alors que le registry contient deux lignes et quatre branches.
+        String asOf = mockMvc.perform(get("/vehicles"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.vehicles").isArray())
+            .andExpect(jsonPath("$.vehicles", hasSize(0)))
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(asOf).contains("\"asOf\"");
+    }
+
+    @Test
+    void placesTheJourneysOfEveryTrackedLine() throws Exception {
+        // Sans donnée temps réel, /vehicles est structurellement incapable de renvoyer un
+        // véhicule : on injecte donc un snapshot couvrant les DEUX lignes de la fixture, pour
+        // vérifier que le contrôleur balaie bien tout le réseau et non une seule ligne.
+        poller.pollOnce(url -> new java.io.ByteArrayInputStream(
+            TWO_LINE_SNAPSHOT.getBytes(java.nio.charset.StandardCharsets.UTF_8)), Instant.now());
+
         mockMvc.perform(get("/vehicles"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.asOf").exists())
-            .andExpect(jsonPath("$.vehicles").isArray());
+            .andExpect(jsonPath("$.vehicles[*].lineId", containsInAnyOrder("7", "9")))
+            .andExpect(jsonPath("$.vehicles[*].confidence",
+                containsInAnyOrder("APPROXIMATE", "APPROXIMATE")));
     }
 }
 ```
+
+`pollOnce(Fetcher, Instant)` est visible depuis le paquet `com.mapidf.rt`. Comme l'IT vit dans `com.mapidf.controllers.vehicles`, **élargir sa visibilité à `public`** dans `RealtimePoller` avec le commentaire suivant, plutôt que de déplacer l'IT :
+
+```java
+    // public (et non package-private) pour permettre aux IT de contrôleur d'injecter un
+    // snapshot déterministe sans appeler PRIM : le poll réel passe par poll(), planifié.
+    public void pollOnce(Fetcher fetcher, Instant asOf) {
+```
+
+La constante du snapshot, dans l'IT — arrêt `Q:2:` pour la 9 (station STC) et `Q:4:` pour la 7 (Villejuif, propre à la branche SH7A), une seule course chacune donc `APPROXIMATE` des deux côtés :
+
+```java
+    private static final String TWO_LINE_SNAPSHOT = """
+        {"Siri":{"ServiceDelivery":{"ResponseTimestamp":"2026-07-29T08:00:00.000Z",
+          "EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+            "EstimatedVehicleJourney":[
+              {"RecordedAtTime":"2026-07-29T08:00:00.000Z",
+               "LineRef":{"value":"STIF:Line::C01379:"},
+               "DirectionRef":{"value":"0"},
+               "DatedVehicleJourneyRef":{"value":"V9"},
+               "DestinationName":[{"value":"Gamma"}],
+               "EstimatedCalls":{"EstimatedCall":[{
+                 "StopPointRef":{"value":"STIF:StopPoint:Q:3:"},
+                 "ExpectedDepartureTime":"2026-07-29T09:00:00.000Z",
+                 "DepartureStatus":"ON_TIME"}]}},
+              {"RecordedAtTime":"2026-07-29T08:00:00.000Z",
+               "LineRef":{"value":"STIF:Line::C01377:"},
+               "DirectionRef":{"value":"0"},
+               "DatedVehicleJourneyRef":{"value":"V7"},
+               "DestinationName":[{"value":"Villejuif"}],
+               "EstimatedCalls":{"EstimatedCall":[{
+                 "StopPointRef":{"value":"STIF:StopPoint:Q:4:"},
+                 "ExpectedDepartureTime":"2026-07-29T09:00:00.000Z",
+                 "DepartureStatus":"ON_TIME"}]}}
+            ]}]}]
+        }}}
+        """;
+```
+
+**Le snapshot du poller est un singleton qui survit au rollback transactionnel**, exactement comme le registry, et l'ordre d'exécution JUnit n'est pas garanti. Chaque test pose donc son propre snapshot dans le `@BeforeEach`, ce qui rend les deux déterministes quel que soit l'ordre :
+
+```java
+    @Autowired RealtimePoller poller;
+
+    @BeforeEach
+    void setup() throws Exception {
+        mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
+        try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
+            loader.load(in);
+        }
+        staticService.publishFromDatabase();
+        // Snapshot vide déterministe : "{}" est un JSON valide sans EstimatedVehicleJourney,
+        // donc 0 course — sans dépendre du test précédent ni d'un appel PRIM. Un corps
+        // réellement vide serait risqué : si le parse levait, pollOnce conserverait par
+        // conception le snapshot précédent et le test deviendrait dépendant de l'ordre.
+        poller.pollOnce(url -> new java.io.ByteArrayInputStream(
+            "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8)), Instant.now());
+    }
+```
+
+Le second test appelle ensuite `pollOnce` avec `TWO_LINE_SNAPSHOT` pour écraser ce vide.
 
 - [ ] **Step 2: Lancer l'IT pour vérifier qu'il échoue**
 
