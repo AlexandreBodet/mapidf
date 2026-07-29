@@ -1,10 +1,12 @@
 import { formatEta } from "./formatEta";
-import type { Vehicle } from "../api/types";
+import type { VehicleFeatureProperties } from "../map/VehicleLayer";
 
 interface Props {
-  // `VehicleSummary` a disparu avec le typage mono-ligne : `Vehicle` (types.ts, tâche 13)
-  // couvre les mêmes champs affichés ici. Le tri/atténuation par confiance reste tâche 14.
-  vehicle: Vehicle | null;
+  // Sous-ensemble réel de `Vehicle` (voir `VehicleFeatureProperties`) : un clic direct sur
+  // une flèche ne fournit que les champs posés sur la feature MapLibre, pas le `Vehicle`
+  // complet (lineId/lat/lng/recordedAt/confidence en sont absents à cet instant). Le
+  // panneau ne lit que headsign/nextStop/status/source/expectedTime, tous couverts.
+  vehicle: VehicleFeatureProperties | null;
   following?: boolean;
   onFollow?: () => void;
   onClose: () => void;

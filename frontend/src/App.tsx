@@ -8,9 +8,13 @@ import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
-import type { DeparturesResponse, Vehicle } from "./api/types";
+import type { DeparturesResponse } from "./api/types";
+import type { VehicleFeatureProperties } from "./map/VehicleLayer";
 
-type Selected = Vehicle | null;
+// Un clic direct sur une flèche ne fournit que le sous-ensemble posé sur la feature
+// MapLibre (VehicleFeatureProperties) ; le poll suivant (~4 s) élargira au Vehicle complet
+// via useVehicles, qui est bien assignable ici (Vehicle est un sur-ensemble de ce type).
+type Selected = VehicleFeatureProperties | null;
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
@@ -52,7 +56,7 @@ export default function App() {
       setStation(null);
       setSelectedStationId(null);
       map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
-      setSelected(props as Selected);
+      setSelected(props as VehicleFeatureProperties);
       setSelectedJourneyRef(props.journeyRef as string);
       setFollow(true);
     };

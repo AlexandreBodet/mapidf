@@ -14,11 +14,15 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
   // On masque les passages déjà partis (le panneau peut vieillir entre deux rafraîchissements)
   // et les directions qui n'ont plus aucun passage à venir.
   // NOTE tâche 13 : DeparturesResponse groupe désormais par ligne (une correspondance peut en
-  // desservir jusqu'à 5) ; on aplatit ici sans distinguer la ligne pour rester minimal — le
-  // panneau lui-même (regroupement visuel par ligne) est repris en tâche 15.
+  // desservir jusqu'à 5) ; on aplatit ici sans distinguer visuellement la ligne pour rester
+  // minimal — le panneau lui-même (regroupement visuel par ligne) est repris en tâche 15.
+  // On garde toutefois `lineId` sur chaque direction aplatie : deux lignes différentes
+  // peuvent desservir une destination de même libellé (ex. Étoile : la 2 et la 6 ont toutes
+  // deux une direction « Nation »), donc `destination` seul ne suffit pas comme clé de liste
+  // sans perdre silencieusement les passages de l'une des deux lignes.
   const now = Date.now();
   const directions = data.lines
-    .flatMap((line) => line.directions)
+    .flatMap((line) => line.directions.map((dir) => ({ ...dir, lineId: line.lineId })))
     .map((dir) => ({
       ...dir,
       passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
@@ -50,7 +54,7 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
         <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
       )}
       {directions.map((dir) => (
-        <div key={dir.destination} style={{ margin: "8px 0 0" }}>
+        <div key={`${dir.lineId}-${dir.destination}`} style={{ margin: "8px 0 0" }}>
           <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
           <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
             {dir.passages.map((p) => (

@@ -25,6 +25,18 @@ function distanceMeters(a: [number, number], b: [number, number]): number {
 
 type V = VehiclesResponse["vehicles"][number];
 
+/**
+ * Sous-ensemble de `Vehicle` réellement posé sur chaque feature GeoJSON par `render()`
+ * ci-dessous (voir le bloc `properties` qui y construit exactement ces 7 champs) : c'est
+ * tout ce qu'un clic direct sur une flèche peut lire, avant le prochain poll (~4 s) qui
+ * fournira le `Vehicle` complet. `Pick` plutôt qu'une recopie à la main : un futur champ
+ * ajouté à `Vehicle` ne peut pas diverger silencieusement de ce que `render()` expose.
+ */
+export type VehicleFeatureProperties = Pick<
+  V,
+  "journeyRef" | "source" | "bearing" | "headsign" | "nextStop" | "expectedTime" | "status"
+>;
+
 interface Anim {
   from: [number, number];
   to: [number, number];
