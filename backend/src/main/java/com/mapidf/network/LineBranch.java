@@ -17,6 +17,11 @@ import org.locationtech.jts.linearref.LengthIndexedLine;
  *
  * <p>{@link LengthIndexedLine} ne porte que la géométrie et n'expose que des lectures : il est
  * partagé sans copie entre toutes les requêtes.
+ *
+ * <p><b>Construire exclusivement via {@link #of}</b> : le constructeur canonique n'est utilisé
+ * qu'en interne par la fabrique, qui garantit {@code indexed} cohérent avec {@code geom} et
+ * {@code indexByStopKey} cohérent avec {@code stops}. L'appeler directement permettrait de
+ * publier une branche où ces invariants ne tiennent plus.
  */
 public record LineBranch(String shapeId, short direction, String terminusName,
                          LineString geom, LengthIndexedLine indexed,
@@ -33,8 +38,8 @@ public record LineBranch(String shapeId, short direction, String terminusName,
             new LengthIndexedLine(geom), orderedStops, Map.copyOf(index));
     }
 
-    /** Rang de l'arrêt dans cette branche, ou −1 s'il n'y figure pas. */
+    /** Rang de l'arrêt dans cette branche, ou −1 s'il n'y figure pas (y compris pour {@code null}). */
     public int indexOf(String stopKey) {
-        return indexByStopKey.getOrDefault(stopKey, -1);
+        return stopKey == null ? -1 : indexByStopKey.getOrDefault(stopKey, -1);
     }
 }

@@ -28,8 +28,11 @@ import org.springframework.transaction.annotation.Transactional;
  * ne pas retélécharger 109 Mo de GTFS) et après chaque refresh quotidien — jamais sur le chemin
  * d'une requête.
  *
- * <p>Deux requêtes seulement, toutes deux à {@code JOIN FETCH} explicite : en chargement
- * paresseux, 37 branches × leurs stop_times × leurs arrêts feraient une centaine de requêtes.
+ * <p>Trois requêtes, dont deux à {@code JOIN FETCH} explicite : en chargement paresseux, 37
+ * branches × leurs stop_times × leurs arrêts feraient une centaine de requêtes. La troisième
+ * ({@code findByGtfsIdIn} des stations parentes) n'a pas besoin de {@code JOIN FETCH} : {@link
+ * Stop} ne porte aucune association, c'est un {@code IN} borné par construction (une station par
+ * quai retenu, jamais par branche), pas une jointure à N+1.
  */
 @Slf4j
 @Service
