@@ -1,0 +1,23 @@
+# Le profil "test" (cf. @MapIdfTest) doit être hermétique. Sans ce fichier, @EnableScheduling
+# déclenche GtfsStaticService.refresh() avec initialDelay=0, qui télécharge les 109 Mo du GTFS
+# IDFM réel, et RealtimePoller.poll(), qui appelle PRIM — les deux échouant silencieusement
+# dans leur try/catch. Un refresh de fond écraserait en plus le LineRegistry en pleine IT.
+# Les deux méthodes sortent immédiatement quand leur URL est vide.
+#
+# Ce fichier remplace l'ancien backend/src/main/resources/application-test.yml (supprimé) :
+# les deux portaient le même nom classpath:/application-test.yml et se shadowaient
+# silencieusement (seul celui du classpath de test était résolu), ce qui a fait disparaître
+# app.line.* et cassé LineControllerShapeIT/LineControllerDeparturesIT. app.line reste ici
+# tant que LineProperties est utilisée (LineController, GtfsStaticService, RealtimePoller) ;
+# sa suppression est portée par la tâche 4.
+app:
+  prim:
+    gtfs-static-url: ""
+    realtime-base-url: ""
+    api-key: "test-key-not-a-secret"
+  line:
+    gtfs-route-id: "TEST9"
+    siri-line-ref: "STIF:Line::C01379:"
+  network:
+    modes: [METRO]
+    exclude: []

@@ -2,6 +2,10 @@ server:
   servlet:
     context-path: /api
   port: 8000
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 4096
 management:
   server:
     port: 9000
@@ -31,11 +35,12 @@ spring:
     enabled: true
     locations: classpath:db/migration
 app:
-  line:
-    # Ligne 9 du métro (vérifié sur données réelles) — route_id du GTFS IDFM
-    gtfs-route-id: "IDFM:C01379"
-    siri-line-ref: "STIF:Line::C01379:"   # LineRef SIRI de la ligne 9
-    color: "#D2D200"                       # route_color GTFS de la ligne 9
+  network:
+    # route_type GTFS suivis. Mesuré le 2026-07-29 : route_type=1 donne exactement les
+    # 16 lignes de métro, une par ligne commerciale. Passer au tram = ajouter TRAM.
+    modes: [METRO]
+    # route_id à écarter (ligne dont la dérivation du LineRef SIRI échouerait).
+    exclude: []
   prim:
     api-key: ${PRIM_API_KEY:}
     auth-header: "apikey"
