@@ -527,8 +527,11 @@ class BranchSelectorTest {
             new Candidate("SH_VILLEJUIF", "TA", List.of("P1", "P2", "P3", "P4")),
             new Candidate("SH_IVRY", "TB", List.of("P1", "P2", "P3", "P5"))));
 
+        // L'intention est « les deux branches sont retenues » : l'ordre relatif est incidental
+        // ici (à taille égale, le départage par shapeId placerait SH_IVRY en premier), et c'est
+        // isDeterministicWhenTwoCandidatesHaveTheSameSize qui couvre l'ordre.
         assertThat(selected).extracting(Candidate::shapeId)
-            .containsExactly("SH_VILLEJUIF", "SH_IVRY");
+            .containsExactlyInAnyOrder("SH_VILLEJUIF", "SH_IVRY");
         assertThat(selected).flatExtracting(Candidate::stopIds)
             .contains("P4", "P5");
     }
