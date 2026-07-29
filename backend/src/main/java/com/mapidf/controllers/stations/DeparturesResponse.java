@@ -4,11 +4,20 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Prochains passages à une station. Déplacé ici depuis le paquet {@code controllers.lines}
- * supprimé avec l'API des lignes : la tâche 12 rebranche le contrôleur
- * {@code /stations/{id}/departures} sur ce paquet et y ajoute le groupement par ligne.
+ * Prochains passages à une station, groupés par ligne puis par direction.
+ *
+ * <p>Mesuré : 61 stations sur 321 sont des correspondances, jusqu'à 5 lignes. Grouper par
+ * destination seule à travers plusieurs lignes fusionnerait deux lignes partageant un nom de
+ * destination — d'où le niveau « ligne ».
+ *
+ * <p>Sur une ligne à branches, une station du tronc commun affiche plus de deux directions
+ * (la 13 à Saint-Lazare montre Asnières et Saint-Denis séparément) : c'est le comportement juste.
  */
-public record DeparturesResponse(String stationName, List<Direction> directions) {
+public record DeparturesResponse(String stationName, List<LineDepartures> lines) {
+
+    public record LineDepartures(String lineId, String shortName, String color,
+                                 List<Direction> directions) {
+    }
 
     public record Direction(String destination, List<Passage> passages) {
     }
