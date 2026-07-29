@@ -125,7 +125,7 @@ public class PositionEngine {
         return new Vehicle(journey.journeyRef(), line.id(), point.y, point.x,
             bearing(branch.indexed(), fromDist, toDist), call.departureStatus(),
             journey.destination(), next.stopName(), call.time(), journey.recordedAt(),
-            Vehicle.Source.INTERPOLATED, confidence);
+            confidence);
     }
 
     /**

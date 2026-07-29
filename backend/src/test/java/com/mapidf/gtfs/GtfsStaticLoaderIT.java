@@ -149,10 +149,11 @@ class GtfsStaticLoaderIT {
         // portent leur propre nom et leurs propres coordonnées : c'est ce qui rend le nom de
         // station déterministe sur une correspondance.
         assertThat(stopRepository.count()).isEqualTo(19);
-        assertThat(stopRepository.findByGtfsId("STC")).isPresent()
-            .get().extracting(Stop::getName).isEqualTo("Correspondance");
-        assertThat(stopRepository.findByParentStation("STC")).extracting(Stop::getGtfsId)
-            .containsExactlyInAnyOrder("S2", "P2");
+        assertThat(stopRepository.findAll()).filteredOn(stop -> stop.getGtfsId().equals("STC"))
+            .singleElement().extracting(Stop::getName).isEqualTo("Correspondance");
+        assertThat(stopRepository.findAll())
+            .filteredOn(stop -> "STC".equals(stop.getParentStation()))
+            .extracting(Stop::getGtfsId).containsExactlyInAnyOrder("S2", "P2");
     }
 
     @Test

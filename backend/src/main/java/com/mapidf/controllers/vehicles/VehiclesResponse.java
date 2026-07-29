@@ -14,14 +14,13 @@ public record VehiclesResponse(Instant asOf, List<VehicleDto> vehicles) {
      */
     public record VehicleDto(String journeyRef, String lineId, double lat, double lng,
                              double bearing, String status, String headsign, String nextStop,
-                             Instant expectedTime, Instant recordedAt,
-                             String source, String confidence) {
+                             Instant expectedTime, Instant recordedAt, String confidence) {
 
         public static VehicleDto from(Vehicle vehicle) {
             return new VehicleDto(vehicle.journeyRef(), vehicle.lineId(), vehicle.lat(),
                 vehicle.lng(), vehicle.bearing(), vehicle.status(), vehicle.headsign(),
                 vehicle.nextStop(), vehicle.expectedTime(), vehicle.recordedAt(),
-                vehicle.source().name(), vehicle.confidence().name());
+                vehicle.confidence().name());
         }
     }
 }

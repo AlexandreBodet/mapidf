@@ -21,23 +21,12 @@ class LineRegistryTest {
         LineRegistry registry = new LineRegistry();
         registry.publish(NetworkSnapshot.of(List.of(LINE_9), List.of(STATION_STC)));
 
-        assertThat(registry.requireLine("9")).isEqualTo(LINE_9);
+        // La ligne se résout par l'index du snapshot : c'est ce que fait StationsController pour
+        // les lignes d'une station. Il n'y a plus de requireLine — aucun endpoint ne prend un id
+        // de ligne en entrée depuis la suppression de l'espace /lines/{id} en tâche 4.
+        assertThat(registry.current().linesById().get("9")).isEqualTo(LINE_9);
         assertThat(registry.requireStation("STC")).isEqualTo(STATION_STC);
         assertThat(registry.trackedSiriLineRefs()).containsExactly("STIF:Line::C01379:");
-    }
-
-    @Test
-    void rejectsAnUnknownLineWith404() {
-        LineRegistry registry = new LineRegistry();
-        registry.publish(NetworkSnapshot.empty());
-
-        assertThatThrownBy(() -> registry.requireLine("9"))
-            .isInstanceOf(ApiException.class)
-            .satisfies(ex -> {
-                ApiException apiException = (ApiException) ex;
-                assertThat(apiException.getHttpStatus()).isEqualTo(HttpStatus.NOT_FOUND);
-                assertThat(apiException.getErrorCode()).isEqualTo(ErrorCode.LINE_NOT_FOUND);
-            });
     }
 
     @Test

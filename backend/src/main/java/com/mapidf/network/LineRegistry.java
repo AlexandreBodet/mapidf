@@ -26,14 +26,6 @@ public class LineRegistry {
         snapshot.set(next);
     }
 
-    public TrackedLine requireLine(String id) {
-        TrackedLine line = current().linesById().get(id);
-        if (line == null) {
-            throw new ApiException(HttpStatus.NOT_FOUND, ErrorCode.LINE_NOT_FOUND);
-        }
-        return line;
-    }
-
     public Station requireStation(String id) {
         Station station = current().stationsById().get(id);
         if (station == null) {

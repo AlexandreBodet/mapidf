@@ -12,11 +12,7 @@ import java.time.Instant;
  */
 public record Vehicle(String journeyRef, String lineId, double lat, double lng, double bearing,
                       String status, String headsign, String nextStop, Instant expectedTime,
-                      Instant recordedAt, Source source, Confidence confidence) {
-
-    public enum Source {
-        REALTIME, INTERPOLATED
-    }
+                      Instant recordedAt, Confidence confidence) {
 
     public enum Confidence {
         RELIABLE, APPROXIMATE

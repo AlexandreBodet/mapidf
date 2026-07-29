@@ -55,9 +55,9 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
         Arrivée estimée : <b>{formatEta(vehicle.expectedTime, { withSeconds: true })}</b>
       </p>
       <p style={{ margin: "4px 0" }}>État : {statusLabel}</p>
-      <p style={{ margin: "4px 0", color: "#666" }}>
-        Position : {vehicle.source === "REALTIME" ? "temps réel" : "estimée (horaire)"}
-      </p>
+      {/* Le métro n'a pas de GPS : la position est TOUJOURS estimée par interpolation, jamais
+          mesurée. Le backend ne peut produire aucun autre cas. */}
+      <p style={{ margin: "4px 0", color: "#666" }}>Position : estimée (horaire)</p>
       {vehicle.confidence === "APPROXIMATE" && (
         <p style={{ margin: "8px 0 0", padding: "6px 8px", background: "#fef3c7", borderRadius: 6, color: "#92400e" }}>
           Position approximative : le flux temps réel n'annonce qu'un seul arrêt pour ce train.

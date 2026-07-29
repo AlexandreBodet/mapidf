@@ -38,7 +38,6 @@ export interface Vehicle {
   expectedTime: string;
   /** Dernière mise à jour de la course côté SIRI. Information, pas critère d'atténuation. */
   recordedAt: string | null;
-  source: "REALTIME" | "INTERPOLATED";
   /** APPROXIMATE = course à un seul appel SIRI (36 % du flux) : atténué, jamais masqué. */
   confidence: "RELIABLE" | "APPROXIMATE";
 }
