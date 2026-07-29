@@ -63,7 +63,9 @@ changement de configuration, et pour que le RER n'exige pas de refonte du modèl
 | `route_short_name` en doublon | aucun (les identifiants publics seront `3b` et `7b`) |
 | `route_color` distinctes | **14 pour 16 lignes** — voir limitations |
 | Quais métro (parcours représentatifs) | 781, **tous** dotés d'un `parent_station` |
-| Stations après regroupement | **312**, toutes présentes dans `stops.txt` en `location_type=1` |
+| Stations après regroupement | **321** avec les branches (312 sans), toutes présentes dans `stops.txt` en `location_type=1` |
+| Correspondances | **61 stations sur 321** : 45 à 2 lignes, 11 à 3, 3 à 4, 2 à 5 (République, Châtelet) |
+| Points de tracé sur les 37 branches | **8 110** au total (médiane 229, max 335 par tracé) |
 | Dérivation `route_id` → LineRef SIRI | **valide sur les 16 lignes**, toutes présentes dans le flux |
 | `trips.txt` | 489 006 courses au total, dont **37 163 pour le métro** |
 | `stop_times.txt` | 909 Mo décompressé, 10,5 M lignes, dont **941 959 pour le métro** |
@@ -188,7 +190,7 @@ nom et leurs propres coordonnées dans `stops.txt`. Le regroupement utilise le p
 d'un centroïde de quais : ticket réglé, et positionnement plus juste sur la carte.
 
 Vérifié sur les données : les 781 quais du métro ont **tous** un `parent_station`, et les
-312 stations correspondantes sont toutes présentes dans `stops.txt` en `location_type=1`. Le
+321 stations correspondantes sont toutes présentes dans `stops.txt` en `location_type=1`. Le
 repli sur le quai seul (arrêts sans parent) reste implémenté mais ne sert pas sur le métro.
 
 ### Schéma (migration V4)
@@ -227,6 +229,48 @@ CREATE INDEX idx_stop_time_branch ON stop_time (branch_id);
 Migration destructrice : les données sont intégralement régénérées au refresh, déclenché au
 démarrage (`initialDelay = 0`). Conséquence à assumer : une fenêtre de 404 entre la
 migration et la fin du premier chargement.
+
+### Modèle d'accès à la base — la sortir du chemin de requête
+
+Point de design essentiel, contre-intuitif à la lecture du schéma : **aucun des trois
+endpoints ne fait de requête SQL.** `/network`, `/vehicles` et `/stations/{id}/departures`
+sont servis depuis le registry en mémoire et le snapshot temps réel. PostGIS n'est lu qu'à
+deux moments : la réhydratation au démarrage, et le rebuild après le refresh quotidien.
+
+Volumes après ce chantier :
+
+| Table | Lignes | Taille |
+|---|---|---|
+| `route` | 16 | négligeable |
+| `branch` | 37 | 8 110 points de tracé, ~130 Ko |
+| `stop` | 1 102 (781 quais + 321 stations) | négligeable |
+| `stop_time` | 915 | négligeable |
+
+**~2 Mo pour toute la base.** À ces volumes PostgreSQL fait un seq scan et c'est plus rapide
+qu'un parcours d'index. Les contraintes `UNIQUE` servent donc la **correction**
+(déduplication au chargement), pas la vitesse ; les index de `branch(route_id)` et
+`stop_time(branch_id)` ci-dessus sont posés par hygiène de FK, pas pour un gain mesurable.
+Les deux index de la migration V3, ajoutés « en préparation du multi-ligne », deviennent
+décoratifs — ils ne coûtent rien et restent en place plutôt que de créer du churn.
+
+Deux conséquences à ne pas manquer :
+
+- **Aucun index spatial GiST n'est nécessaire.** Une colonne `geometry` invite à en poser un,
+  mais on ne fait aucune requête spatiale : la projection des arrêts sur le tracé
+  (`LengthIndexedLine.project`) s'exécute en Java à la construction du registry — 915
+  projections sur des tracés de ~229 points, quelques millisecondes.
+- **Le risque réel est un N+1 à la réhydratation**, pas un index manquant. 37 branches × leurs
+  `stop_time` × leurs `stop` en chargement paresseux, c'est une centaine de requêtes au
+  démarrage. Deux requêtes à `JOIN FETCH` explicite suffisent, en reprenant le pattern déjà
+  présent dans `findScheduleByRouteGtfsId`.
+
+Pour mesurer le gain : avec le loader actuel, `stop_time` compterait **941 959 lignes** au
+lieu de 915, soit plus de 100 Mo avec ses index — pour des données dont seules 915 sont lues.
+
+Empreinte mémoire du registry, en regard : ~130 Ko de géométries, 915 `StopOnLine`, 321
+stations, plus le snapshot temps réel (705 courses, ~3 000 appels). L'ensemble tient
+largement sous quelques mégaoctets — c'est ce qui rend l'absence de cache de réponse
+acceptable.
 
 ### Ingestion temps réel
 
@@ -286,7 +330,7 @@ client (République remonterait dans 5 payloads). Nouvelle surface :
   stations: [{ id, name, lat, lng, lineIds: [...] }] }
 ```
 
-37 polylignes et 312 stations dédupliquées côté serveur, en un appel.
+37 polylignes (8 110 points au total) et 321 stations dédupliquées côté serveur, en un appel.
 
 **`GET /vehicles`** — tout le réseau suivi, un seul poll toutes les 4 s.
 
@@ -300,11 +344,28 @@ descend sous 20 Ko.
 
 **`GET /stations/{id}/departures`** — passages groupés **par ligne puis par direction**.
 C'est ce que le multi-ligne rend naturel : sur une correspondance on veut toutes les lignes.
+Mesuré : 61 stations sur 321 sont des correspondances, jusqu'à 5 lignes (République,
+Châtelet).
 
 ```
 { stationName, lines: [{ lineId, shortName, color,
                          directions: [{ destination, passages: [{ journeyRef, expectedTime, status }] }] }] }
 ```
+
+Trois précisions sur ce regroupement :
+
+- **La fusion des deux sens est conservée.** La station résout tous ses quais via
+  `parent_station`, donc les deux sens, et les passages sont regroupés par destination comme
+  aujourd'hui. Une station affiche bien ses deux directions.
+- L'imbrication `ligne → direction` corrige un bug latent : regrouper par destination *seule*
+  à travers plusieurs lignes pourrait fusionner deux lignes partageant un nom de destination.
+- **Sur une ligne à branches, une station du tronc commun affiche plus de deux groupes** —
+  à Saint-Lazare la 13 montre « Asnières » et « Saint-Denis » séparément. C'est le
+  comportement juste, et il ne devient exact que parce qu'on traite les branches.
+
+On garde 3 passages par sens uniformément (jusqu'à 30 entrées à Châtelet, panneau défilant),
+**lignes ordonnées par numéro**. L'ordre « par passage le plus imminent » est écarté : la
+donnée se rafraîchit toutes les 4 s et le panneau se réordonnerait sous le curseur.
 
 `/lines/{id}/shape`, `/lines/{id}/vehicles` et `/lines/{id}/stations/{sid}/departures`
 disparaissent, ainsi que la constante `LINE_ID` du front. Rupture assumée : aucun
@@ -348,7 +409,7 @@ La légende devient une liste de lignes avec bascule et compteur. Le filtre est 
 client, sans appel réseau : `setFilter` sur `line-shapes`, `vehicles` et les deux couches
 d'anneaux. Pour les stations, un `setFilter` sur un tableau `lineIds` est malcommode en
 expression MapLibre : on recalcule la `FeatureCollection` (≈300 features, trivial) et on
-appelle `setData` sur les 312 features. Une station reste visible si au moins une de ses
+appelle `setData` sur les 321 features. Une station reste visible si au moins une de ses
 lignes est active.
 
 `StopPanel` groupe par ligne avec pastille de couleur, et affiche enfin un **badge de
@@ -357,9 +418,31 @@ Sélection et suivi ne changent pas, ils sont indexés par `journeyRef`.
 
 ### Charge de rendu
 
-~705 véhicules interpolés au lieu de ~50. La boucle est déjà throttlée à ~15 fps avec culling
-viewport et arrêt à l'idle, et le snap au-delà de 300 m est en place. Le point à surveiller
-est le `setData` de 705 features, pas l'interpolation.
+Les tracés ne sont pas un sujet : 8 110 points sur 37 polylignes, chargés une fois. Les 321
+stations non plus, redessinées seulement au changement de filtre.
+
+Le point de charge est la boucle de rendu, avec ~705 véhicules interpolés au lieu de ~50. La
+boucle est déjà throttlée à ~15 fps avec culling viewport et arrêt à l'idle, et le snap
+au-delà de 300 m est en place. Mais `render()` construit à chaque frame des features neuves
+portant 7 propriétés dont 3 chaînes : ~10 600 objets par seconde à 705 véhicules. Deux
+optimisations, toutes deux peu coûteuses :
+
+- **Ne plus émettre par frame ce qui ne change jamais.** `headsign`, `nextStop`,
+  `expectedTime` et `status` ne servent qu'au clic. Une `Map<journeyRef, V>` côté hook alimente
+  le panneau, et la source ne porte plus que `journeyRef`, `bearing`, `icon`, `approximate`.
+- **Réutiliser les objets features** entre les frames : une feature persistante par véhicule
+  dont on mute les coordonnées en place, poussée par référence dans un tableau réutilisé.
+  L'allocation par frame tombe à ~zéro.
+
+Reste la sérialisation de 705 points par MapLibre à chaque `setData`, qui est son travail
+normal. Marge disponible si nécessaire : `RENDER_INTERVAL_MS` peut passer à 100 ms — sur un
+tween de 4 s ça laisse encore 40 pas pour un point qui avance lentement.
+
+`promoteId` passe de `tripId` à `journeyRef` avec le renommage.
+
+**Condition de fin du volet front : une mesure, pas une intuition.** Le plan doit inclure un
+relevé du temps de frame à l'échelle de Paris, tous les véhicules visibles, avant de
+considérer le front terminé. Les deux optimisations ci-dessus sont raisonnées, pas mesurées.
 
 ## Tests
 
