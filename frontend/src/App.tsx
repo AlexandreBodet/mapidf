@@ -1,46 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { useMap } from "./map/MapView";
-import { useLineShape } from "./map/useLineShape";
+import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { Legend } from "./ui/Legend";
-import { fetchDepartures } from "./api/lines";
-import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
-import type { VehiclesResponse, DeparturesResponse, VehicleSummary } from "./api/types";
+import { fetchDepartures } from "./api/network";
+import { VEHICLE_POLL_MS } from "./api/config";
+import type { DeparturesResponse, Vehicle } from "./api/types";
 
-type V = VehiclesResponse["vehicles"][number];
-type Selected = VehicleSummary | null;
-
-function toSelected(v: V): Selected {
-  return { headsign: v.headsign, nextStop: v.nextStop, status: v.status, source: v.source, expectedTime: v.expectedTime };
-}
+type Selected = Vehicle | null;
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
   const departuresAbort = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [selectedJourneyRef, setSelectedJourneyRef] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [lineColor, setLineColor] = useState("#e30613");
   const [count, setCount] = useState(0);
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
-  const highlightedTripIds = useMemo(
-    () => new Set(station?.directions.flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? []),
+  // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
+  const highlightedJourneyRefs = useMemo(
+    () =>
+      new Set(
+        station?.lines.flatMap((l) => l.directions).flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? [],
+      ),
     [station],
   );
-  useLineShape(map, LINE_ID, setLineColor);
+  const network = useNetwork(map);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
-  useVehicles(map, LINE_ID, lineColor, selectedTripId, follow, (v) => {
+  useVehicles(map, network, selectedJourneyRef, follow, (v) => {
     if (v) {
-      setSelected(toSelected(v));
+      setSelected(v);
     }
-  }, setCount, highlightedTripIds);
+  }, setCount, highlightedJourneyRefs);
 
   useEffect(() => {
     if (!map) {
@@ -55,7 +53,7 @@ export default function App() {
       setSelectedStationId(null);
       map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
       setSelected(props as Selected);
-      setSelectedTripId(props.tripId as string);
+      setSelectedJourneyRef(props.journeyRef as string);
       setFollow(true);
     };
     map.on("click", "vehicles", onClick);
@@ -67,7 +65,7 @@ export default function App() {
       }
       // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
       setSelected(null);
-      setSelectedTripId(null);
+      setSelectedJourneyRef(null);
       setFollow(false);
       map.setFilter("stops-selected", ["==", ["get", "id"], id]);
       if (coords) {
@@ -78,7 +76,7 @@ export default function App() {
       const controller = new AbortController();
       departuresAbort.current = controller;
       try {
-        const fresh = await fetchDepartures(LINE_ID, id, controller.signal);
+        const fresh = await fetchDepartures(id, controller.signal);
         if (!controller.signal.aborted) {
           setStation(fresh);
         }
@@ -133,7 +131,7 @@ export default function App() {
     const controller = new AbortController();
     const tick = async () => {
       try {
-        const fresh = await fetchDepartures(LINE_ID, selectedStationId, controller.signal);
+        const fresh = await fetchDepartures(selectedStationId, controller.signal);
         if (!cancelled) {
           setStation(fresh);
         }
@@ -154,7 +152,7 @@ export default function App() {
 
   const clearSelection = () => {
     setSelected(null);
-    setSelectedTripId(null);
+    setSelectedJourneyRef(null);
     setFollow(false);
   };
 
@@ -166,10 +164,10 @@ export default function App() {
     map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
   };
 
-  const followTrainFromPanel = (tripId: string) => {
+  const followTrainFromPanel = (journeyRef: string) => {
     closeStation();
     setSelected(null);
-    setSelectedTripId(tripId);
+    setSelectedJourneyRef(journeyRef);
     setFollow(true);
   };
 
@@ -183,7 +181,8 @@ export default function App() {
         onClose={clearSelection}
       />
       <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
-      <Legend color={lineColor} count={count} />
+      {/* Sélecteur de lignes, panneaux détaillés et filtre : tâche 15. Compteur total en attendant. */}
+      <Legend color="#666" count={count} />
     </>
   );
 }

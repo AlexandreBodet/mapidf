@@ -1,38 +1,65 @@
-export interface ShapeResponse {
-  lineId: string;
+export interface NetworkLine {
+  id: string;
+  shortName: string;
   color: string;
-  shape: [number, number][];
-  stops: { id: string; name: string; lat: number; lng: number; platformIds: string[] }[];
+  mode: string;
 }
 
-export interface DeparturesResponse {
-  stationName: string;
-  directions: {
-    destination: string;
-    passages: { journeyRef: string; expectedTime: string; status: string }[];
-  }[];
+export interface NetworkShape {
+  lineId: string;
+  direction: number;
+  terminusName: string;
+  coordinates: [number, number][];
 }
 
-// Sous-ensemble d'un véhicule affiché dans le panneau de détail (sélection courante).
-export interface VehicleSummary {
+export interface NetworkStation {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  lineIds: string[];
+}
+
+export interface NetworkResponse {
+  lines: NetworkLine[];
+  shapes: NetworkShape[];
+  stations: NetworkStation[];
+}
+
+export interface Vehicle {
+  journeyRef: string;
+  lineId: string;
+  lat: number;
+  lng: number;
+  bearing: number;
+  status: string;
   headsign: string;
   nextStop: string;
-  status: string;
-  source: string;
   expectedTime: string;
+  /** Dernière mise à jour de la course côté SIRI. Information, pas critère d'atténuation. */
+  recordedAt: string | null;
+  source: "REALTIME" | "INTERPOLATED";
+  /** APPROXIMATE = course à un seul appel SIRI (36 % du flux) : atténué, jamais masqué. */
+  confidence: "RELIABLE" | "APPROXIMATE";
 }
 
 export interface VehiclesResponse {
   asOf: string;
-  vehicles: {
-    tripId: string;
-    lat: number;
-    lng: number;
-    bearing: number;
-    status: string;
-    headsign: string;
-    nextStop: string;
-    expectedTime: string;
-    source: "REALTIME" | "INTERPOLATED";
+  vehicles: Vehicle[];
+}
+
+export interface Passage {
+  journeyRef: string;
+  expectedTime: string;
+  status: string;
+}
+
+export interface DeparturesResponse {
+  stationName: string;
+  lines: {
+    lineId: string;
+    shortName: string;
+    color: string;
+    directions: { destination: string; passages: Passage[] }[];
   }[];
 }

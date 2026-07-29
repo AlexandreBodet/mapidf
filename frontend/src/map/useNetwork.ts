@@ -1,9 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Map as MlMap } from "maplibre-gl";
-import { fetchShape } from "../api/lines";
+import { fetchNetwork } from "../api/network";
+import { lightenForTrack } from "../ui/color";
 import { whenStyleReady } from "./mapReady";
+import type { NetworkResponse } from "../api/types";
 
-export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color: string) => void) {
+/**
+ * Charge le réseau en un appel et pose DEUX sources pour tout le réseau : `line-shapes`
+ * (une feature par branche, coloriée par sa propriété) et `stops` (stations dédoublonnées
+ * côté serveur). Le nombre de lignes n'ajoute donc aucune couche.
+ */
+export function useNetwork(map: MlMap | null): NetworkResponse | null {
+  const [network, setNetwork] = useState<NetworkResponse | null>(null);
+
   useEffect(() => {
     if (!map) {
       return;
@@ -11,37 +20,55 @@ export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color
     let cancelled = false;
     let cancelReady: (() => void) | null = null;
     let cleanupCursors: (() => void) | null = null;
-    fetchShape(lineId).then((shape) => {
+
+    fetchNetwork().then((data) => {
       if (cancelled) {
         return;
       }
-      onColor?.(shape.color);
+      setNetwork(data);
+      const colorByLine = new Map(data.lines.map((line) => [line.id, line.color]));
+
       const draw = () => {
-        if (cancelled || map.getSource("line-shape")) {
+        if (cancelled || map.getSource("line-shapes")) {
           return;
         }
-        map.addSource("line-shape", {
+        map.addSource("line-shapes", {
           type: "geojson",
           data: {
-            type: "Feature",
-            properties: {},
-            geometry: { type: "LineString", coordinates: shape.shape },
+            type: "FeatureCollection",
+            features: data.shapes.map((shape) => ({
+              type: "Feature",
+              properties: {
+                lineId: shape.lineId,
+                trackColor: lightenForTrack(colorByLine.get(shape.lineId) ?? "#000000"),
+              },
+              geometry: { type: "LineString", coordinates: shape.coordinates },
+            })),
           },
         });
+        // Opacité pleine sur une couleur éclaircie : voir lightenForTrack. Une seule couche
+        // pour les 37 branches, coloriée par feature.
         map.addLayer({
-          id: "line-shape",
+          id: "line-shapes",
           type: "line",
-          source: "line-shape",
-          paint: { "line-color": shape.color, "line-width": 4, "line-opacity": 0.45 },
+          source: "line-shapes",
+          paint: { "line-color": ["get", "trackColor"], "line-width": 4, "line-opacity": 1 },
         });
+
         map.addSource("stops", {
           type: "geojson",
           data: {
             type: "FeatureCollection",
-            features: shape.stops.map((s) => ({
+            features: data.stations.map((station) => ({
               type: "Feature",
-              properties: { id: s.id, name: s.name },
-              geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+              properties: {
+                id: station.id,
+                name: station.name,
+                // Une correspondance dessert plusieurs lignes : on prend la première pour
+                // l'anneau. Le panneau, lui, montre bien toutes ses lignes.
+                color: colorByLine.get(station.lineIds[0]) ?? "#666666",
+              },
+              geometry: { type: "Point", coordinates: [station.lng, station.lat] },
             })),
           },
         });
@@ -53,12 +80,12 @@ export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color
           paint: {
             "circle-radius": 5,
             "circle-color": "#fff",
-            "circle-stroke-color": shape.color,
+            "circle-stroke-color": ["get", "color"],
             "circle-stroke-width": 2,
           },
         });
-        // Noms affichés seulement en zoom rapproché (collision gérée par MapLibre) → pas
-        // d'encombrement au dézoom, coût maîtrisé même avec beaucoup de stations.
+        // Noms seulement en zoom rapproché (collision gérée par MapLibre) : coût maîtrisé
+        // même avec 321 stations.
         map.addLayer({
           id: "stops-labels",
           type: "symbol",
@@ -71,17 +98,13 @@ export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color
             "text-offset": [0, 1.2],
             "text-anchor": "top",
           },
-          paint: {
-            "text-color": "#111",
-            "text-halo-color": "#fff",
-            "text-halo-width": 1.5,
-          },
+          paint: { "text-color": "#111", "text-halo-color": "#fff", "text-halo-width": 1.5 },
         });
-        // Anneau de mise en valeur de l'arrêt sélectionné (piloté par setFilter depuis App).
         map.addLayer({
           id: "stops-selected",
           type: "circle",
           source: "stops",
+          minzoom: 11,
           filter: ["==", ["get", "id"], "__none__"],
           paint: {
             "circle-radius": 10,
@@ -90,7 +113,7 @@ export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color
             "circle-stroke-width": 3,
           },
         });
-        // Curseur main au survol des stations cliquables.
+
         const cursorEnter = () => { map.getCanvas().style.cursor = "pointer"; };
         const cursorLeave = () => { map.getCanvas().style.cursor = ""; };
         map.on("mouseenter", "stops", cursorEnter);
@@ -106,14 +129,13 @@ export function useLineShape(map: MlMap | null, lineId: string, onColor?: (color
       };
       cancelReady = whenStyleReady(map, draw);
     });
+
     return () => {
       cancelled = true;
-      if (cancelReady) {
-        cancelReady();
-      }
-      if (cleanupCursors) {
-        cleanupCursors();
-      }
+      cancelReady?.();
+      cleanupCursors?.();
     };
-  }, [map, lineId]);
+  }, [map]);
+
+  return network;
 }

@@ -38,9 +38,9 @@ export class VehicleLayer {
   private raf = 0;
   private lastRenderAt = 0;
   private cancelReady: (() => void) | null = null;
-  private selectedTripId: string | null = null;
+  private selectedJourneyRef: string | null = null;
   private follow = false;
-  private highlightedTripIds: Set<string> = new Set();
+  private highlightedJourneyRefs: Set<string> = new Set();
   private moveHandler: (() => void) | null = null;
 
   constructor(
@@ -56,16 +56,16 @@ export class VehicleLayer {
       return;
     }
     this.map.removeFeatureState({ source: "vehicles" });
-    if (this.selectedTripId) {
-      this.map.setFeatureState({ source: "vehicles", id: this.selectedTripId }, { selected: true });
+    if (this.selectedJourneyRef) {
+      this.map.setFeatureState({ source: "vehicles", id: this.selectedJourneyRef }, { selected: true });
     }
-    for (const id of this.highlightedTripIds) {
+    for (const id of this.highlightedJourneyRefs) {
       this.map.setFeatureState({ source: "vehicles", id }, { highlighted: true });
     }
   }
 
-  setSelected(tripId: string | null) {
-    this.selectedTripId = tripId;
+  setSelected(journeyRef: string | null) {
+    this.selectedJourneyRef = journeyRef;
     this.applySelectionState();
   }
 
@@ -77,7 +77,7 @@ export class VehicleLayer {
   }
 
   setHighlighted(ids: Set<string>) {
-    this.highlightedTripIds = ids;
+    this.highlightedJourneyRefs = ids;
     this.applySelectionState();
   }
 
@@ -117,7 +117,7 @@ export class VehicleLayer {
       }
       this.map.addSource("vehicles", {
         type: "geojson",
-        promoteId: "tripId",
+        promoteId: "journeyRef",
         data: this.featureCollection([]),
       });
       if (!this.map.hasImage("vehicle-arrow")) {
@@ -193,13 +193,13 @@ export class VehicleLayer {
       if (!Number.isFinite(vehicle.lng) || !Number.isFinite(vehicle.lat) || !Number.isFinite(vehicle.bearing)) {
         continue; // position/orientation invalide → on n'anime pas une géométrie NaN
       }
-      seen.add(vehicle.tripId);
-      const prev = this.anims.get(vehicle.tripId);
+      seen.add(vehicle.journeyRef);
+      const prev = this.anims.get(vehicle.journeyRef);
       const current = prev ? this.pointAt(prev, now) : ([vehicle.lng, vehicle.lat] as [number, number]);
       const target: [number, number] = [vehicle.lng, vehicle.lat];
       // Saut invraisemblable → snap (pas d'animation) : from = target. Sinon, tween normal.
       const from = distanceMeters(current, target) > SNAP_DISTANCE_M ? target : current;
-      this.anims.set(vehicle.tripId, {
+      this.anims.set(vehicle.journeyRef, {
         from,
         to: target,
         bearing: vehicle.bearing,
@@ -251,7 +251,7 @@ export class VehicleLayer {
     const features: GeoJSON.Feature[] = [];
     for (const anim of this.anims.values()) {
       const [lng, lat] = this.pointAt(anim, now);
-      if (anim.vehicle.tripId === this.selectedTripId && this.follow) {
+      if (anim.vehicle.journeyRef === this.selectedJourneyRef && this.follow) {
         followPoint = [lng, lat];
       }
       if (lng < west - padX || lng > east + padX || lat < south - padY || lat > north + padY) {
@@ -260,7 +260,7 @@ export class VehicleLayer {
       features.push({
         type: "Feature",
         properties: {
-          tripId: anim.vehicle.tripId,
+          journeyRef: anim.vehicle.journeyRef,
           source: anim.vehicle.source,
           bearing: anim.bearing,
           headsign: anim.vehicle.headsign,
@@ -273,7 +273,7 @@ export class VehicleLayer {
     }
     source.setData(this.featureCollection(features));
     // Pas d'applySelectionState() ici : feature-state est stocké séparément du GeoJSON,
-    // par id promu ("tripId"), et survit à setData ainsi qu'au culling (une feature qui
+    // par id promu ("journeyRef"), et survit à setData ainsi qu'au culling (une feature qui
     // sort puis revient dans le viewport garde son état). Le réappliquer à chaque frame
     // serait un travail redondant ; il n'est fait que dans setSelected/setHighlighted et
     // à la fin de ensureLayer's add().

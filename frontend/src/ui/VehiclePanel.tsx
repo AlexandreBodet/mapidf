@@ -1,8 +1,10 @@
 import { formatEta } from "./formatEta";
-import type { VehicleSummary } from "../api/types";
+import type { Vehicle } from "../api/types";
 
 interface Props {
-  vehicle: VehicleSummary | null;
+  // `VehicleSummary` a disparu avec le typage mono-ligne : `Vehicle` (types.ts, tâche 13)
+  // couvre les mêmes champs affichés ici. Le tri/atténuation par confiance reste tâche 14.
+  vehicle: Vehicle | null;
   following?: boolean;
   onFollow?: () => void;
   onClose: () => void;

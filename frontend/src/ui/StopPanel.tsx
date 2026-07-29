@@ -4,7 +4,7 @@ import { formatEta } from "./formatEta";
 interface Props {
   data: DeparturesResponse | null;
   onClose: () => void;
-  onSelectTrain?: (tripId: string) => void;
+  onSelectTrain?: (journeyRef: string) => void;
 }
 
 export function StopPanel({ data, onClose, onSelectTrain }: Props) {
@@ -13,8 +13,12 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
   }
   // On masque les passages déjà partis (le panneau peut vieillir entre deux rafraîchissements)
   // et les directions qui n'ont plus aucun passage à venir.
+  // NOTE tâche 13 : DeparturesResponse groupe désormais par ligne (une correspondance peut en
+  // desservir jusqu'à 5) ; on aplatit ici sans distinguer la ligne pour rester minimal — le
+  // panneau lui-même (regroupement visuel par ligne) est repris en tâche 15.
   const now = Date.now();
-  const directions = data.directions
+  const directions = data.lines
+    .flatMap((line) => line.directions)
     .map((dir) => ({
       ...dir,
       passages: dir.passages.filter((p) => new Date(p.expectedTime).getTime() > now),
