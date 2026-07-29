@@ -12,9 +12,11 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -33,6 +35,10 @@ public class RealtimePoller {
     public interface Fetcher {
         byte[] get(String url) throws Exception;
     }
+
+    // Ligne 9, en dur le temps de la bascule multi-ligne (app.line a disparu avec l'API
+    // mono-ligne, le registry qui fournira la liste des lignes suivies arrive en tâche 8).
+    private static final String PROVISIONAL_LINE_REF = "STIF:Line::C01379:";
 
     // Fenêtre de service métro (Europe/Paris), enjambe minuit : inutile de poller la nuit.
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
@@ -83,12 +89,9 @@ public class RealtimePoller {
         return !now.isBefore(SERVICE_START) || now.isBefore(SERVICE_END);
     }
 
-    // estimated-timetable est appelé SANS ?LineRef= : un seul appel couvre tout le réseau, et
-    // le snapshot indexe les courses par LineRef. Le filtre par ligne suivie revient en tâche 8,
-    // porté par le registry (il vivait ici sur LineProperties, supprimée avec l'API mono-ligne).
     void pollOnce(Fetcher fetcher, Instant asOf) {
         try {
-            snapshot.set(parse(objectMapper, fetcher.get(prim.realtimeBaseUrl()), asOf));
+            snapshot.set(parse(objectMapper, fetcher.get(buildUrl()), asOf));
             log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
@@ -96,6 +99,17 @@ public class RealtimePoller {
             }
             log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
         }
+    }
+
+    // estimated-timetable sans ?LineRef= renvoie TOUT le réseau (45,6 Mo), matérialisé en arbre
+    // JsonNode et retenu en snapshot toutes les 60 s — or plus rien ne lit current() à ce stade
+    // de la bascule : pic mémoire maximal pour un bénéfice nul. On garde donc le filtre d'avant
+    // la bascule, avec le LineRef en dur. Provisoire assumé, symétrique du route_id en dur de
+    // GtfsStaticService : la tâche 8 le remplace par les lignes du registry, avec gzip et parse
+    // en streaming.
+    private String buildUrl() {
+        return prim.realtimeBaseUrl() + "?LineRef="
+            + URLEncoder.encode(PROVISIONAL_LINE_REF, StandardCharsets.UTF_8);
     }
 
     private byte[] fetch(String url) throws Exception {

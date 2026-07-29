@@ -90,7 +90,7 @@ public class GtfsStaticLoader {
                 .gtfsId(routeId)
                 .shortName(routeInfo.shortName())
                 .color(descriptor.color())
-                .mode(TransportMode.METRO.name())
+                .mode(descriptor.mode().name())
                 .siriLineRef(descriptor.siriLineRef())
                 .build());
 
@@ -143,14 +143,27 @@ public class GtfsStaticLoader {
     }
 
     /**
-     * Port mécanique sur Branch de la logique existante : un tracé unique (le plus long) et
-     * une branche par sens, portée par la première course rencontrée dans ce sens. La tâche 5
-     * remplace cette sélection par la couverture gloutonne des tracés réels.
+     * Une branche par sens, portant le tracé le plus long de la route.
+     * <p>
+     * <b>État transitoire, volontairement dégradé.</b> La course représentative d'un sens est
+     * choisie <b>arbitrairement</b> : c'est la <b>première rencontrée dans trips.txt</b> pour ce
+     * sens. Ce n'est <b>pas</b> la logique du {@code ScheduleProvider} supprimé, qui retenait la
+     * course <b>la mieux desservie</b> (celle ayant le plus d'arrêts) — et le choix ne peut plus
+     * se faire à la lecture, puisque {@code parseStopTimes} ne persiste désormais que les
+     * {@code stop_times} des courses retenues ici.
+     * <p>
+     * Conséquence assumée : si un service partiel (terminus intermédiaire, départ tardif)
+     * précède la desserte complète dans trips.txt, la branche persistée porte une desserte
+     * <b>tronquée</b>. C'est sans effet à ce commit — ni registry ni endpoint ne lit encore ces
+     * données. La tâche 5 remplace intégralement cette sélection par un comptage des arrêts en
+     * deux passes puis la couverture gloutonne des tracés réels, ce qui rétablit la fidélité de
+     * desserte.
      *
      * @return la branche indexée par le {@code trip_id} de sa course représentative — c'est la
      *     clé qui permet ensuite de ne retenir que les {@code stop_times} de cette course.
      */
     private Map<String, Branch> persistBranches(Route route, List<TripRow> tripRows, LineString shape) {
+        // putIfAbsent = première course du fichier dans ce sens, sans critère de qualité.
         Map<Short, TripRow> representativeByDirection = new HashMap<>();
         for (TripRow row : tripRows) {
             representativeByDirection.putIfAbsent(row.direction(), row);

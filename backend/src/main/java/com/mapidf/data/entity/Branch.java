@@ -56,6 +56,8 @@ public class Branch {
     @Column(name = "terminus_name")
     private String terminusName;
 
+    /** Exclu du {@code toString} : un tracé porte ~1000 points, illisible en log comme en exception. */
     @Column(name = "geom", columnDefinition = "geometry(LineString,4326)")
+    @ToString.Exclude
     private LineString geom;
 }
