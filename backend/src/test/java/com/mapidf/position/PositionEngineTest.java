@@ -13,6 +13,7 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.PrecisionModel;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 class PositionEngineTest {
 
@@ -36,8 +37,23 @@ class PositionEngineTest {
             new StopOnLine(lastStopKey, terminus, 0.045, 720)));
     }
 
+    // Sens retour (direction 1) de la même route : NetworkRegistryBuilder place TOUTES les
+    // directions dans TrackedLine.branches(), donc un train approchant un arrêt de tronc a
+    // aussi la direction retour comme candidate. Même arrêt "3" ("Sud"), parcouru en sens
+    // inverse jusqu'au terminus "Nord" (repris ici comme dernier arrêt, "Nord" étant déjà le nom
+    // du premier arrêt du sens aller — ce qui est le cas réel : le terminus d'un sens est
+    // souvent le premier arrêt de l'autre).
+    private static LineBranch returnBranch() {
+        LineString reversed = GF.createLineString(new Coordinate[]{
+            new Coordinate(2.310, 48.840), new Coordinate(2.310, 48.850), new Coordinate(2.310, 48.870)});
+        return LineBranch.of("SH7RET", (short) 1, "Nord", reversed, List.of(
+            new StopOnLine("3", "Sud", 0.000, 0),
+            new StopOnLine("2", "Correspondance", 0.010, 200),
+            new StopOnLine("1", "Nord", 0.030, 500)));
+    }
+
     private static TrackedLine branchedLine() {
-        return new TrackedLine("7", "IDFM:C01377", "STIF:Line::C01377:", "7", "#FF82B4", "METRO",
+        return new TrackedLine("line-7", "IDFM:C01377", "STIF:Line::C01377:", "7", "#FF82B4", "METRO",
             List.of(branch("SH7A", "Villejuif", "4", 2.300),
                     branch("SH7B", "Ivry", "5", 2.320)));
     }
@@ -47,42 +63,31 @@ class PositionEngineTest {
     }
 
     @Test
-    void picksTheBranchWhoseTerminusMatchesTheDestination() {
-        // Arrêt commun, mais situé APRÈS la bifurcation (contrairement à "Sud", sur le tronc
-        // partagé où la géométrie des deux branches est identique) : seule la destination
-        // permet de trancher, et le choix se voit ensuite dans la position interpolée. Avec un
-        // arrêt commun resté sur le tronc, n'importe quelle branche donnerait la même longitude
-        // (vérifié : la fixture d'origine du brief interpole à une distance de 0,0275, avant la
-        // bifurcation à 0,030 — la longitude vaut alors 2.310 quelle que soit la branche choisie,
-        // et l'assertion ci-dessous ne pouvait jamais mordre). Ici l'arrêt "6" est placé après la
-        // bifurcation : sa position réelle diffère selon la branche retenue.
-        LineBranch villejuif = branchPastFork("SH7A", "Villejuif", "4", 2.300);
-        LineBranch ivry = branchPastFork("SH7B", "Ivry", "5", 2.320);
-        TrackedLine line = new TrackedLine("7", "IDFM:C01377", "STIF:Line::C01377:", "7",
-            "#FF82B4", "METRO", List.of(villejuif, ivry));
+    void doesNotPlaceATrainOnTheReturnBranchOfTheSameRoute() {
+        // Cas réel le plus coûteux (cf. revue) : NetworkRegistryBuilder met toutes les
+        // directions d'une route dans branches(), donc pour un arrêt de tronc les candidates
+        // incluent la branche retour. Mal départagée, le train serait placé en sens inverse
+        // (vers Nord) au lieu de continuer vers Ivry — jusqu'à la longueur de la ligne d'écart,
+        // bien pire que le mélange Villejuif/Ivry (1547 m mesurés). La branche retour est placée
+        // EN PREMIER dans la liste pour que le test morde même sur un pickBranch qui renverrait
+        // naïvement le premier candidat.
+        TrackedLine line = new TrackedLine("line-7", "IDFM:C01377", "STIF:Line::C01377:", "7",
+            "#FF82B4", "METRO", List.of(
+                returnBranch(),
+                branch("SH7A", "Villejuif", "4", 2.300),
+                branch("SH7B", "Ivry", "5", 2.320)));
         LiveJourney toIvry = journey("Ivry", List.of(
-            new Call("STIF:StopPoint:Q:6:", NOW.plusSeconds(60), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(60), "ON_TIME"),
             new Call("STIF:StopPoint:Q:5:", NOW.plusSeconds(300), "ON_TIME")));
 
         List<Vehicle> vehicles = engine.computeAll(line, List.of(toIvry), NOW);
 
         assertThat(vehicles).singleElement()
             .satisfies(v -> assertThat(v.headsign()).isEqualTo("Ivry"));
-        // Le train est entre Sud et Ivry, après la bifurcation : sa longitude tend vers 2.320,
-        // pas vers 2.300. Sans le bon choix de branche, elle serait < 2.310 (côté Villejuif).
-        assertThat(vehicles.getFirst().lng()).isGreaterThan(2.310);
-    }
-
-    // Variante de branch() avec un arrêt commun "6" situé après la bifurcation (entre "Sud" et
-    // le terminus), utilisée uniquement par picksTheBranchWhoseTerminusMatchesTheDestination
-    // pour que le choix de branche soit observable sur la position, pas seulement sur le headsign.
-    private static LineBranch branchPastFork(String shapeId, String terminus, String lastStopKey, double lastLon) {
-        return LineBranch.of(shapeId, (short) 0, terminus, shape(lastLon), List.of(
-            new StopOnLine("1", "Nord", 0.000, 0),
-            new StopOnLine("2", "Correspondance", 0.020, 240),
-            new StopOnLine("3", "Sud", 0.030, 480),
-            new StopOnLine("6", "Bifurcation", 0.038, 600),
-            new StopOnLine(lastStopKey, terminus, 0.045, 720)));
+        // Sur la branche retour, l'arrêt "3" est en tête (nextIdx == 0) : le cap calculé
+        // pointerait vers Correspondance, donc au nord (~0°). En continuant vers Ivry sur le
+        // tronc partagé (de Correspondance vers Sud), le cap reste au sud (~180°).
+        assertThat(vehicles.getFirst().bearing()).isCloseTo(180.0, within(1.0));
     }
 
     @Test
@@ -111,8 +116,30 @@ class PositionEngineTest {
     void flagsASingleCallJourneyAsApproximate() {
         // Signal STRUCTUREL, jamais un seuil d'ETA : 36 % des courses métro n'ont qu'un appel
         // et sont bornées à l'arrêt précédant leur unique appel, souvent un terminus lointain.
+        // L'appel est ici volontairement LOINTAIN (900s) : la fraction brute d'interpolation
+        // vaut alors -2,75 (calcul détaillé dans le rapport de tâche), hors de [0,1]. Sans le
+        // clamp, extractPoint interpréterait cet index négatif comme une distance depuis la FIN
+        // de la ligne et téléporterait le train près du terminus, au lieu de le laisser à Sud.
         LiveJourney single = journey("Ivry", List.of(
             new Call("STIF:StopPoint:Q:5:", NOW.plusSeconds(900), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(single), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.confidence()).isEqualTo(Vehicle.Confidence.APPROXIMATE);
+                assertThat(v.lng()).isCloseTo(2.310, within(0.001));
+                assertThat(v.lat()).isCloseTo(48.840, within(0.001));
+            });
+    }
+
+    @Test
+    void flagsAnImminentSingleCallJourneyAsApproximateToo() {
+        // Ferme le seuil d'ETA dans le sens "proche" : un calcul confondu avec un seuil temporel
+        // (ex. confidence = eta > 600s ? APPROXIMATE : RELIABLE) classerait cet appel imminent
+        // (60s) comme RELIABLE. Le signal est purement structurel (un seul appel), donc
+        // APPROXIMATE quelle que soit l'ETA.
+        LiveJourney single = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:5:", NOW.plusSeconds(60), "ON_TIME")));
 
         assertThat(engine.computeAll(branchedLine(), List.of(single), NOW))
             .singleElement()
@@ -131,6 +158,38 @@ class PositionEngineTest {
     }
 
     @Test
+    void marksADistantMultiCallJourneyAsReliableToo() {
+        // Ferme le seuil d'ETA dans le sens "lointain" : un calcul confondu avec un seuil
+        // temporel classerait ce prochain arrêt à 900s comme APPROXIMATE. Le signal est
+        // purement structurel (deux appels), donc RELIABLE quelle que soit l'ETA.
+        LiveJourney multiFar = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(900), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:5:", NOW.plusSeconds(950), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(multiFar), NOW))
+            .singleElement()
+            .extracting(Vehicle::confidence).isEqualTo(Vehicle.Confidence.RELIABLE);
+    }
+
+    @Test
+    void clampsToTheLastKnownStopWhenAllCallsHavePassed() {
+        // Symétrique de flagsASingleCallJourneyAsApproximate : tous les appels sont PASSÉS, donc
+        // "next" retombe sur le dernier connu (repli sorted.getLast()) et la fraction calculée
+        // sur l'horaire théorique dépasse 1 (train "en retard" sur son horaire). Sans clamp, le
+        // train dépasserait Sud et serait projeté au-delà — jusqu'au terminus de la géométrie.
+        // Avec clamp, il reste au dernier arrêt connu (Sud), pas au-delà.
+        LiveJourney allPassed = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:3:", NOW.minusSeconds(600), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(allPassed), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.lng()).isCloseTo(2.310, within(0.001));
+                assertThat(v.lat()).isCloseTo(48.840, within(0.001));
+            });
+    }
+
+    @Test
     void carriesTheLineIdAndTheRecordedAtOfTheJourney() {
         LiveJourney multi = journey("Ivry", List.of(
             new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(60), "ON_TIME"),
@@ -138,7 +197,7 @@ class PositionEngineTest {
 
         assertThat(engine.computeAll(branchedLine(), List.of(multi), NOW)).singleElement()
             .satisfies(v -> {
-                assertThat(v.lineId()).isEqualTo("7");
+                assertThat(v.lineId()).isEqualTo("line-7");
                 assertThat(v.journeyRef()).isEqualTo("J1");
                 assertThat(v.recordedAt()).isEqualTo(NOW.minusSeconds(30));
             });
@@ -159,10 +218,24 @@ class PositionEngineTest {
     }
 
     @Test
+    void terminusMatchesIsCaseInsensitiveAndAllowsPartialInclusionButNeverNull() {
+        // Sémantique documentée sur terminusMatches : une implémentation réduite à
+        // a.equals(b) passerait à côté de l'inclusion, précisément ce qui absorbe les écarts de
+        // libellés entre SIRI et GTFS en production.
+        assertThat(PositionEngine.terminusMatches("Ivry", "IVRY")).isTrue();
+        assertThat(PositionEngine.terminusMatches("Mairie d'Ivry", "Ivry")).isTrue();
+        assertThat(PositionEngine.terminusMatches("Ivry", "Mairie d'Ivry")).isTrue();
+        assertThat(PositionEngine.terminusMatches("Villejuif", "Ivry")).isFalse();
+        assertThat(PositionEngine.terminusMatches(null, "Ivry")).isFalse();
+        assertThat(PositionEngine.terminusMatches("Ivry", null)).isFalse();
+    }
+
+    @Test
     void extractsTheLastDigitGroupAsStopKey() {
         assertThat(PositionEngine.stopKey("STIF:StopPoint:Q:463221:")).isEqualTo("463221");
         assertThat(PositionEngine.stopKey("IDFM:463221")).isEqualTo("463221");
         assertThat(PositionEngine.stopKey("IDFM:StopPoint:59:463221")).isEqualTo("463221");
         assertThat(PositionEngine.stopKey(null)).isEmpty();
+        assertThat(PositionEngine.stopKey("aucun-chiffre")).isEmpty();
     }
 }

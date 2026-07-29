@@ -5,12 +5,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 import com.mapidf.network.LineBranch;
 import com.mapidf.network.TrackedLine;
 import com.mapidf.rt.RtSnapshot;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,14 +23,17 @@ import org.springframework.stereotype.Component;
  * choisit la branche avant d'interpoler : un tracé unique par ligne place mal les trains des
  * branches divergentes (mesuré : 1547 m d'écart sur la branche Ivry de la ligne 7).
  */
+@Slf4j
 @Component
 public class PositionEngine {
 
     private Counter unplaced;
+    private Counter branchUnresolved;
 
     @Autowired
     public void attachMetrics(MeterRegistry registry) {
         this.unplaced = registry.counter("mapidf.position.unplaced");
+        this.branchUnresolved = registry.counter("mapidf.position.branch.unresolved");
     }
 
     public List<Vehicle> computeAll(TrackedLine line, List<RtSnapshot.LiveJourney> journeys, Instant now) {
@@ -134,21 +139,38 @@ public class PositionEngine {
         return candidates.stream()
             .filter(branch -> terminusMatches(branch.terminusName(), destination))
             .findFirst()
-            .orElse(candidates.getFirst());
+            .orElseGet(() -> unresolvedBranch(line, candidates, destination));
+    }
+
+    /**
+     * Repli quand plusieurs branches contiennent l'arrêt imminent mais qu'aucun terminus ne
+     * correspond à la destination (ex. libellés SIRI/GTFS trop éloignés). Signal structurel —
+     * pas une ETA — donc admissible au regard de la décision produit : compté et journalisé,
+     * jamais masqué ni filtré par un seuil de temps.
+     */
+    private LineBranch unresolvedBranch(TrackedLine line, List<LineBranch> candidates, String destination) {
+        if (branchUnresolved != null) {
+            branchUnresolved.increment();
+        }
+        log.debug("[{}] départage de branche non résolu : destination='{}' ne correspond à aucun "
+            + "terminus parmi {} — repli sur '{}'", line.id(), destination,
+            candidates.stream().map(LineBranch::terminusName).toList(),
+            candidates.getFirst().terminusName());
+        return candidates.getFirst();
     }
 
     /**
      * Comparaison insensible à la casse entre un nom de terminus et une destination SIRI : vraie
-     * si elles sont égales ou si l'une contient l'autre (les libellés SIRI et GTFS diffèrent
-     * parfois sur des suffixes), fausse si l'une des deux est nulle.
+     * si l'une contient l'autre (l'égalité stricte en est un cas particulier — les libellés SIRI
+     * et GTFS diffèrent parfois sur des suffixes), fausse si l'une des deux est nulle.
      */
     static boolean terminusMatches(String terminusName, String destination) {
         if (terminusName == null || destination == null) {
             return false;
         }
-        String a = terminusName.toLowerCase();
-        String b = destination.toLowerCase();
-        return a.equals(b) || a.contains(b) || b.contains(a);
+        String a = terminusName.toLowerCase(Locale.ROOT);
+        String b = destination.toLowerCase(Locale.ROOT);
+        return a.contains(b) || b.contains(a);
     }
 
     static double bearing(LengthIndexedLine indexed, double fromDistance, double toDistance) {
