@@ -204,6 +204,99 @@ class PositionEngineTest {
     }
 
     @Test
+    void interpolatesTowardNextStopUsingTheoreticalSegmentWhenNoPreviousCall() {
+        // Les EstimatedCall sont TOUS à venir (cas courant : SIRI n'envoie pas de RecordedCalls),
+        // donc aucune heure réelle de départ n'est disponible pour l'arrêt d'amont. L'origine du
+        // segment est alors l'arrêt précédent du tracé, et son heure de départ est estimée par
+        // l'ÉCART D'HORAIRE THÉORIQUE issu de stop_time — la seule utilité fonctionnelle des
+        // 915 lignes que le loader persiste.
+        //
+        // Nord(0.000, 0 s) → Correspondance(0.020, 240 s) : segment théorique de 240 s. Prochain
+        // arrêt Correspondance annoncé dans 120 s, donc le train est parti il y a 120 s et se
+        // trouve à la moitié du segment : distance 0.010, soit lat 48.860 (mi-chemin entre
+        // 48.870 et 48.850). Un moteur qui ignorerait scheduledSec (segment forcé à 1 s) placerait
+        // le train à Nord, 48.870.
+        LiveJourney allUpcoming = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:2:", NOW.plusSeconds(120), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(360), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(allUpcoming), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.nextStop()).isEqualTo("Correspondance");
+                assertThat(v.lat()).isCloseTo(48.860, within(1e-6));
+                assertThat(v.lng()).isCloseTo(2.310, within(1e-6));
+            });
+    }
+
+    @Test
+    void interpolatesUsingRealTimesWhenPreviousCallIsPresent() {
+        // Ici le flux porte un arrêt DÉJÀ PASSÉ en amont sur la branche (Nord il y a 100 s) :
+        // l'origine du segment devient cet arrêt et son heure RÉELLE, pas l'horaire théorique.
+        // Segment réel Nord(0.000) → Sud(0.030) de 400 s, dont 100 s écoulées → fraction 0.25,
+        // distance 0.0075, soit lat 48.8625.
+        //
+        // Sur l'horaire théorique, l'origine serait Correspondance (l'arrêt de tracé qui précède
+        // Sud) et la fraction serait négative donc bornée à 0 : le train serait figé à
+        // Correspondance, 48.850. Les deux règles ne coïncident donc pas sur cette fixture.
+        LiveJourney withPast = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:1:", NOW.minusSeconds(100), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:3:", NOW.plusSeconds(300), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(withPast), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.nextStop()).isEqualTo("Sud");
+                assertThat(v.lat()).isCloseTo(48.8625, within(1e-6));
+            });
+    }
+
+    @Test
+    void realTimesCaptureDwellTime() {
+        // Ce que les vraies heures apportent par-dessus l'horaire théorique : le temps à quai.
+        // Le train a quitté Nord il y a 30 s et n'atteint Correspondance que dans 570 s — un
+        // segment réel de 600 s là où le théorique n'en prévoit que 240. C'est l'écart de 360 s
+        // que le train vient de passer à quai. Fraction 30/600 = 0.05, donc lat 48.869 : le train
+        // a mesurablement quitté Nord, mais de 5 % du segment seulement.
+        //
+        // Sur l'horaire théorique, l'origine serait la même (Nord) mais l'heure de départ estimée
+        // tomberait 330 s dans le FUTUR (570 − 240) : fraction négative, bornée à 0, train figé
+        // exactement à Nord (48.870). L'assertion à 1e-6 distingue donc bien les deux règles.
+        LiveJourney dwelling = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:1:", NOW.minusSeconds(30), "ON_TIME"),
+            new Call("STIF:StopPoint:Q:2:", NOW.plusSeconds(570), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(dwelling), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.nextStop()).isEqualTo("Correspondance");
+                assertThat(v.lat()).isCloseTo(48.869, within(1e-6));
+            });
+    }
+
+    @Test
+    void placesAtOriginWhenNextStopIsFirst() {
+        // Prochain arrêt = tête de branche : il n'y a aucun segment en amont sur lequel
+        // interpoler. Le train doit être placé à l'origine du tracé (lat 48.870), et surtout PAS
+        // abandonné — un train qui entre en ligne resterait sinon invisible jusqu'à son deuxième
+        // arrêt, exactement le genre de disparition que la décision produit interdit.
+        LiveJourney atHead = journey("Ivry", List.of(
+            new Call("STIF:StopPoint:Q:1:", NOW.plusSeconds(30), "ON_TIME")));
+
+        assertThat(engine.computeAll(branchedLine(), List.of(atHead), NOW))
+            .singleElement()
+            .satisfies(v -> {
+                assertThat(v.nextStop()).isEqualTo("Nord");
+                assertThat(v.lat()).isCloseTo(48.870, within(1e-6));
+                assertThat(v.lng()).isCloseTo(2.310, within(1e-6));
+                // Le cap vient du segment tête → arrêt SUIVANT (0.000 → 0.020), donc plein sud.
+                // Réduit à `after = to`, extractPoint renverrait deux fois le même point et le
+                // cap tomberait à 0° (nord) : la flèche pointerait à l'envers.
+                assertThat(v.bearing()).isCloseTo(180.0, within(1e-6));
+            });
+    }
+
+    @Test
     void picksTheEarliestUpcomingCallEvenWhenCallsAreUnordered() {
         // Les EstimatedCall ne sont PAS triés et n'ont pas de champ Order (vérifié sur le flux
         // réel) : le prochain arrêt est le plus tôt À VENIR, pas le premier du tableau.
