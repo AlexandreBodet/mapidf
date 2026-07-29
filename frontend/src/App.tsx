@@ -60,7 +60,9 @@ export default function App() {
         // garde (no-op). « tout afficher » reste l'échappatoire explicite, mais un clic isolé
         // ne doit pas produire un état vide silencieux.
         if (next.size === 1) {
-          return next;
+          // `current`, pas `next` : renvoyer un Set neuf pour un no-op déclenche un re-render et
+          // le refiltrage des 321 stations pour rien.
+          return current;
         }
         next.delete(lineId);
       } else {

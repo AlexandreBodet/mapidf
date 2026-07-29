@@ -105,7 +105,7 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   ci-dessus).
 - **~0,6 % des trains métro ne sont pas plaçables** (aucune branche ne contient l'arrêt
   imminent, après couverture gloutonne des tracés) : exclus du résultat de `/vehicles`,
-  comptés par le métrique `mapidf.position.unplaced`.
+  comptés par la métrique `mapidf.position.unplaced` (taggée par ligne).
 - **Couleurs partagées entre lignes** : 13/3bis (`#82C8E6`) et 6/7bis (`#82DC73`, aussi
   celle du T4) — aucune distinction visuelle entre ces paires sur la carte.
 - **Aucun calendrier de service chargé** (`calendar.txt`/`calendar_dates.txt`) : le GTFS

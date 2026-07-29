@@ -61,6 +61,11 @@ class StationDepartureServiceTest {
     void keepsBothDirectionsOfTheSameLine() {
         // La fusion des deux sens à une station est le comportement attendu : la station résout
         // tous ses quais, donc les deux sens, chacun devenant un groupe de destination.
+        //
+        // L'ordre relatif des deux directions est ALPHABÉTIQUE par destination — "Alpha" avant
+        // "Gamma" alors que la course vers Gamma arrive plus tôt et vient en premier dans le
+        // flux. C'est un changement silencieux par rapport au tri par directionRef d'avant le
+        // multi-ligne ; il est ici pinné, pour qu'une régression d'ordre soit vue.
         RtSnapshot snapshot = new RtSnapshot(NOW, Map.of(NINE, List.of(
             journey(NINE, "J1", "Gamma", "STIF:StopPoint:Q:2:", NOW.plusSeconds(60), "ON_TIME"),
             journey(NINE, "J2", "Alpha", "STIF:StopPoint:Q:2:", NOW.plusSeconds(90), "ON_TIME"))));
@@ -72,7 +77,7 @@ class StationDepartureServiceTest {
             .extracting(DeparturesResponse.LineDepartures::directions).asInstanceOf(
                 org.assertj.core.api.InstanceOfAssertFactories.list(DeparturesResponse.Direction.class))
             .extracting(DeparturesResponse.Direction::destination)
-            .containsExactlyInAnyOrder("Gamma", "Alpha");
+            .containsExactly("Alpha", "Gamma");
     }
 
     @Test

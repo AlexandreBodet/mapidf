@@ -110,7 +110,11 @@ export class VehicleLayer {
   /** Filtre client par ligne : aucun appel réseau, on cesse simplement d'émettre les features. */
   setVisibleLines(lineIds: Set<string> | null) {
     this.visibleLines = lineIds;
-    this.render(performance.now());
+    // lastRenderAt doit suivre : sans lui, la boucle et le handler `move` croient qu'aucun rendu
+    // n'a eu lieu et en refont un immédiatement — le throttle se décale d'une frame.
+    const now = performance.now();
+    this.lastRenderAt = now;
+    this.render(now);
   }
 
   /** Identifiant d'image MapLibre pour une couleur donnée (14 couleurs distinctes au métro). */

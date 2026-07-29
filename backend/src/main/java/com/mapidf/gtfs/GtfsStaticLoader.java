@@ -154,8 +154,11 @@ public class GtfsStaticLoader {
                 if (network.isExcluded(routeId)) {
                     continue;
                 }
-                Optional<TransportMode> mode = TransportMode
-                    .fromRouteType(Integer.parseInt(r.get("route_type")));
+                Integer routeType = routeType(r, routeId);
+                if (routeType == null) {
+                    continue;
+                }
+                Optional<TransportMode> mode = TransportMode.fromRouteType(routeType);
                 if (mode.isEmpty() || !network.tracks(mode.get())) {
                     continue;
                 }
@@ -165,6 +168,28 @@ public class GtfsStaticLoader {
         }
         log.info("[GTFS] {} ligne(s) découverte(s) pour les modes {}", lines.size(), network.modes());
         return lines;
+    }
+
+    /**
+     * {@code route_type} parsé défensivement. Un {@code Integer.parseInt} direct ferait échouer
+     * <b>tout</b> le refresh quotidien (transaction annulée, registry figé indéfiniment sur la
+     * donnée de la veille) pour une seule ligne du feed au {@code route_type} vide ou non
+     * numérique — et le feed est maintenu par un tiers. On écarte la ligne fautive en WARN, les
+     * autres se chargent. Le WARN est le signal : une ligne du périmètre qui disparaîtrait ainsi
+     * doit être diagnosticable.
+     */
+    private static Integer routeType(CSVRecord record, String routeId) {
+        String raw = safe(record, "route_type");
+        if (raw == null) {
+            log.warn("[GTFS] route {} écartée : route_type absent ou vide", routeId);
+            return null;
+        }
+        try {
+            return Integer.valueOf(raw);
+        } catch (NumberFormatException e) {
+            log.warn("[GTFS] route {} écartée : route_type non numérique ('{}')", routeId, raw);
+            return null;
+        }
     }
 
     /**
@@ -424,13 +449,18 @@ public class GtfsStaticLoader {
         // Mesuré sur le métro : les 781 quais ont TOUS un parent, présent dans stops.txt.
         // On mappe dès la lecture plutôt que de retenir les CSVRecord : chacun garde une
         // référence forte vers son parser, et leur lisibilité après close() n'est pas contractuelle.
-        List<StopRow> all = new ArrayList<>();
+        // Indexé par stop_id, et non une liste : un arrêt desservi par stop_times.txt peut aussi
+        // être le parent_station d'un autre, et les deux passes le retiendraient alors deux fois.
+        // stop.gtfs_id étant UNIQUE, le refresh ENTIER échouerait. Impossible sur le métro IDFM
+        // (les 781 quais ont un parent distinct d'eux-mêmes) mais c'est une propriété du feed d'un
+        // tiers, pas une garantie de notre code.
+        Map<String, StopRow> all = new LinkedHashMap<>();
         Set<String> parentIds = new HashSet<>();
         try (CSVParser parser = openCsv(zipFile, "stops.txt")) {
             for (CSVRecord r : parser) {
                 if (stopIds.contains(r.get("stop_id"))) {
                     StopRow row = toStopRow(r);
-                    all.add(row);
+                    all.putIfAbsent(row.gtfsId(), row);
                     if (row.parentStation() != null) {
                         parentIds.add(row.parentStation());
                     }
@@ -440,11 +470,12 @@ public class GtfsStaticLoader {
         try (CSVParser parser = openCsv(zipFile, "stops.txt")) {
             for (CSVRecord r : parser) {
                 if (parentIds.contains(r.get("stop_id"))) {
-                    all.add(toStopRow(r));
+                    StopRow row = toStopRow(r);
+                    all.putIfAbsent(row.gtfsId(), row);
                 }
             }
         }
-        List<Stop> toSave = all.stream()
+        List<Stop> toSave = all.values().stream()
             .map(row -> Stop.builder()
                 .gtfsId(row.gtfsId())
                 .name(row.name())

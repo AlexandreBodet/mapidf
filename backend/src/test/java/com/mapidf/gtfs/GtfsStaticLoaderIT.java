@@ -157,6 +157,21 @@ class GtfsStaticLoaderIT {
     }
 
     @Test
+    void skipsARouteWithAMalformedRouteTypeWithoutLosingTheOthers() throws Exception {
+        try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
+            loader.load(in);
+        }
+        // IDFM:CBAD porte un route_type VIDE, et vient AVANT les lignes de métro dans routes.txt.
+        // Sans garde, Integer.parseInt lève et c'est TOUT le refresh quotidien qui échoue
+        // (transaction annulée) : le registry resterait figé indéfiniment sur la donnée de la
+        // veille, pour une seule ligne malformée d'un feed maintenu par un tiers.
+        assertThat(routeRepository.findByGtfsId("IDFM:CBAD")).isEmpty();
+        assertThat(routeRepository.findByGtfsId("IDFM:C01379")).isPresent();
+        assertThat(routeRepository.findByGtfsId("IDFM:C01377")).isPresent();
+        assertThat(routeRepository.findByGtfsId("IDFM:C01386")).isPresent();
+    }
+
+    @Test
     void derivesRouteMetadataFromTheFeed() throws Exception {
         try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
             loader.load(in);

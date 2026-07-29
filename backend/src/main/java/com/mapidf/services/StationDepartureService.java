@@ -64,6 +64,10 @@ public class StationDepartureService {
                     .add(new Passage(journey.journeyRef(), call.time(), call.departureStatus()));
             }
         }
+        // Les directions d'une même ligne sont triées ALPHABÉTIQUEMENT par destination. Ce n'est
+        // plus le directionRef SIRI qui les ordonne (il ne survit pas au groupement par
+        // destination) : l'ordre est donc stable et reproductible, mais arbitraire du point de vue
+        // du voyageur. Pinné par StationDepartureServiceTest.keepsBothDirectionsOfTheSameLine.
         return byDestination.entrySet().stream()
             .sorted(Map.Entry.comparingByKey())
             .map(entry -> new Direction(entry.getKey(), entry.getValue().stream()

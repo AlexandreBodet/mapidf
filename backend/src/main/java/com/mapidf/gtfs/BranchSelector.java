@@ -18,8 +18,9 @@ import java.util.Set;
  * <p>Sur tout le métro : 112 candidats → 37 retenus (un seul par sens pour 13 des 16 lignes ;
  * deux pour la 7 et la 13, deux dans un sens pour la 10).
  *
- * <p>Coût en O(candidats²) par groupe, soit au pire une centaine de comparaisons d'ensembles
- * (10 candidats maximum sur le métro) : négligeable, et le restera sur le RER.
+ * <p>Coût en O(n·m) par groupe (n candidats, m arrêts par candidat) : chaque candidat est
+ * confronté UNE fois à l'ensemble des arrêts déjà couverts, il n'y a pas de comparaison
+ * candidat × candidat. Sur le métro, n ≤ 10 et m ≈ 38 : négligeable, et le restera sur le RER.
  */
 public final class BranchSelector {
 
