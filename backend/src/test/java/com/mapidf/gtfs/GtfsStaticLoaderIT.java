@@ -101,6 +101,22 @@ class GtfsStaticLoaderIT {
     }
 
     @Test
+    void derivesTerminusNameFromTheLastServedStopNotTheHeadsign() throws Exception {
+        try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
+            loader.load(in);
+        }
+        // T9 porte volontairement le headsign "Mairie de Montreuil" alors que son dernier arrêt est
+        // S3/Gamma : c'est le nom de l'ARRÊT qui doit gagner. Sans cet écart dans la fixture, les
+        // deux règles coïncideraient et le test ne prouverait rien. Le terminus départage deux
+        // branches d'un même sens face au DestinationName du flux temps réel, qui nomme un arrêt.
+        List<Branch> branches = branchRepository.findAllWithRoute();
+        assertThat(branches).extracting(Branch::getGtfsShapeId)
+            .containsExactly("SH7A", "SH7B", "SH9", "SH9R");
+        assertThat(branches).extracting(Branch::getTerminusName)
+            .containsExactly("Villejuif", "Ivry", "Gamma", "Alpha");
+    }
+
+    @Test
     void ignoresRoutesOutsideTheTrackedModes() throws Exception {
         try (var in = getClass().getResourceAsStream("/gtfs-branch.zip")) {
             loader.load(in);

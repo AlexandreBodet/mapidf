@@ -56,7 +56,13 @@ import org.springframework.transaction.annotation.Transactional;
  * le streaming du zip devait éviter, revenu par la porte de derrière. La passe 1 ne retient donc
  * que des <b>compteurs</b> (37 163 entiers), de quoi élire la course la plus desservante par
  * (route, sens, tracé) ; la passe 2 ne matérialise les lignes que des 112 courses ainsi élues.
- * Le pic mémoire devient indépendant du nombre de lignes suivies.
+ *
+ * <p>La propriété obtenue est que le pic mémoire est <b>indépendant de la taille de
+ * stop_times.txt</b> (909 Mo, 10,5 millions de lignes) : c'est le fichier qui domine le zip, et
+ * il n'est jamais retenu, seulement traversé deux fois. Le pic reste en revanche
+ * <b>O(courses du périmètre)</b> via {@code tripRows} et {@code stopCounts} — 37 163 sur le
+ * métro, et ce serait de l'ordre de 500 000 si {@code app.network.modes} incluait BUS. Élargir le
+ * périmètre au bus demanderait donc de réexaminer ces deux structures.
  *
  * <p>Ne persister que les parcours représentatifs est sans perte fonctionnelle : {@code
  * calendar.txt} n'étant pas chargé, la table est de toute façon incapable de répondre à un
@@ -121,7 +127,7 @@ public class GtfsStaticLoader {
                 candidates.stream().map(TripRow::tripId).collect(Collectors.toSet()));
 
             // 6. Couverture gloutonne par (route, sens) → 37 branches retenues sur le métro.
-            List<RetainedBranch> retained = selectBranches(candidates, rowsByTrip);
+            List<RetainedBranch> retained = selectBranches(lines, candidates, rowsByTrip);
 
             // 7. Les tracés des seules branches retenues.
             Map<String, LineString> shapes = loadShapes(zipFile,
@@ -163,10 +169,18 @@ public class GtfsStaticLoader {
 
     /**
      * Les courses des lignes du périmètre. Une course sans {@code shape_id} est écartée : une
-     * branche EST un tracé, il n'y a rien à en faire.
+     * branche EST un tracé, il n'y a rien à en faire d'autre.
+     * <p>
+     * Cet écart est journalisé en WARN, parce qu'il est <b>partiel</b> : le {@code throw} ci-dessous
+     * ne se déclenche que si TOUTES les lignes du périmètre sont sans tracé. Une seule ligne de
+     * métro sur 16 dont les courses n'auraient pas de {@code shape_id} donnerait sinon une
+     * {@code Route} persistée à zéro branche — invisible dans les logs, indiagnosticable sur un
+     * feed de 109 Mo maintenu par un tiers. Le décompte par ligne de {@link #selectBranches} est
+     * l'autre moitié de ce garde-fou.
      */
     private List<TripRow> parseTrips(ZipFile zipFile, Set<String> routeIds) throws IOException {
         List<TripRow> tripRows = new ArrayList<>();
+        int untracedTrips = 0;
         try (CSVParser parser = openCsv(zipFile, "trips.txt")) {
             for (CSVRecord r : parser) {
                 String routeId = r.get("route_id");
@@ -175,6 +189,7 @@ public class GtfsStaticLoader {
                 }
                 String shapeId = safe(r, "shape_id");
                 if (shapeId == null) {
+                    untracedTrips++;
                     continue;
                 }
                 tripRows.add(new TripRow(
@@ -184,6 +199,10 @@ public class GtfsStaticLoader {
                     Short.parseShort(safe(r, "direction_id", "0")),
                     shapeId));
             }
+        }
+        if (untracedTrips > 0) {
+            log.warn("[GTFS] {} course(s) du périmètre écartée(s) faute de shape_id : sans tracé,"
+                + " une branche n'est pas plaçable", untracedTrips);
         }
         if (tripRows.isEmpty()) {
             throw new IllegalStateException("aucune course tracée pour les lignes " + routeIds);
@@ -227,7 +246,8 @@ public class GtfsStaticLoader {
      * seules candidates. Sur le métro réel : 112 candidates → 37 branches retenues, 100 % des
      * arrêts couverts.
      */
-    private List<RetainedBranch> selectBranches(List<TripRow> candidates,
+    private List<RetainedBranch> selectBranches(Map<String, LineDescriptor> lines,
+                                                List<TripRow> candidates,
                                                 Map<String, List<StopTimeRow>> rowsByTrip) {
         Map<DirectionKey, List<TripRow>> byDirection = candidates.stream()
             .collect(Collectors.groupingBy(
@@ -249,8 +269,32 @@ public class GtfsStaticLoader {
                     kept.shapeId(), kept.tripId(), row.headsign()));
             }
         });
-        log.info("[GTFS] {} candidate(s) → {} branche(s) retenue(s)", candidates.size(), retained.size());
+        logSelectionPerLine(lines, candidates, retained);
         return retained;
+    }
+
+    /**
+     * Décompte <b>par ligne</b>, et non agrégé : c'est la seule forme qui rend visible d'un coup
+     * d'œil une ligne à zéro branche. On itère sur les lignes découvertes, pas sur les candidates,
+     * précisément pour que la ligne qui n'a produit aucune candidate apparaisse quand même.
+     */
+    private void logSelectionPerLine(Map<String, LineDescriptor> lines, List<TripRow> candidates,
+                                     List<RetainedBranch> retained) {
+        Map<String, Long> candidatesByRoute = candidates.stream()
+            .collect(Collectors.groupingBy(TripRow::routeId, Collectors.counting()));
+        Map<String, Long> branchesByRoute = retained.stream()
+            .collect(Collectors.groupingBy(RetainedBranch::routeId, Collectors.counting()));
+        lines.forEach((routeId, descriptor) -> {
+            long branchCount = branchesByRoute.getOrDefault(routeId, 0L);
+            if (branchCount == 0) {
+                log.warn("[GTFS] ligne {} ({}) : AUCUNE branche retenue, elle n'apparaîtra pas"
+                    + " sur la carte", descriptor.shortName(), routeId);
+            } else {
+                log.info("[GTFS] ligne {} ({}) : {} candidate(s) → {} branche(s) retenue(s)",
+                    descriptor.shortName(), routeId, candidatesByRoute.getOrDefault(routeId, 0L),
+                    branchCount);
+            }
+        });
     }
 
     /** PASSE 2 : les lignes des seules courses données, groupées et triées par stop_sequence. */
@@ -319,10 +363,11 @@ public class GtfsStaticLoader {
         List<StopTime> stopTimesToSave = new ArrayList<>();
         for (RetainedBranch item : retained) {
             List<StopTimeRow> rows = rowsByTrip.getOrDefault(item.tripId(), List.of());
-            // Terminus = dernier arrêt du parcours : c'est lui qui départage deux branches d'un
-            // même sens face au DestinationName du flux temps réel.
+            // Terminus = dernier arrêt du parcours, PAS le trip_headsign : c'est lui qui départage
+            // deux branches d'un même sens face au DestinationName du flux temps réel, lequel
+            // nomme un arrêt. Le headsign n'est qu'un repli quand la desserte est vide.
             String terminus = rows.isEmpty() ? item.headsign()
-                : stopsByGtfsId.get(rows.getLast().stopId()).getName();
+                : requireStop(stopsByGtfsId, rows.getLast().stopId()).getName();
             Branch branch = branchRepository.save(Branch.builder()
                 .route(routesByGtfsId.get(item.routeId()))
                 .gtfsShapeId(item.shapeId())
@@ -334,7 +379,7 @@ public class GtfsStaticLoader {
             for (StopTimeRow row : rows) {
                 stopTimesToSave.add(StopTime.builder()
                     .branch(branch)
-                    .stop(stopsByGtfsId.get(row.stopId()))
+                    .stop(requireStop(stopsByGtfsId, row.stopId()))
                     .stopSequence(row.stopSequence())
                     .arrivalSec(row.arrivalSec())
                     .departureSec(row.departureSec())
@@ -346,20 +391,46 @@ public class GtfsStaticLoader {
             routesByGtfsId.size(), retained.size(), stopTimesToSave.size());
     }
 
+    /**
+     * Un {@code stop_id} de stop_times.txt absent de stops.txt est une incohérence du feed. Sans
+     * ce contrôle, le {@code null} se propagerait en NPE au déréférencement du nom, ou en violation
+     * de contrainte NOT NULL à l'insertion — dans les deux cas sans nommer le coupable.
+     */
+    private static Stop requireStop(Map<String, Stop> stopsByGtfsId, String stopId) {
+        Stop stop = stopsByGtfsId.get(stopId);
+        if (stop == null) {
+            throw new IllegalStateException(
+                "stop_times.txt référence un stop_id absent de stops.txt: " + stopId);
+        }
+        return stop;
+    }
+
+    /**
+     * Les quais des branches retenues ET leurs stations parentes, en deux lectures de stops.txt.
+     * Les parents deviennent des arrêts à part entière : ils portent leur propre nom et leurs
+     * propres coordonnées, ce qui rend le nom d'une station de correspondance déterministe (il
+     * venait sinon du premier quai rencontré).
+     * <p>
+     * La seconde lecture retient un parent sur son seul {@code stop_id}, <b>sans</b> vérifier
+     * {@code location_type=1} : les identifiants viennent de {@code parent_station}, il n'y a donc
+     * aucune ambiguïté à lever, et un tel filtre ne pourrait que faire disparaître silencieusement
+     * un parent que des quais référencent — les quais garderaient alors un
+     * {@code parent_station} pendant vers un arrêt inexistant. La colonne est en outre absente de
+     * certains feeds (et de trois de nos fixtures), où filtrer dessus supprimerait tous les parents.
+     */
     private Map<String, Stop> persistStopsWithParents(ZipFile zipFile, Set<String> stopIds) throws IOException {
-        // Deux lectures logiques en une : on retient les quais demandés, on note leurs
-        // parent_station, puis on retient aussi les lignes de ces parents (location_type=1).
         // Mesuré sur le métro : les 781 quais ont TOUS un parent, présent dans stops.txt.
-        List<CSVRecord> all = new ArrayList<>();
+        // On mappe dès la lecture plutôt que de retenir les CSVRecord : chacun garde une
+        // référence forte vers son parser, et leur lisibilité après close() n'est pas contractuelle.
+        List<StopRow> all = new ArrayList<>();
         Set<String> parentIds = new HashSet<>();
         try (CSVParser parser = openCsv(zipFile, "stops.txt")) {
             for (CSVRecord r : parser) {
-                String stopId = r.get("stop_id");
-                if (stopIds.contains(stopId)) {
-                    all.add(r);
-                    String parent = safe(r, "parent_station");
-                    if (parent != null) {
-                        parentIds.add(parent);
+                if (stopIds.contains(r.get("stop_id"))) {
+                    StopRow row = toStopRow(r);
+                    all.add(row);
+                    if (row.parentStation() != null) {
+                        parentIds.add(row.parentStation());
                     }
                 }
             }
@@ -367,17 +438,16 @@ public class GtfsStaticLoader {
         try (CSVParser parser = openCsv(zipFile, "stops.txt")) {
             for (CSVRecord r : parser) {
                 if (parentIds.contains(r.get("stop_id"))) {
-                    all.add(r);
+                    all.add(toStopRow(r));
                 }
             }
         }
         List<Stop> toSave = all.stream()
-            .map(r -> Stop.builder()
-                .gtfsId(r.get("stop_id"))
-                .name(r.get("stop_name"))
-                .parentStation(safe(r, "parent_station"))
-                .geom(geometryFactory.createPoint(new Coordinate(
-                    Double.parseDouble(r.get("stop_lon")), Double.parseDouble(r.get("stop_lat")))))
+            .map(row -> Stop.builder()
+                .gtfsId(row.gtfsId())
+                .name(row.name())
+                .parentStation(row.parentStation())
+                .geom(geometryFactory.createPoint(new Coordinate(row.lon(), row.lat())))
                 .build())
             .toList();
         Map<String, Stop> byGtfsId = new HashMap<>();
@@ -385,6 +455,15 @@ public class GtfsStaticLoader {
             byGtfsId.put(stop.getGtfsId(), stop);
         }
         return byGtfsId;
+    }
+
+    private static StopRow toStopRow(CSVRecord r) {
+        return new StopRow(
+            r.get("stop_id"),
+            r.get("stop_name"),
+            safe(r, "parent_station"),
+            Double.parseDouble(r.get("stop_lon")),
+            Double.parseDouble(r.get("stop_lat")));
     }
 
     static int toSeconds(String hms) {
@@ -436,6 +515,9 @@ public class GtfsStaticLoader {
     }
 
     private record StopTimeRow(String tripId, String stopId, int stopSequence, int arrivalSec, int departureSec) {
+    }
+
+    private record StopRow(String gtfsId, String name, String parentStation, double lon, double lat) {
     }
 
     private record ShapePoint(int sequence, double lon, double lat) {
