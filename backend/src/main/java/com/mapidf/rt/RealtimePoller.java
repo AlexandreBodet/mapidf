@@ -100,7 +100,9 @@ public class RealtimePoller {
         return !now.isBefore(SERVICE_START) || now.isBefore(SERVICE_END);
     }
 
-    void pollOnce(Fetcher fetcher, Instant asOf) {
+    // public (et non package-private) pour permettre aux IT de contrôleur d'injecter un
+    // snapshot déterministe sans appeler PRIM : le poll réel passe par poll(), planifié.
+    public void pollOnce(Fetcher fetcher, Instant asOf) {
         try (InputStream body = fetcher.get(prim.realtimeBaseUrl())) {
             snapshot.set(parse(objectMapper, body, asOf, registry.trackedSiriLineRefs()));
             log.info("[RT] Poll réussi");
