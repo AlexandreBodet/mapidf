@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import { useMap } from "./map/MapView";
 import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
+import { useDisruptions } from "./api/useDisruptions";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { LinePicker } from "./ui/LinePicker";
@@ -42,6 +43,7 @@ export default function App() {
     [station],
   );
   const { network, status } = useNetwork(map, visibleLines);
+  const disruptions = useDisruptions();
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
@@ -243,6 +245,7 @@ export default function App() {
       <LinePicker
         lines={network?.lines ?? []}
         counts={counts}
+        disruptions={disruptions}
         asOf={asOf}
         stale={stale}
         visible={visibleLines}

@@ -62,3 +62,25 @@ export interface DeparturesResponse {
     directions: { destination: string; passages: Passage[] }[];
   }[];
 }
+
+/** Gravités du flux IDFM, par ordre décroissant. INCONNUE = valeur inédite côté PRIM. */
+export type Severity = "BLOQUANTE" | "PERTURBEE" | "INFORMATION" | "INCONNUE";
+
+export interface DisruptionItem {
+  severity: Severity;
+  cause: string;
+  title: string;
+  shortMessage: string;
+}
+
+export interface LineDisruptions {
+  lineId: string;
+  /** La pire gravité de la ligne, calculée côté serveur. */
+  severity: Severity;
+  items: DisruptionItem[];
+}
+
+export interface DisruptionsResponse {
+  asOf: string;
+  lines: LineDisruptions[];
+}
