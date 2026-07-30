@@ -51,7 +51,8 @@ publique). Le détail est dans la section « Données, sources et licences » du
 |---|---|---|---|---|---|
 | UX-1 | États de chargement et d'erreur | `useNetwork` ne fetchait qu'une fois : au premier démarrage (109 Mo de GTFS), `/network` répond 200 vide → carte blanche définitive jusqu'à un rechargement manuel. Et un `/vehicles` en échec était avalé silencieusement | S | P1 | **fait** (bandeau `NetworkStatus` + retry 10 s tant que le réseau manque ; mention « rafraîchissement interrompu » dans le `LinePicker`). Limite assumée : le panneau station garde ses passages en silence, l'alerte globale du `LinePicker` couvrant la même panne |
 | UX-2 | Adaptation mobile | Les 3 panneaux flottent à largeur fixe (260–300 px) et les 16 pastilles occupent le bas de l'écran. Déjà documenté dans les limitations | M | P1 | à faire |
-| UX-3 | Signaux non expliqués | L'opacité réduite (`confidence: APPROXIMATE`) n'a aucune légende. « Service terminé » (poller arrêté à 01h30) ne se distingue pas d'une panne. `Passage.status` (`DELAYED`) est transmis mais jamais affiché dans `StopPanel` | S | P1 | à faire |
+| UX-3a | Signaux non expliqués (front seul) | `Passage.status` (`DELAYED`, annulé) est transmis par l'API et **jeté** par `StopPanel` ; l'opacité réduite (`confidence: APPROXIMATE`) n'a aucune légende. Tout est déjà dans la charge utile : pur travail d'affichage | S | P1 | à faire |
+| UX-3b | « Service terminé » ≠ panne | Le poller s'arrête à 01h30 (`RealtimePoller.inServiceHours`), donc la nuit la carte se vide comme si le flux était tombé. Le front ne connaît pas les heures de service : demande un signal côté API (drapeau dans `/vehicles`), d'où sa séparation d'UX-3a | S | P2 | à faire |
 | UX-4 | Accessibilité | Aucun accès clavier (tout passe par des clics carte), panneaux en `div` sans rôles ni gestion du focus, information portée par la seule couleur (13/3bis et 6/7bis identiques), styles inline sans thème sombre | M | P2 | à faire |
 | UX-5 | Fonctions attendues absentes | Recherche de station, permalien / état dans l'URL (partager une ligne ou un train), « trains autour de moi », sens des tracés sur la carte, plus de 3 passages par direction | M | P2 | à faire |
 
@@ -90,10 +91,25 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 ## Ordre recommandé
 
-1. ~~**SEC-5**~~ (fait), puis **SEC-1** et **SEC-2** — deux correctifs courts qui referment des
-   fuites bêtes.
-2. ~~**UX-1**~~ (fait) — le premier démarrage ne donne plus un écran blanc silencieux.
-3. **QUA-2** — sans registre Prometheus, le garde-fou par ligne ne sert à personne.
-4. **PROD-1 + UX-3** — le plus gros gain perçu à effort moyen, et cohérent avec la décision
-   « on veut voir les trains en perturbation ».
-5. Puis **UX-2** (mobile), **PROD-2** (tram), et enfin **PERF-4** (interpolation côté client).
+Arrêté le 2026-07-30. Critère : valeur visible rapportée à l'effort, les petits chantiers
+groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des tâches mais la
+porte d'un déploiement public, qui n'est pas d'actualité.
+
+1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**~~ — faits.
+2. **UX-3a** — le gain le moins cher qui reste : les retards et annulations arrivent déjà dans
+   la charge utile et sont jetés à l'affichage. Rien à ajouter côté serveur.
+3. **SEC-9 puis SEC-7** — d'abord confirmer que PRIM sert le flux sans clé valide, parce que la
+   réponse dicte l'urgence de SEC-7 : si une clé fausse « marche », une erreur de configuration
+   ne se voit **nulle part**, et c'est ce garde-fou qui la révèle.
+4. **PERF-1** — timeout, contrôle du code HTTP et GET conditionnel sur le refresh GTFS. Trois
+   petites choses qui évitent 109 Mo par jour pour rien et un refresh pendu sans fin.
+5. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
+   chantiers derrière, et après UX-3a qui aura déjà ouvert l'affichage des statuts.
+6. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
+   nouveaux modes de panne à surveiller. Attention : la dépendance est triviale, mais la valeur
+   n'arrive qu'avec un collecteur et des alertes — c'est là qu'est le vrai coût.
+
+**Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
+**UX-2** (mobile — à remonter juste après PROD-1 si l'usage devient nomade), **UX-3b** (demande
+un signal API), **PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5** (montées de
+version majeures : du bruit tant que rien ne casse).
