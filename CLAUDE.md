@@ -50,6 +50,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   run) ne peuvent pas détecter cette faute : V3 s'y applique fraîche et valide toujours.
 - Secrets : `PRIM_API_KEY` vit dans **`.env` (gitignoré) — à ne JAMAIS commiter.**
   `.env.example` documente les variables attendues.
+- **Front : jamais de `feature-state` sur la couche `vehicles`** (`VehicleLayer.ts`) — les deux
+  anneaux (halo de sélection, surlignage) sont pilotés par `setFilter` sur la propriété
+  `journeyRef`, pas par `feature-state` (pourtant l'approche idiomatique, essayée deux fois) :
+  à ~15 `setData`/s sur ~705 features, `initializeTileState` finissait par lever « feature index
+  out of bounds » en boucle. Détail complet dans le commentaire d'en-tête de `journeyRefFilter`.
 
 ## Configuration du réseau suivi
 
@@ -62,6 +67,14 @@ exclue. Le GTFS IDFM complet (~109 Mo) reste filtré **en streaming** par le loa
 tout ce périmètre (plus une seule ligne cible). Le front n'a **plus de `LINE_ID`** : il
 charge le réseau dynamiquement via `GET /network`, il n'y a plus de résolution de ligne
 côté URL.
+
+La spec écarte volontairement toute config par ligne (seuils, overrides) au profit d'un
+**garde-fou observable** : `RealtimePoller` publie la jauge `mapidf.rt.journeys` (tag `line`,
+courses SIRI retenues par ligne suivie — y compris à zéro) et `PositionEngine` incrémente deux
+compteurs tagués `line` : `mapidf.position.unplaced` (cf. limitations) et
+`mapidf.position.branch.unresolved` (arrêt imminent présent sur plusieurs branches sans terminus
+correspondant à la destination SIRI). Une ligne qui dégrade se voit dans ces métriques ; le
+remède est `app.network.exclude`, pas un seuil de tolérance.
 
 ## Données temps réel — pièges à connaître (IMPORTANT)
 
@@ -98,8 +111,9 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   [docs/superpowers/plans/](docs/superpowers/plans/).
 - **Intégration PRIM (structure des données, quotas, choix)** :
   [backend/docs/prim-integration.md](backend/docs/prim-integration.md).
-- **Journal de décisions / tickets post-MVP** : `.superpowers/sdd/progress.md`
-  (⚠️ gitignoré, présent seulement en local).
+- **Journal de décisions / tickets post-MVP** : `.superpowers/sdd/<nom-du-plan>/progress.md`
+  — un journal par plan (ex. `2026-07-29-multi-ligne-metro/progress.md` pour ce chantier),
+  ⚠️ gitignoré, présent seulement en local.
 
 ## Limitations connues (ne pas re-débugguer sans lire d'abord)
 
