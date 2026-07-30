@@ -11,6 +11,11 @@ const SNAP_DISTANCE_M = 300;
 // et divise d'autant le coût de setData (goulot à l'échelle réseau).
 const RENDER_INTERVAL_MS = 66;
 
+// Bits de l'état lu par les deux couches `circle` (halo de sélection, anneau de surlignage)
+// via feature-state. Un même train peut être suivi ET surligné : d'où des bits, pas un enum.
+const STATE_SELECTED = 1;
+const STATE_HIGHLIGHTED = 2;
+
 // Distance approximative entre deux [lng, lat] en mètres (équirectangulaire avec cos(lat)),
 // suffisante à l'échelle d'une ligne parisienne.
 function distanceMeters(a: [number, number], b: [number, number]): number {
@@ -68,6 +73,14 @@ export class VehicleLayer {
   // Images `vehicle-arrow-*` créées à la volée (une par couleur de ligne distincte), pour
   // pouvoir toutes les nettoyer au démontage.
   private imageIds = new Set<string>();
+  // Emprise élargie calculée par le dernier render() : partagée entre le culling et la
+  // réconciliation du feature-state, pour que les deux appliquent le MÊME critère.
+  private view = { west: 0, east: 0, south: 0, north: 0, padX: 0, padY: 0 };
+  // feature-state réellement posé côté MapLibre : journeyRef → bits STATE_*. Référence qui
+  // permet de ne rappeler MapLibre que quand cet ensemble change.
+  private appliedState = new Map<string, number>();
+  // Scratch réutilisé (pas de Map neuve par frame) : l'état voulu au terme du dernier render().
+  private wantedState = new Map<string, number>();
 
   constructor(
     private map: MlMap,
@@ -77,22 +90,102 @@ export class VehicleLayer {
     this.ensureLayer();
   }
 
-  private applySelectionState() {
-    if (!this.map.getSource("vehicles")) {
-      return;
+  /** Critère de culling — source de vérité unique, partagée par render() et isEmitted(). */
+  private inView(lng: number, lat: number): boolean {
+    const v = this.view;
+    return lng >= v.west - v.padX && lng <= v.east + v.padX
+      && lat >= v.south - v.padY && lat <= v.north + v.padY;
+  }
+
+  /**
+   * Un id est-il présent dans la source telle que le dernier render() l'a émise ? Reprend les
+   * trois conditions du culling : anim vivante, ligne visible, dans l'emprise élargie.
+   */
+  private isEmitted(id: string, now: number): boolean {
+    const anim = this.anims.get(id);
+    if (!anim) {
+      return false; // train sorti du flux SIRI, ou jamais reçu
     }
-    this.map.removeFeatureState({ source: "vehicles" });
-    if (this.selectedJourneyRef) {
-      this.map.setFeatureState({ source: "vehicles", id: this.selectedJourneyRef }, { selected: true });
+    if (this.visibleLines && !this.visibleLines.has(anim.vehicle.lineId)) {
+      return false;
+    }
+    const [lng, lat] = this.pointAt(anim, now);
+    return this.inView(lng, lat);
+  }
+
+  /**
+   * Réconcilie le feature-state avec ce que la source contient réellement.
+   *
+   * MapLibre stocke le feature-state hors du GeoJSON (SourceFeatureState, par id promu) : il
+   * survit à setData, mais il survit AUSSI à la disparition d'une feature — culling, filtre par
+   * ligne, train sorti du flux — et il est réappliqué à chaque tuile (re)chargée
+   * (SourceCache.initializeTileState → Tile.setFeatureState → bucket.update), soit une vague de
+   * rechargements par setData, ~15 par seconde ici. On ne laisse donc d'état posé que sur les
+   * ids réellement émis. À noter : MapLibre ne supprime jamais la clé d'un id déjà touché
+   * (coalesceChanges la remet à `{}`) ; ce qui est garanti ici, c'est qu'aucun id ne porte
+   * `selected`/`highlighted` vrai sans feature correspondante dans la source.
+   *
+   * Coût par frame : nul sans sélection ni surlignage ; sinon un `anims.get` et un test
+   * d'emprise par id concerné — le train suivi plus les passages de la station ouverte, une
+   * poignée. Et AUCUN appel MapLibre tant que la table id → bits ne change pas.
+   */
+  private syncFeatureState(now: number) {
+    if (this.appliedState.size === 0 && !this.selectedJourneyRef && this.highlightedJourneyRefs.size === 0) {
+      return; // cas courant : rien de posé, rien à poser
+    }
+    const wanted = this.wantedState;
+    wanted.clear();
+    if (this.selectedJourneyRef && this.isEmitted(this.selectedJourneyRef, now)) {
+      wanted.set(this.selectedJourneyRef, STATE_SELECTED);
     }
     for (const id of this.highlightedJourneyRefs) {
-      this.map.setFeatureState({ source: "vehicles", id }, { highlighted: true });
+      if (this.isEmitted(id, now)) {
+        wanted.set(id, (wanted.get(id) ?? 0) | STATE_HIGHLIGHTED);
+      }
     }
+    if (this.sameAsApplied(wanted)) {
+      return;
+    }
+    for (const id of this.appliedState.keys()) {
+      if (!wanted.has(id)) {
+        this.map.removeFeatureState({ source: "vehicles", id });
+      }
+    }
+    for (const [id, bits] of wanted) {
+      if (this.appliedState.get(id) === bits) {
+        continue;
+      }
+      // Les deux clés sont posées à chaque fois : setFeatureState FUSIONNE, donc passer de
+      // surligné à sélectionné doit remettre highlighted à false explicitement.
+      this.map.setFeatureState({ source: "vehicles", id }, {
+        selected: (bits & STATE_SELECTED) !== 0,
+        highlighted: (bits & STATE_HIGHLIGHTED) !== 0,
+      });
+    }
+    this.appliedState.clear();
+    for (const [id, bits] of wanted) {
+      this.appliedState.set(id, bits);
+    }
+  }
+
+  private sameAsApplied(wanted: Map<string, number>): boolean {
+    if (wanted.size !== this.appliedState.size) {
+      return false;
+    }
+    for (const [id, bits] of wanted) {
+      if (this.appliedState.get(id) !== bits) {
+        return false;
+      }
+    }
+    return true;
   }
 
   setSelected(journeyRef: string | null) {
     this.selectedJourneyRef = journeyRef;
-    this.applySelectionState();
+    // Pas d'application directe : c'est render() qui réconcilie, avec la connaissance de ce
+    // qui est réellement émis. startLoop() garantit un render (immédiat ou à la frame suivante
+    // selon le throttle), donc le halo apparaît en ≤ 66 ms après le clic.
+    this.startLoop();
   }
 
   setFollow(follow: boolean) {
@@ -104,7 +197,10 @@ export class VehicleLayer {
 
   setHighlighted(ids: Set<string>) {
     this.highlightedJourneyRefs = ids;
-    this.applySelectionState();
+    // Appelé à chaque rafraîchissement du panneau station (~4 s) avec un Set neuf mais souvent
+    // de contenu identique : syncFeatureState compare le contenu et ne rappelle alors MapLibre
+    // pour aucun id.
+    this.startLoop();
   }
 
   /** Filtre client par ligne : aucun appel réseau, on cesse simplement d'émettre les features. */
@@ -207,7 +303,10 @@ export class VehicleLayer {
           "icon-opacity": ["case", ["get", "approximate"], 0.45, 1],
         },
       });
-      this.applySelectionState();
+      // La source vient d'être créée vide. Un render est nécessaire pour y verser les anims
+      // déjà reçues (un poll peut avoir précédé le style ready) et, avec elles, le
+      // feature-state d'une sélection posée entre-temps.
+      this.startLoop();
       this.moveHandler = () => {
         if (this.raf) {
           return; // la boucle rend déjà
@@ -311,12 +410,13 @@ export class VehicleLayer {
     // Culling : on n'envoie que les véhicules du viewport élargi (marge 20 %). Les anims
     // restent maintenues pour tous → le tween survit à une sortie/entrée d'écran.
     const bounds = this.map.getBounds();
-    const west = bounds.getWest();
-    const east = bounds.getEast();
-    const south = bounds.getSouth();
-    const north = bounds.getNorth();
-    const padX = (east - west) * 0.2;
-    const padY = (north - south) * 0.2;
+    const view = this.view;
+    view.west = bounds.getWest();
+    view.east = bounds.getEast();
+    view.south = bounds.getSouth();
+    view.north = bounds.getNorth();
+    view.padX = (view.east - view.west) * 0.2;
+    view.padY = (view.north - view.south) * 0.2;
 
     let followPoint: [number, number] | null = null;
     this.rendered.length = 0;
@@ -328,7 +428,7 @@ export class VehicleLayer {
       if (this.visibleLines && !this.visibleLines.has(anim.vehicle.lineId)) {
         continue;
       }
-      if (lng < west - padX || lng > east + padX || lat < south - padY || lat > north + padY) {
+      if (!this.inView(lng, lat)) {
         continue;
       }
       anim.feature.geometry.coordinates[0] = lng;
@@ -336,11 +436,12 @@ export class VehicleLayer {
       this.rendered.push(anim.feature);
     }
     source.setData({ type: "FeatureCollection", features: this.rendered });
-    // Pas d'applySelectionState() ici : feature-state est stocké séparément du GeoJSON,
-    // par id promu ("journeyRef"), et survit à setData ainsi qu'au culling (une feature qui
-    // sort puis revient dans le viewport garde son état). Le réappliquer à chaque frame
-    // serait un travail redondant ; il n'est fait que dans setSelected/setHighlighted et
-    // à la fin de ensureLayer's add().
+    // Le feature-state est stocké séparément du GeoJSON, par id promu ("journeyRef") : il
+    // survit bien à setData, MAIS il survit aussi à l'absence de la feature — le culling et le
+    // filtre par ligne peuvent l'avoir écartée de ce setData. Un état orphelin n'a alors plus
+    // rien à peindre et continue d'être réappliqué à chaque tuile rechargée. D'où cette
+    // réconciliation, qui n'appelle MapLibre que si la table id → état change.
+    this.syncFeatureState(now);
     if (followPoint) {
       this.map.jumpTo({ center: followPoint });
     }
@@ -394,5 +495,9 @@ export class VehicleLayer {
     }
     this.imageIds.clear();
     this.anims.clear();
+    // La source est supprimée juste au-dessus, donc son feature-state avec : la table de
+    // référence doit repartir vide si la couche est reconstruite.
+    this.appliedState.clear();
+    this.wantedState.clear();
   }
 }
