@@ -80,7 +80,14 @@ export interface LineDisruptions {
   items: DisruptionItem[];
 }
 
+/** Station dont au moins un quai est perturbé : le serveur a résolu les quais en stations. */
+export interface StationDisruption {
+  stationId: string;
+  severity: Severity;
+}
+
 export interface DisruptionsResponse {
   asOf: string;
   lines: LineDisruptions[];
+  stations: StationDisruption[];
 }

@@ -17,6 +17,16 @@ interface Props {
   onShowAll: () => void;
 }
 
+/**
+ * « Métro 13 : Travaux - Arrêt non desservi » → « Travaux - Arrêt non desservi ». Le flux
+ * préfixe ses titres par le mode et l'indice ; la pastille les porte déjà. Titre inchangé si
+ * le format diffère.
+ */
+function withoutLinePrefix(title: string): string {
+  const separator = title.indexOf(" : ");
+  return separator > 0 ? title.slice(separator + 3) : title;
+}
+
 /** Ordre humain : 1, 2, 3, 3b, 4… 14 — et non l'ordre alphabétique, qui mettrait 14 avant 3. */
 function humanOrder(a: NetworkLine, b: NetworkLine): number {
   const num = (id: string) => Number.parseInt(id, 10) || Number.MAX_SAFE_INTEGER;
@@ -70,21 +80,46 @@ export function LinePicker({ lines, counts, disruptions, visible, asOf, stale, o
         </button>
       )}
       {showDisruptions && (
-        <ul style={{ margin: "4px 0 0", padding: 0, listStyle: "none" }}>
-          {disrupted.map((line) => {
-            const disruption = disruptions.get(line.id)!;
-            const style = severityStyle(disruption.severity);
-            return (
-              <li key={line.id} style={{ margin: "4px 0", display: "flex", gap: 6 }}>
-                <span style={{ color: style.color, fontWeight: 700 }}>{style.glyph}</span>
-                <span style={{ color: "#444" }}>
-                  {/* Le titre du flux commence déjà par « Métro 13 : … », inutile de répéter
-                      l'indice de ligne. */}
-                  {disruption.items.map((item) => item.title).join(" · ")}
-                </span>
-              </li>
-            );
-          })}
+        <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
+          {disrupted.flatMap((line) =>
+            disruptions.get(line.id)!.items.map((item, index) => {
+              const style = severityStyle(item.severity);
+              return (
+                <li
+                  key={`${line.id}-${index}`}
+                  style={{
+                    display: "flex", gap: 6, alignItems: "flex-start",
+                    padding: "6px 0", borderTop: "1px solid #eee",
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: "0 0 auto", width: 18, height: 18, borderRadius: "50%",
+                      background: line.color, color: "#fff", font: "bold 11px sans-serif",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    {line.shortName}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    {/* shortMessage est le résumé fourni par le flux (« Trafic interrompu ») :
+                        en badge plein, il porte la gravité sans glyphe filiforme. */}
+                    <span
+                      style={{
+                        display: "inline-block", padding: "1px 6px", borderRadius: 4,
+                        background: style.color, color: "#fff", font: "bold 11px sans-serif",
+                      }}
+                    >
+                      {item.shortMessage || style.label}
+                    </span>
+                    {/* Le titre répète l'indice de ligne (« Métro 13 : … »), déjà porté par la
+                        pastille : on n'en garde que la cause. */}
+                    <span style={{ color: "#444", marginLeft: 6 }}>{withoutLinePrefix(item.title)}</span>
+                  </span>
+                </li>
+              );
+            }),
+          )}
         </ul>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>

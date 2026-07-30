@@ -127,7 +127,7 @@ public class DisruptionPoller {
             throw new IOException("réponse HTTP " + response.statusCode() + " de PRIM");
         }
         boolean gzipped = response.headers().firstValue("Content-Encoding")
-            .map(value -> value.toLowerCase(Locale.ROOT).contains("gzip"))
+            .map(contentEncoding -> contentEncoding.toLowerCase(Locale.ROOT).contains("gzip"))
             .orElse(false);
         return gzipped ? new GZIPInputStream(response.body()) : response.body();
     }

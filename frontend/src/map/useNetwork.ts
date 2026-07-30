@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
+import { useEffect, useRef, useState } from "react";
+import type { Map as MlMap, GeoJSONSource, FilterSpecification } from "maplibre-gl";
 import { fetchNetwork } from "../api/network";
 import { lightenForTrack } from "../ui/color";
 import { whenStyleReady } from "./mapReady";
-import type { NetworkResponse } from "../api/types";
+import type { NetworkResponse, Severity } from "../api/types";
 
 /**
  * `empty` = le backend répond 200 avec un réseau vide : c'est le premier démarrage, où il charge
@@ -14,17 +14,48 @@ export type NetworkStatus = "loading" | "empty" | "error" | "ready";
 // Le réseau est statique une fois chargé : on ne réessaie que tant qu'il manque.
 const RETRY_MS = 10_000;
 
+// Filtre « aucune station » : une liste vide ne correspond à rien et ne dessine rien.
+const STATION_NONE: FilterSpecification = ["in", ["get", "id"], ["literal", []]];
+
+/** Ids triés : `setFilter` sort tôt sur un filtre identique terme à terme, or l'ordre d'un Map
+ *  varie d'un poll à l'autre — sans le tri, chaque poll rechargerait la source pour rien. */
+function stationFilter(ids: string[]): FilterSpecification {
+  return ["in", ["get", "id"], ["literal", [...ids].sort()]];
+}
+
+/**
+ * Pose les deux anneaux. Appelé à la création des couches ET à chaque changement de
+ * perturbations : les couches naissent après le fetch réseau, donc l'ordre des deux n'est pas
+ * garanti — sans le premier appel, des perturbations déjà connues attendraient le poll suivant.
+ */
+function applyDisruptionRings(map: MlMap, stationSeverity: Map<string, Severity>) {
+  if (!map.getLayer("stops-blocked")) {
+    return;
+  }
+  const idsOf = (severity: Severity) =>
+    [...stationSeverity.entries()].filter(([, value]) => value === severity).map(([id]) => id);
+  map.setFilter("stops-blocked", stationFilter(idsOf("BLOQUANTE")));
+  map.setFilter("stops-disrupted", stationFilter(idsOf("PERTURBEE")));
+}
+
 /**
  * Charge le réseau en un appel et pose DEUX sources pour tout le réseau : `line-shapes`
  * (une feature par branche, coloriée par sa propriété) et `stops` (stations dédoublonnées
  * côté serveur). Le nombre de lignes n'ajoute donc aucune couche.
  */
-export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null): {
+export function useNetwork(
+  map: MlMap | null,
+  visibleLines: Set<string> | null,
+  stationSeverity: Map<string, Severity> = new Map(),
+): {
   network: NetworkResponse | null;
   status: NetworkStatus;
 } {
   const [network, setNetwork] = useState<NetworkResponse | null>(null);
   const [status, setStatus] = useState<NetworkStatus>("loading");
+  // Lu par `draw`, qui vit hors du cycle de rendu et doit voir la dernière valeur connue.
+  const severityRef = useRef(stationSeverity);
+  severityRef.current = stationSeverity;
 
   useEffect(() => {
     if (!map) {
@@ -151,6 +182,28 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
             "circle-stroke-width": 3,
           },
         });
+        // Anneaux de perturbation, dessinés PAR-DESSUS l'anneau de sélection : l'alerte gagne.
+        // Une couche par gravité plutôt qu'une couleur pilotée par la donnée, pour rester sur
+        // `setFilter` — la couleur par propriété obligerait à réécrire la source à chaque poll.
+        // La couleur propre de la station (celle de sa ligne) n'est pas touchée : elle porte son
+        // identité. INFORMATION n'est pas peinte, elle n'empêche pas de voyager.
+        for (const [id, color] of [["stops-blocked", "#b91c1c"], ["stops-disrupted", "#b45309"]]) {
+          map.addLayer({
+            id,
+            type: "circle",
+            source: "stops",
+            minzoom: 11,
+            filter: STATION_NONE,
+            paint: {
+              "circle-radius": 8,
+              "circle-color": "rgba(0,0,0,0)",
+              "circle-stroke-color": color,
+              "circle-stroke-width": 3,
+            },
+          });
+        }
+
+        applyDisruptionRings(map, severityRef.current);
 
         const cursorEnter = () => { map.getCanvas().style.cursor = "pointer"; };
         const cursorLeave = () => { map.getCanvas().style.cursor = ""; };
@@ -205,6 +258,12 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
       })),
     });
   }, [map, network, visibleLines]);
+
+  useEffect(() => {
+    if (map) {
+      applyDisruptionRings(map, stationSeverity);
+    }
+  }, [map, network, stationSeverity]);
 
   return { network, status };
 }

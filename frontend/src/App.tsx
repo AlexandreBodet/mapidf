@@ -42,8 +42,8 @@ export default function App() {
       ),
     [station],
   );
-  const { network, status } = useNetwork(map, visibleLines);
   const disruptions = useDisruptions();
+  const { network, status } = useNetwork(map, visibleLines, disruptions.stationSeverity);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
@@ -245,7 +245,7 @@ export default function App() {
       <LinePicker
         lines={network?.lines ?? []}
         counts={counts}
-        disruptions={disruptions}
+        disruptions={disruptions.byLine}
         asOf={asOf}
         stale={stale}
         visible={visibleLines}
