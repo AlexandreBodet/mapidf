@@ -399,14 +399,31 @@ export class VehicleLayer {
     if (!source) {
       return;
     }
+
+    // Suivi caméra : calculé et appliqué AVANT la sortie anticipée liée au zoom, et donc
+    // indépendant du seuil — un dézoom sous MIN_VEHICLE_ZOOM ne doit pas mettre en pause le
+    // recentrage sur le train suivi (sa flèche est masquée, mais la caméra continue de le
+    // suivre ; sinon le train continue d'avancer pendant la pause et le retour au-dessus du
+    // seuil produirait un saut de caméra brutal). Lookup direct par clé plutôt qu'un balayage
+    // des ~705 anims (ce que faisait l'ancienne boucle de culling ci-dessous) : moins coûteux
+    // qu'avant, à tous les niveaux de zoom.
+    if (this.follow && this.selectedJourneyRef) {
+      const followed = this.anims.get(this.selectedJourneyRef);
+      if (followed) {
+        this.map.jumpTo({ center: this.pointAt(followed, now) });
+      }
+    }
+
     // Sous MIN_VEHICLE_ZOOM, les trois couches sont masquées par leur `minzoom` : un `setData`
-    // ici ne serait affiché par personne. On sort avant de calculer bounds/culling/features.
-    // Pas de nouvel écouteur pour rattraper le retour au-dessus du seuil : MapLibre émet déjà
-    // "move" pendant un zoom (molette, pincement, boutons de la NavigationControl, pas
-    // seulement un pan), et `moveHandler` (posé plus bas, sur cet événement) rappelle déjà
-    // render() dès que le throttle le permet — donc dès que le zoom repasse au-dessus, le
-    // prochain "move" (ou la prochaine frame de la boucle si des trains sont encore en train
-    // d'animer) refait un `setData` à jour. Rien à faire côté zoomend/moveend spécifiquement.
+    // ici ne serait affiché par personne. On saute UNIQUEMENT ce qui suit (bounds, culling,
+    // construction des features, setData) — pas tout le rendu : le suivi caméra ci-dessus vient
+    // de s'exécuter, intact, quel que soit le zoom. Pas de nouvel écouteur pour rattraper le
+    // retour au-dessus du seuil : MapLibre émet déjà "move" pendant un zoom (molette, pincement,
+    // boutons de la NavigationControl, pas seulement un pan), et `moveHandler` (posé plus bas,
+    // sur cet événement) rappelle déjà render() dès que le throttle le permet — donc dès que le
+    // zoom repasse au-dessus, le prochain "move" (ou la prochaine frame de la boucle si des
+    // trains sont encore en train d'animer) refait un `setData` à jour. Rien à faire côté
+    // zoomend/moveend spécifiquement.
     if (this.map.getZoom() < MIN_VEHICLE_ZOOM) {
       return;
     }
@@ -421,16 +438,12 @@ export class VehicleLayer {
     view.padX = (view.east - view.west) * 0.2;
     view.padY = (view.north - view.south) * 0.2;
 
-    let followPoint: [number, number] | null = null;
     this.rendered.length = 0;
     for (const anim of this.anims.values()) {
-      const [lng, lat] = this.pointAt(anim, now);
-      if (anim.vehicle.journeyRef === this.selectedJourneyRef && this.follow) {
-        followPoint = [lng, lat];
-      }
       if (this.visibleLines && !this.visibleLines.has(anim.vehicle.lineId)) {
         continue;
       }
+      const [lng, lat] = this.pointAt(anim, now);
       if (!this.inView(lng, lat)) {
         continue;
       }
@@ -440,10 +453,8 @@ export class VehicleLayer {
     }
     source.setData({ type: "FeatureCollection", features: this.rendered });
     // Aucun travail d'état ici : les filtres des deux anneaux ne bougent qu'au changement de
-    // sélection ou de surlignage (setSelected / setHighlighted), jamais par frame.
-    if (followPoint) {
-      this.map.jumpTo({ center: followPoint });
-    }
+    // sélection ou de surlignage (setSelected / setHighlighted), jamais par frame. Le suivi
+    // caméra, lui, est géré tout en haut de render() — pas ici.
   }
 
   private startLoop() {
