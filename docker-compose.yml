@@ -18,7 +18,10 @@ services:
       db:
         condition: service_healthy
     restart: on-failure
-    ports: ["8000:8000", "9000:9000"]
+    # L'Actuator (9000) n'est publié que sur la loopback : health `show-details: always` et
+    # /metrics exposent version de PostgreSQL, URL JDBC et internes JVM. Reste joignable en
+    # http://localhost:9000 depuis la machine, inatteignable depuis le réseau.
+    ports: ["8000:8000", "127.0.0.1:9000:9000"]
   frontend:
     build: ./frontend
     depends_on: [backend]

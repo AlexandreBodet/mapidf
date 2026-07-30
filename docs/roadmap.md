@@ -20,8 +20,8 @@ d'une spec dans [superpowers/specs/](superpowers/specs/)).
 
 | ID | Chantier | Constat / risque | Effort | Prio | Statut |
 |---|---|---|---|---|---|
-| SEC-1 | Ne pas publier l'Actuator | [docker-compose.yml](../docker-compose.yml) publie le port `9000`, avec `show-details: always` et `metrics` exposés ([application.yml](../backend/src/main/resources/application.yml)). Fuite de version PostgreSQL, URL JDBC, internes JVM | S | P0 avant déploiement | à faire |
-| SEC-2 | Clé PRIM envoyée à un tiers | `GtfsStaticService.refresh` pose l'en-tête `apikey` sur **toutes** les requêtes GTFS — or l'URL par défaut est le miroir `eu.ftp.opendatasoft.com`, pas PRIM. La clé part chez OpenDataSoft sans aucune utilité | S | P0 | à faire |
+| SEC-1 | Ne pas publier l'Actuator | Le port `9000` était publié sur toutes les interfaces, avec `show-details: always` et `metrics` : version PostgreSQL, URL JDBC, internes JVM | S | P0 | **fait** (publié sur `127.0.0.1` seulement ; un déploiement derrière proxy devra en plus ne pas router `/actuator`) |
+| SEC-2 | Clé PRIM envoyée à un tiers | `GtfsStaticService.refresh` posait l'en-tête `apikey` sur **toutes** les requêtes GTFS, dont le miroir `eu.ftp.opendatasoft.com` de l'URL par défaut | S | P0 | **fait** (`requiresPrimKey`, clé envoyée au seul domaine PRIM) |
 | SEC-3 | Rate limiting | Les 3 endpoints sont anonymes et sans quota. `/vehicles` recalcule ~705 positions par appel : un client qui boucle coûte du CPU linéairement | M | P1 si public | à faire |
 | SEC-4 | En-têtes de sécurité + TLS | [nginx.conf](../frontend/nginx.conf) : ni CSP, ni `X-Frame-Options`, ni HSTS, ni `server_tokens off`, ni `X-Forwarded-For` vers le back, ni cache-control sur les assets hashés. Aucun scénario HTTPS | M | P1 si public | à faire |
 | SEC-5 | Secrets hors du code | `mapidf/mapidf` était en dur dans `application.yml` et dans les composes | S | P1 | **fait** (`.env` seule source, zéro défaut dans le code, `spring.config.import` pour le CLI) |
@@ -59,7 +59,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 | ID | Chantier | Constat | Effort | Prio | Statut |
 |---|---|---|---|---|---|
-| PERF-1 | Robustesse du refresh GTFS | `GtfsStaticService.refresh` n'a **pas de timeout de requête** (seulement un `connectTimeout`) et aucun GET conditionnel : 109 Mo retéléchargés chaque jour même inchangés, et une connexion pendue laisse le refresh suspendu | S | P1 | à faire |
+| PERF-1 | Robustesse du refresh GTFS | `GtfsStaticService.refresh` n'a **pas de timeout de requête** (seulement un `connectTimeout`), ne contrôle pas le code HTTP (contrairement à `RealtimePoller.fetch`) et ne fait aucun GET conditionnel : 109 Mo retéléchargés chaque jour même inchangés, une connexion pendue laisse le refresh suspendu, et une réponse d'erreur part au parseur ZIP | S | P1 | à faire |
 | PERF-2 | Backoff sur 429 | `RealtimePoller.fetch` détecte bien le non-2xx mais réessaie au même rythme : sur dépassement de quota, on tape dans le mur toutes les 60 s | S | P2 | à faire |
 | PERF-3 | Cache HTTP de `/vehicles` | Aucun `ETag`/`Cache-Control` (contrairement à `/network`). Un cache serveur de ~1 s absorberait N clients | S | P2 | à faire |
 | PERF-4 | Interpolation côté client | Aujourd'hui 705 interpolations JTS + sérialisation **par client et par appel** (toutes les 4 s), alors que la source ne bouge qu'à 60 s. Envoyer le segment (`from`/`to` le long de la branche + horaires) une fois par minute et laisser le front interpoler sur une géométrie qu'il possède déjà : ~15× moins d'appels, coût serveur constant | L | P2 | à faire |

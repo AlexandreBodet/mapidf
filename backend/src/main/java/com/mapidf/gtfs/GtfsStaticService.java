@@ -33,6 +33,25 @@ public class GtfsStaticService {
         this.registry = registry;
     }
 
+    private static final String PRIM_HOST = "prim.iledefrance-mobilites.fr";
+
+    /**
+     * La clé PRIM ne part que vers PRIM. L'URL statique par défaut est un miroir open data
+     * (OpenDataSoft) qui n'en a pas besoin : l'y envoyer exposait le secret à un tiers.
+     */
+    static boolean requiresPrimKey(String url) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            String host = URI.create(url).getHost();
+            // Égalité ou vrai sous-domaine : un endsWith nu accepterait evilprim.iledefrance-....
+            return host != null && (host.equals(PRIM_HOST) || host.endsWith("." + PRIM_HOST));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     @Scheduled(initialDelay = 0, fixedRateString = "P1D")
     public void refresh() {
         if (prim.gtfsStaticUrl() == null || prim.gtfsStaticUrl().isBlank()) {
@@ -40,12 +59,13 @@ public class GtfsStaticService {
             return;
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(prim.gtfsStaticUrl()))
-                .header(prim.authHeader(), prim.apiKey())
-                .GET()
-                .build();
+            HttpRequest.Builder request =
+                HttpRequest.newBuilder(URI.create(prim.gtfsStaticUrl())).GET();
+            if (requiresPrimKey(prim.gtfsStaticUrl())) {
+                request.header(prim.authHeader(), prim.apiKey());
+            }
             HttpResponse<java.io.InputStream> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                httpClient.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
             // Le périmètre chargé vient de app.network.modes : le loader découvre les lignes
             // dans routes.txt par route_type, sans route_id en dur.
             loader.load(response.body());
