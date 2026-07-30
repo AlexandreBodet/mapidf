@@ -113,6 +113,9 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
 
 ## Où sont les décisions et l'historique
 
+- **Chantiers à venir (sécurité, UX, perf, légal, produit)** : [docs/roadmap.md](docs/roadmap.md)
+  — la liste de référence, avec un identifiant et un statut par chantier. À mettre à jour au fil
+  de l'avancement ; c'est là qu'on note ce qu'on n'attaque pas tout de suite, et pourquoi.
 - **Specs & plans par feature** : [docs/superpowers/specs/](docs/superpowers/specs/) et
   [docs/superpowers/plans/](docs/superpowers/plans/).
 - **Intégration PRIM (structure des données, quotas, choix)** :
