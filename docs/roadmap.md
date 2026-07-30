@@ -24,8 +24,11 @@ d'une spec dans [superpowers/specs/](superpowers/specs/)).
 | SEC-2 | Clé PRIM envoyée à un tiers | `GtfsStaticService.refresh` pose l'en-tête `apikey` sur **toutes** les requêtes GTFS — or l'URL par défaut est le miroir `eu.ftp.opendatasoft.com`, pas PRIM. La clé part chez OpenDataSoft sans aucune utilité | S | P0 | à faire |
 | SEC-3 | Rate limiting | Les 3 endpoints sont anonymes et sans quota. `/vehicles` recalcule ~705 positions par appel : un client qui boucle coûte du CPU linéairement | M | P1 si public | à faire |
 | SEC-4 | En-têtes de sécurité + TLS | [nginx.conf](../frontend/nginx.conf) : ni CSP, ni `X-Frame-Options`, ni HSTS, ni `server_tokens off`, ni `X-Forwarded-For` vers le back, ni cache-control sur les assets hashés. Aucun scénario HTTPS | M | P1 si public | à faire |
-| SEC-5 | Secrets hors du code | `mapidf/mapidf` en dur dans `application.yml` et dans le compose. Cible : tous les secrets dans `.env` (gitignoré) et **plus aucune valeur par défaut** dans `application.yml`, pour que le démarrage échoue vite au lieu de chercher un `localhost:5432` inexistant. Les deux chemins de lancement sont couverts : `docker compose` lit `.env` nativement, IntelliJ l'injecte déjà (config de run). **Reste** : `./mvnw spring-boot:run` en CLI, documenté dans le README, ne lit pas `.env` → soit `spring.config.import: optional:file:../.env[.properties]`, soit documenter `set -a; source ../.env`. À traiter aussi le défaut vide `${PRIM_API_KEY:}`, qui fait démarrer l'appli **sans temps réel et sans le dire** | S | P1 | à faire |
+| SEC-5 | Secrets hors du code | `mapidf/mapidf` était en dur dans `application.yml` et dans les composes | S | P1 | **fait** (`.env` seule source, zéro défaut dans le code, `spring.config.import` pour le CLI) |
 | SEC-6 | Chaîne d'appro | Aucun scan de dépendances (Dependabot, `npm audit`, dependency-check), image backend en **root**, `COPY . .` avant résolution Maven (aucune couche de cache), pas de `HEALTHCHECK` | M | P2 | à faire |
+| SEC-7 | Vrai garde-fou de configuration | Découvert en faisant SEC-5 : Spring **n'échoue pas** sur un placeholder non résolu dans un `@ConfigurationProperties` (`PropertySourcesPlaceholdersResolver` les ignore) — la valeur devient le texte `${POSTGRES_PASSWORD}`. Sans `.env`, l'appli démarre donc et l'erreur remonte de la base. Un contrôle explicite au démarrage (valeur vide ou commençant par `${`) donnerait le fail-fast que les placeholders ne donnent pas | S | P2 | à faire |
+| SEC-8 | Postgres local sans mot de passe | Constaté en testant SEC-5 : le Postgres de `localhost:5432` accepte **n'importe quel** mot de passe (démarrage réussi avec la valeur littérale `${POSTGRES_PASSWORD}`, Flyway a validé les 4 migrations). Volume initialisé en `trust` ? À vérifier — sinon le mot de passe du `.env` ne protège rien en local | S | P2 | à faire |
+| SEC-9 | PRIM sert le flux sans clé valide | Même test : `[RT] Poll réussi` avec `apikey: ${PRIM_API_KEY}` littéral, donc réponse 2xx de `estimated-timetable` sans clé exploitable. À confirmer — si c'est le cas, une clé absente ne se voit nulle part, et le décompte de quota par jeton (LEG-2) est à revoir | S | P2 | à confirmer |
 
 ## 2. Légal — porte d'entrée d'une mise en ligne
 
@@ -72,7 +75,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 | QUA-3 | Outillage front | Ni ESLint, ni Prettier, ni test unitaire — alors que `formatEta`, `color`, la logique de `toggleLine` et le culling de `VehicleLayer` sont testables et déjà subtils | M | P1 | à faire |
 | QUA-4 | Seuil de couverture | Jacoco produit un rapport, sans règle `check` : la couverture peut chuter sans que `verify` rougisse | S | P2 | à faire |
 | QUA-5 | Dépendances en retard | React 18, Vite 5, MapLibre 4, Node 20 dans l'image — des majeures existent pour les quatre | M | P2 | à faire |
-| QUA-6 | Doublon de compose | Un `docker-compose.yml` à la racine **et** dans `backend/` : source de confusion | S | P2 | à faire |
+| QUA-6 | Doublon de compose | Un `docker-compose.yml` à la racine (pile complète) **et** dans `backend/` (base seule, backend hors Docker). Les deux ont désormais un en-tête qui dit lequel sert à quoi ; reste à décider si un seul fichier suffirait | S | P3 | atténué |
 | QUA-7 | OpenAPI | 3 endpoints publics documentés seulement en prose dans le README | S | P2 | à faire |
 
 ## 6. Évolutions produit
@@ -87,8 +90,8 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 ## Ordre recommandé
 
-1. **SEC-5** (secrets dans `.env`, plus de défaut `mapidf`), **SEC-1** et **SEC-2** — trois
-   correctifs courts qui referment des fuites bêtes.
+1. ~~**SEC-5**~~ (fait), puis **SEC-1** et **SEC-2** — deux correctifs courts qui referment des
+   fuites bêtes.
 2. **UX-1** — aujourd'hui, un premier démarrage donne un écran blanc silencieux.
 3. **QUA-2** — sans registre Prometheus, le garde-fou par ligne ne sert à personne.
 4. **PROD-1 + UX-3** — le plus gros gain perçu à effort moyen, et cohérent avec la décision

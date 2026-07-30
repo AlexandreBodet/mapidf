@@ -1,7 +1,9 @@
+# Base seule, pour le backend lancé hors Docker. `env_file` vise le .env de la racine : docker
+# compose ne cherche le sien que dans ce répertoire-ci, où il n'y en a pas.
 services:
   db:
     image: postgis/postgis:18-3.6
-    environment: { POSTGRES_DB: mapidf, POSTGRES_USER: mapidf, POSTGRES_PASSWORD: mapidf }
+    env_file: ["../.env"]
     ports: ["5432:5432"]
     volumes: ["dbdata:/var/lib/postgresql"]
 volumes:

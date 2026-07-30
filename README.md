@@ -1,13 +1,22 @@
 # MapIDF — suivi temps réel du métro parisien
 
 ## Démarrage
-1. `export PRIM_API_KEY=<votre clé PRIM>`
+1. `cp .env.example .env`, puis renseigner `PRIM_API_KEY` et `POSTGRES_PASSWORD`
 2. `docker compose up --build`
 3. Front : http://localhost:8080 — API : http://localhost:8000/api/network
 4. Santé backend : http://localhost:9000/actuator/health
 
+Le `.env` (gitignoré) est la **seule** source des identifiants : aucun n'a de valeur par défaut
+dans le code, pour qu'aucun ne puisse suivre le projet jusqu'en production. Les trois chemins de
+lancement le lisent — `docker compose` nativement, IntelliJ via sa configuration de run, et
+`./mvnw spring-boot:run` via `spring.config.import` dans
+[application.yml](backend/src/main/resources/application.yml). Attention, ce n'est pas un
+garde-fou : Spring **n'échoue pas** sur un placeholder non résolu, il en garde le texte littéral
+(`${POSTGRES_PASSWORD}`) — sans `.env`, l'erreur remonte de la base, pas du démarrage.
+
 ## Développement
 - Backend : `cd backend && ./mvnw spring-boot:run` (API :8000, Actuator :9000)
+- Base seule (backend hors Docker) : `cd backend && docker compose up -d`
 - Front : `cd frontend && npm run dev` (proxy /api → :8000)
 - Tests : `cd backend && ./mvnw test` (tests unitaires seuls, rapide) — mais la vérification de
   référence du projet est `cd backend && ./mvnw verify` (build complet + tests d'intégration
@@ -30,9 +39,8 @@ réseau dynamiquement via `GET /api/network`.
 
 Le mode `METRO` est **pré-configuré** dans `application.yml` (`app.network.modes:
 [METRO]`, et `gtfs-static-url` = GTFS IDFM complet ~109 Mo, filtré en streaming par le
-backend pour ne garder que les lignes du ou des modes suivis). **Seule la clé PRIM est
-requise** : renseignez `PRIM_API_KEY` dans le fichier `.env` à la racine (chargé
-automatiquement par `docker compose`), puis `docker compose up`. Pour suivre d'autres
+backend pour ne garder que les lignes du ou des modes suivis). Rien d'autre à configurer que
+le `.env` décrit plus haut (`PRIM_API_KEY` + `POSTGRES_PASSWORD`). Pour suivre d'autres
 modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin).
 
 ## API

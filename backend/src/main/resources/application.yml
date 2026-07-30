@@ -17,15 +17,23 @@ management:
     health:
       show-details: always
 spring:
+  config:
+    # Couvre `./mvnw spring-boot:run`, seul chemin qui ne lit pas le .env seul. `optional:` car
+    # le fichier n'existe pas dans l'image ; `[.properties]` pour un fichier sans extension.
+    import:
+      - "optional:file:./.env[.properties]"
+      - "optional:file:../.env[.properties]"
   threads:
     virtual:
       enabled: true
   application:
     name: MapIDF
   datasource:
-    url: jdbc:postgresql://localhost:5432/mapidf
-    username: mapidf
-    password: mapidf
+    # Aucune valeur par défaut : rien ici ne doit pouvoir suivre le code jusqu'en prod. Tout
+    # vient du .env (local) ou de l'environnement (Docker, prod).
+    url: ${POSTGRES_URL}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -42,7 +50,7 @@ app:
     # route_id à écarter (ligne dont la dérivation du LineRef SIRI échouerait).
     exclude: []
   prim:
-    api-key: ${PRIM_API_KEY:}
+    api-key: ${PRIM_API_KEY}
     auth-header: "apikey"
     # GTFS IDFM complet (~109 Mo) ; le loader filtre en streaming le périmètre défini par
     # app.network.modes/exclude ci-dessus — ce n'est plus une seule ligne cible depuis le
