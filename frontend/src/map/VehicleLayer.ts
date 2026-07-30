@@ -1,4 +1,4 @@
-import type { Map as MlMap, GeoJSONSource } from "maplibre-gl";
+import type { Map as MlMap, GeoJSONSource, FilterSpecification } from "maplibre-gl";
 import type { VehiclesResponse } from "../api/types";
 import { whenStyleReady } from "./mapReady";
 
@@ -11,10 +11,35 @@ const SNAP_DISTANCE_M = 300;
 // et divise d'autant le coût de setData (goulot à l'échelle réseau).
 const RENDER_INTERVAL_MS = 66;
 
-// Bits de l'état lu par les deux couches `circle` (halo de sélection, anneau de surlignage)
-// via feature-state. Un même train peut être suivi ET surligné : d'où des bits, pas un enum.
-const STATE_SELECTED = 1;
-const STATE_HIGHLIGHTED = 2;
+/**
+ * Pourquoi les deux anneaux (`vehicles-halo`, `vehicles-highlight`) sont pilotés par
+ * `setFilter` sur la propriété `journeyRef`, et NON par `feature-state` — qui est pourtant la
+ * façon idiomatique de faire, et a déjà été essayée deux fois ici. Ne pas réintroduire sans
+ * relire ceci.
+ *
+ * `render()` appelle `setData` ~15 fois par seconde sur ~705 features. Chaque `setData`
+ * déclenche un aller-retour worker puis, au retour, `SourceCache.reload()` →
+ * `_reloadTile` → `_tileLoaded`, qui appelle `SourceFeatureState.initializeTileState` →
+ * `Tile.setFeatureState` → `bucket.update` → `ProgramConfiguration.updatePaintArrays`. Ce
+ * dernier relit la tuile par index, `vtLayer.feature(pos.index)`, et lève
+ * « feature index out of bounds » dès que les `buckets` et le `rawTileData` d'une tuile ne
+ * viennent pas du même chargement. À cette cadence la fenêtre est constamment ouverte.
+ *
+ * Un filtre, lui, est évalué côté worker pendant la construction du bucket : la feature
+ * écartée n'entre jamais dans la tuile, et aucun tableau de peinture n'est réindexé après
+ * coup. Tant qu'aucun `setFeatureState` n'est appelé, deux garde-fous ferment le chemin qui
+ * lève : `Tile.setFeatureState` sort immédiatement (`Object.keys(states).length === 0`,
+ * l'état de la source restant `{}`), et `bucket.update` sort aussi
+ * (`!this.stateDependentLayers.length`, plus aucune propriété de peinture ne lisant
+ * `feature-state`). Contrepartie assumée : `setFilter` provoque lui-même un rechargement de
+ * la source (`Style._updateLayer` marque `_updatedSources = 'reload'`), donc il ne doit être
+ * appelé qu'au changement de sélection ou de surlignage — jamais par frame.
+ */
+function journeyRefFilter(ids: readonly string[]): FilterSpecification {
+  // Liste vide = aucune feature ne correspond = zéro cercle dessiné. C'est le comportement
+  // voulu quand rien n'est sélectionné, et il ne lève pas.
+  return ["in", ["get", "journeyRef"], ["literal", [...ids]]];
+}
 
 // Distance approximative entre deux [lng, lat] en mètres (équirectangulaire avec cos(lat)),
 // suffisante à l'échelle d'une ligne parisienne.
@@ -73,14 +98,8 @@ export class VehicleLayer {
   // Images `vehicle-arrow-*` créées à la volée (une par couleur de ligne distincte), pour
   // pouvoir toutes les nettoyer au démontage.
   private imageIds = new Set<string>();
-  // Emprise élargie calculée par le dernier render() : partagée entre le culling et la
-  // réconciliation du feature-state, pour que les deux appliquent le MÊME critère.
+  // Emprise élargie recalculée par chaque render() : critère de culling.
   private view = { west: 0, east: 0, south: 0, north: 0, padX: 0, padY: 0 };
-  // feature-state réellement posé côté MapLibre : journeyRef → bits STATE_*. Référence qui
-  // permet de ne rappeler MapLibre que quand cet ensemble change.
-  private appliedState = new Map<string, number>();
-  // Scratch réutilisé (pas de Map neuve par frame) : l'état voulu au terme du dernier render().
-  private wantedState = new Map<string, number>();
 
   constructor(
     private map: MlMap,
@@ -90,7 +109,7 @@ export class VehicleLayer {
     this.ensureLayer();
   }
 
-  /** Critère de culling — source de vérité unique, partagée par render() et isEmitted(). */
+  /** Critère de culling appliqué par render() sur l'emprise élargie du dernier calcul. */
   private inView(lng: number, lat: number): boolean {
     const v = this.view;
     return lng >= v.west - v.padX && lng <= v.east + v.padX
@@ -98,93 +117,43 @@ export class VehicleLayer {
   }
 
   /**
-   * Un id est-il présent dans la source telle que le dernier render() l'a émise ? Reprend les
-   * trois conditions du culling : anim vivante, ligne visible, dans l'emprise élargie.
+   * Pose le filtre du halo bleu. Aucun besoin de vérifier que le train est bien dans la source :
+   * si le culling ou le filtre par ligne l'ont écarté, le filtre ne correspond à rien et zéro
+   * cercle est dessiné ; quand le train rentre dans le viewport, sa feature réapparaît dans le
+   * setData suivant et le halo revient sans aucune intervention.
+   *
+   * Sans-effet si la couche n'existe pas encore (style pas analysé) : `ensureLayer` repose les
+   * deux filtres juste après l'avoir créée.
    */
-  private isEmitted(id: string, now: number): boolean {
-    const anim = this.anims.get(id);
-    if (!anim) {
-      return false; // train sorti du flux SIRI, ou jamais reçu
+  private applyHaloFilter() {
+    if (!this.map.getLayer("vehicles-halo")) {
+      return;
     }
-    if (this.visibleLines && !this.visibleLines.has(anim.vehicle.lineId)) {
-      return false;
-    }
-    const [lng, lat] = this.pointAt(anim, now);
-    return this.inView(lng, lat);
+    const ids = this.selectedJourneyRef ? [this.selectedJourneyRef] : [];
+    this.map.setFilter("vehicles-halo", journeyRefFilter(ids));
   }
 
   /**
-   * Réconcilie le feature-state avec ce que la source contient réellement.
-   *
-   * MapLibre stocke le feature-state hors du GeoJSON (SourceFeatureState, par id promu) : il
-   * survit à setData, mais il survit AUSSI à la disparition d'une feature — culling, filtre par
-   * ligne, train sorti du flux — et il est réappliqué à chaque tuile (re)chargée
-   * (SourceCache.initializeTileState → Tile.setFeatureState → bucket.update), soit une vague de
-   * rechargements par setData, ~15 par seconde ici. On ne laisse donc d'état posé que sur les
-   * ids réellement émis. À noter : MapLibre ne supprime jamais la clé d'un id déjà touché
-   * (coalesceChanges la remet à `{}`) ; ce qui est garanti ici, c'est qu'aucun id ne porte
-   * `selected`/`highlighted` vrai sans feature correspondante dans la source.
-   *
-   * Coût par frame : nul sans sélection ni surlignage ; sinon un `anims.get` et un test
-   * d'emprise par id concerné — le train suivi plus les passages de la station ouverte, une
-   * poignée. Et AUCUN appel MapLibre tant que la table id → bits ne change pas.
+   * Pose le filtre de l'anneau noir des passages de la station ouverte. Les ids sont TRIÉS
+   * volontairement : `Style.setFilter` sort tôt sur `deepEqual(layer.filter, filter)`, ce qui
+   * évite un rechargement de la source à chaque rafraîchissement du panneau (~4 s) — mais
+   * seulement si le filtre est identique terme à terme, or l'ordre d'itération d'un `Set` suit
+   * l'ordre d'insertion, qui varie d'un poll à l'autre.
    */
-  private syncFeatureState(now: number) {
-    if (this.appliedState.size === 0 && !this.selectedJourneyRef && this.highlightedJourneyRefs.size === 0) {
-      return; // cas courant : rien de posé, rien à poser
-    }
-    const wanted = this.wantedState;
-    wanted.clear();
-    if (this.selectedJourneyRef && this.isEmitted(this.selectedJourneyRef, now)) {
-      wanted.set(this.selectedJourneyRef, STATE_SELECTED);
-    }
-    for (const id of this.highlightedJourneyRefs) {
-      if (this.isEmitted(id, now)) {
-        wanted.set(id, (wanted.get(id) ?? 0) | STATE_HIGHLIGHTED);
-      }
-    }
-    if (this.sameAsApplied(wanted)) {
+  private applyHighlightFilter() {
+    if (!this.map.getLayer("vehicles-highlight")) {
       return;
     }
-    for (const id of this.appliedState.keys()) {
-      if (!wanted.has(id)) {
-        this.map.removeFeatureState({ source: "vehicles", id });
-      }
-    }
-    for (const [id, bits] of wanted) {
-      if (this.appliedState.get(id) === bits) {
-        continue;
-      }
-      // Les deux clés sont posées à chaque fois : setFeatureState FUSIONNE, donc passer de
-      // surligné à sélectionné doit remettre highlighted à false explicitement.
-      this.map.setFeatureState({ source: "vehicles", id }, {
-        selected: (bits & STATE_SELECTED) !== 0,
-        highlighted: (bits & STATE_HIGHLIGHTED) !== 0,
-      });
-    }
-    this.appliedState.clear();
-    for (const [id, bits] of wanted) {
-      this.appliedState.set(id, bits);
-    }
-  }
-
-  private sameAsApplied(wanted: Map<string, number>): boolean {
-    if (wanted.size !== this.appliedState.size) {
-      return false;
-    }
-    for (const [id, bits] of wanted) {
-      if (this.appliedState.get(id) !== bits) {
-        return false;
-      }
-    }
-    return true;
+    const ids = [...this.highlightedJourneyRefs].sort();
+    this.map.setFilter("vehicles-highlight", journeyRefFilter(ids));
   }
 
   setSelected(journeyRef: string | null) {
     this.selectedJourneyRef = journeyRef;
-    // Pas d'application directe : c'est render() qui réconcilie, avec la connaissance de ce
-    // qui est réellement émis. startLoop() garantit un render (immédiat ou à la frame suivante
-    // selon le throttle), donc le halo apparaît en ≤ 66 ms après le clic.
+    // Le halo est posé tout de suite : un filtre n'attend pas de render.
+    this.applyHaloFilter();
+    // La boucle est relancée pour le recentrage : render() est le seul endroit qui lit
+    // `follow` et appelle jumpTo, et il peut être à l'arrêt (idle) au moment du clic.
     this.startLoop();
   }
 
@@ -198,9 +167,9 @@ export class VehicleLayer {
   setHighlighted(ids: Set<string>) {
     this.highlightedJourneyRefs = ids;
     // Appelé à chaque rafraîchissement du panneau station (~4 s) avec un Set neuf mais souvent
-    // de contenu identique : syncFeatureState compare le contenu et ne rappelle alors MapLibre
-    // pour aucun id.
-    this.startLoop();
+    // de contenu identique : la comparaison est déléguée à Style.setFilter (cf. le tri dans
+    // applyHighlightFilter). Pas de startLoop : l'anneau ne dépend plus d'un render.
+    this.applyHighlightFilter();
   }
 
   /** Filtre client par ligne : aucun appel réseau, on cesse simplement d'émettre les features. */
@@ -247,39 +216,43 @@ export class VehicleLayer {
       if (this.map.getSource("vehicles")) {
         return;
       }
+      // Pas de `promoteId` : il ne servait qu'à donner un id de feature au feature-state, dont
+      // plus personne ne dépend ici (les filtres lisent la propriété `journeyRef`, et aucun
+      // `feature.id` n'est lu au clic). Il coûtait en plus, à chaque setData, un Set puis une
+      // Map de ~705 entrées construits côté worker par `isUpdateableGeoJSON`/`toUpdateable`
+      // pour préparer un `updateData` diff que nous n'utilisons pas.
       this.map.addSource("vehicles", {
         type: "geojson",
-        promoteId: "journeyRef",
         data: this.featureCollection([]),
       });
-      // Halo de sélection SOUS les flèches : anneau bleu, uniquement la feature sélectionnée.
-      // Couche permanente (les filtres ne lisent pas feature-state) : visibilité pilotée
-      // par l'opacité, via feature-state "selected".
+      // Halo de sélection SOUS les flèches : anneau bleu sur le seul train suivi. Opacités
+      // constantes (valeurs par défaut à 1) — c'est le FILTRE, posé par applyHaloFilter, qui
+      // décide ce qui est dessiné. Voir l'en-tête de journeyRefFilter pour le pourquoi.
       this.map.addLayer({
         id: "vehicles-halo",
         type: "circle",
         source: "vehicles",
+        filter: journeyRefFilter([]),
         paint: {
           "circle-radius": 12,
           "circle-color": "rgba(29,78,216,0.15)",
           "circle-stroke-color": "#1d4ed8",
           "circle-stroke-width": 3,
-          "circle-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
-          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 1, 0],
         },
       });
-      // Anneau sur les véhicules concernés par les passages de l'arrêt ouvert (distinct
-      // du halo bleu de sélection). Couche permanente pilotée par feature-state "highlighted".
+      // Anneau sur les véhicules concernés par les passages de l'arrêt ouvert (distinct du halo
+      // bleu de sélection). Couche séparée, donc un train suivi ET surligné porte bien les deux
+      // anneaux : chaque filtre est indépendant de l'autre.
       this.map.addLayer({
         id: "vehicles-highlight",
         type: "circle",
         source: "vehicles",
+        filter: journeyRefFilter([]),
         paint: {
           "circle-radius": 11,
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-color": "#111",
           "circle-stroke-width": 2.5,
-          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "highlighted"], false], 1, 0],
         },
       });
       // Flèches orientées sur le bearing (0 = nord), alignées à la carte, une image par
@@ -303,9 +276,13 @@ export class VehicleLayer {
           "icon-opacity": ["case", ["get", "approximate"], 0.45, 1],
         },
       });
+      // Les couches viennent d'être créées : on y reporte une sélection / un surlignage qui
+      // auraient été demandés avant que le style ne soit analysé (les setters sont alors
+      // sans effet, faute de couche).
+      this.applyHaloFilter();
+      this.applyHighlightFilter();
       // La source vient d'être créée vide. Un render est nécessaire pour y verser les anims
-      // déjà reçues (un poll peut avoir précédé le style ready) et, avec elles, le
-      // feature-state d'une sélection posée entre-temps.
+      // déjà reçues (un poll peut avoir précédé le style ready).
       this.startLoop();
       this.moveHandler = () => {
         if (this.raf) {
@@ -436,12 +413,8 @@ export class VehicleLayer {
       this.rendered.push(anim.feature);
     }
     source.setData({ type: "FeatureCollection", features: this.rendered });
-    // Le feature-state est stocké séparément du GeoJSON, par id promu ("journeyRef") : il
-    // survit bien à setData, MAIS il survit aussi à l'absence de la feature — le culling et le
-    // filtre par ligne peuvent l'avoir écartée de ce setData. Un état orphelin n'a alors plus
-    // rien à peindre et continue d'être réappliqué à chaque tuile rechargée. D'où cette
-    // réconciliation, qui n'appelle MapLibre que si la table id → état change.
-    this.syncFeatureState(now);
+    // Aucun travail d'état ici : les filtres des deux anneaux ne bougent qu'au changement de
+    // sélection ou de surlignage (setSelected / setHighlighted), jamais par frame.
     if (followPoint) {
       this.map.jumpTo({ center: followPoint });
     }
@@ -495,9 +468,5 @@ export class VehicleLayer {
     }
     this.imageIds.clear();
     this.anims.clear();
-    // La source est supprimée juste au-dessus, donc son feature-state avec : la table de
-    // référence doit repartir vide si la couche est reconstruite.
-    this.appliedState.clear();
-    this.wantedState.clear();
   }
 }
