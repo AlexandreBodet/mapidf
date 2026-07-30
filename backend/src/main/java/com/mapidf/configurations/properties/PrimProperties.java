@@ -10,6 +10,8 @@ public record PrimProperties(
     String authHeader,
     String gtfsStaticUrl,
     String realtimeBaseUrl,
-    Duration pollInterval
+    Duration pollInterval,
+    String disruptionsUrl,
+    Duration disruptionsPollInterval
 ) {
 }

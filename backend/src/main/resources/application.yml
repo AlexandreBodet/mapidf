@@ -67,3 +67,10 @@ app:
     # appels/jour : tenir sous le quota estimated-timetable (relever à 1500/j côté PRIM).
     # Un seul poll sert tous les clients (le front tweene entre deux snapshots).
     poll-interval: PT60S
+    # Perturbations : un seul appel couvre tout le réseau (mesuré le 2026-07-30 : 1029
+    # perturbations, 1,53 Mo → 288 Ko en gzip). SIRI general-message a été écarté — il renvoie
+    # InfoMessage vide pour le métro et exige un paramètre par ligne.
+    disruptions-url: "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2"
+    # Une perturbation vit des heures ou des semaines : la minute n'apporte rien, et c'est un
+    # quota distinct de celui du temps réel.
+    disruptions-poll-interval: PT5M

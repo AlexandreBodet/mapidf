@@ -107,6 +107,15 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   DELAYED`, pas dans la fraîcheur de `RecordedAtTime`.
 - ~1/3 des courses n'ont qu'un seul appel (terminus lointain) → mal plaçables (signalé par
   `confidence`, voir limitations ci-dessous).
+- **Perturbations : source = `disruptions_bulk`, pas SIRI `general-message`** (mesuré le
+  2026-07-30 : ce dernier renvoie `InfoMessage: []` pour le métro et exige un paramètre par
+  ligne). Un appel couvre tout le réseau, gzip obligatoire (1,53 Mo → 288 Ko).
+- **Le champ `message` d'une perturbation est du HTML tiers** : jamais rendu, jamais transmis
+  par l'API. `title` et `shortMessage` sont du texte.
+- **La plupart des perturbations sont des travaux futurs** (4 en cours sur 15 au moment de la
+  mesure) : filtrer sur `applicationPeriods` couvrant l'instant, sinon on annonce une ligne
+  coupée trois semaines à l'avance. Ce filtre ne contredit pas la décision ci-dessous : il ne
+  masque aucun train.
 - **Décision produit ferme : PAS de seuil d'ETA pour masquer un train.** Un seuil ferait
   disparaître les trains lors des perturbations de trafic — exactement ce qu'on veut voir.
   Tout filtrage doit s'appuyer sur un **signal non temporel** (fiabilité du placement).

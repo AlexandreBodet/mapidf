@@ -22,7 +22,8 @@ class RealtimePollerResilienceTest {
     private static final String LINE_NINE = "STIF:Line::C01379:";
 
     private static PrimProperties prim() {
-        return new PrimProperties("", "apikey", "", "http://realtime", Duration.ofSeconds(10));
+        return new PrimProperties("", "apikey", "", "http://realtime", Duration.ofSeconds(10),
+            "", Duration.ofMinutes(5));
     }
 
     private static LineRegistry registryTracking(String... siriLineRefs) {

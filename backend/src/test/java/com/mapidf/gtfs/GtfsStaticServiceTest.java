@@ -9,7 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GtfsStaticServiceTest {
 
     private static PrimProperties prim(String gtfsUrl) {
-        return new PrimProperties("une-cle", "apikey", gtfsUrl, "", Duration.ofSeconds(60));
+        return new PrimProperties("une-cle", "apikey", gtfsUrl, "", Duration.ofSeconds(60),
+            "", Duration.ofMinutes(5));
     }
 
     private static final String MIRROR = "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip";

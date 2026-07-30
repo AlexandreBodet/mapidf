@@ -19,6 +19,10 @@ app:
   prim:
     gtfs-static-url: ""
     realtime-base-url: ""
+    # Même raison : DisruptionPoller.poll sort immédiatement sur une URL vide, donc aucun appel
+    # PRIM depuis les tests.
+    disruptions-url: ""
+    disruptions-poll-interval: PT5M
     api-key: "test-key-not-a-secret"
   network:
     modes: [METRO]
