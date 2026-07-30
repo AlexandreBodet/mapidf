@@ -7,6 +7,14 @@
 # Ce fichier remplace l'ancien backend/src/main/resources/application-test.yml (supprimé) :
 # les deux portaient le même nom classpath:/application-test.yml et se shadowaient
 # silencieusement (seul celui du classpath de test était résolu).
+spring:
+  datasource:
+    # Testcontainers fournit la vraie connexion (@ServiceConnection) ; ces valeurs n'existent que
+    # pour satisfaire ConfigurationGuard, qui refuse de démarrer sur une configuration absente.
+    # Sans elles, les tests exigeraient un .env — donc ne passeraient pas sur un autre poste.
+    url: "jdbc:postgresql://localhost:5432/remplacé-par-testcontainers"
+    username: "test-not-a-secret"
+    password: "test-not-a-secret"
 app:
   prim:
     gtfs-static-url: ""
