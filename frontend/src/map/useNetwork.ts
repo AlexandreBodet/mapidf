@@ -22,13 +22,9 @@ const RETRY_MS = 10_000;
 export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null): {
   network: NetworkResponse | null;
   status: NetworkStatus;
-  detail: string | null;
 } {
   const [network, setNetwork] = useState<NetworkResponse | null>(null);
-  const [state, setState] = useState<{ status: NetworkStatus; detail: string | null }>({
-    status: "loading",
-    detail: null,
-  });
+  const [status, setStatus] = useState<NetworkStatus>("loading");
 
   useEffect(() => {
     if (!map) {
@@ -43,10 +39,10 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
       if (cancelled) {
         return;
       }
-      setState({
-        status: "error",
-        detail: error instanceof Error ? error.message : String(error),
-      });
+      // Le bandeau reste en langage courant : la cause exacte n'a d'intérêt que pour qui ouvre
+      // la console.
+      console.warn("[network] chargement du réseau impossible, nouvelle tentative :", error);
+      setStatus("error");
       timer = window.setTimeout(load, RETRY_MS);
     };
 
@@ -59,12 +55,12 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
         return;
       }
       if (data.lines.length === 0) {
-        setState({ status: "empty", detail: null });
+        setStatus("empty");
         timer = window.setTimeout(load, RETRY_MS);
         return;
       }
       setNetwork(data);
-      setState({ status: "ready", detail: null });
+      setStatus("ready");
       const colorByLine = new Map(data.lines.map((line) => [line.id, line.color]));
 
       const draw = () => {
@@ -210,5 +206,5 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
     });
   }, [map, network, visibleLines]);
 
-  return { network, status: state.status, detail: state.detail };
+  return { network, status };
 }

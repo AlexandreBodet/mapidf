@@ -90,7 +90,7 @@ export function LinePicker({ lines, counts, visible, asOf, stale, onToggle, onSh
       </div>
       {stale && (
         <div style={{ color: "#b45309", marginTop: 6 }} role="status">
-          ⚠ Rafraîchissement interrompu — les positions affichées n'évoluent plus.
+          ⚠ Positions plus mises à jour — la connexion au service est interrompue.
         </div>
       )}
       <div style={{ color: "#666", marginTop: 6 }}>

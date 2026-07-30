@@ -41,7 +41,7 @@ export default function App() {
       ),
     [station],
   );
-  const { network, status, detail } = useNetwork(map, visibleLines);
+  const { network, status } = useNetwork(map, visibleLines);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
@@ -223,7 +223,7 @@ export default function App() {
   return (
     <>
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
-      <NetworkStatus status={status} detail={detail} />
+      <NetworkStatus status={status} />
       <VehiclePanel
         vehicle={selected}
         following={follow}
