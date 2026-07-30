@@ -60,7 +60,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 | ID | Chantier | Constat | Effort | Prio | Statut |
 |---|---|---|---|---|---|
-| PERF-1 | Robustesse du refresh GTFS | `GtfsStaticService.refresh` n'a **pas de timeout de requête** (seulement un `connectTimeout`), ne contrôle pas le code HTTP (contrairement à `RealtimePoller.fetch`) et ne fait aucun GET conditionnel : 109 Mo retéléchargés chaque jour même inchangés, une connexion pendue laisse le refresh suspendu, et une réponse d'erreur part au parseur ZIP | S | P1 | à faire |
+| PERF-1 | Robustesse du refresh GTFS | `refresh` n'avait ni timeout de requête, ni contrôle du code HTTP, ni GET conditionnel : 125 Mo retéléchargés chaque jour même inchangés, et une réponse d'erreur partait au parseur ZIP | S | P1 | **fait** (`If-None-Match`/`If-Modified-Since` — 304 mesuré sur le miroir —, 304 traité, non-2xx levé, `timeout` posé). **Limite assumée** : avec `ofInputStream`, `HttpRequest.timeout` borne l'attente de la réponse, pas le transfert des 125 Mo ; une connexion **gelée en cours de corps** suspendrait toujours le refresh (il faudrait un chien de garde qui ferme le flux) |
 | PERF-2 | Backoff sur 429 | `RealtimePoller.fetch` détecte bien le non-2xx mais réessaie au même rythme : sur dépassement de quota, on tape dans le mur toutes les 60 s | S | P2 | à faire |
 | PERF-3 | Cache HTTP de `/vehicles` | Aucun `ETag`/`Cache-Control` (contrairement à `/network`). Un cache serveur de ~1 s absorberait N clients | S | P2 | à faire |
 | PERF-4 | Interpolation côté client | Aujourd'hui 705 interpolations JTS + sérialisation **par client et par appel** (toutes les 4 s), alors que la source ne bouge qu'à 60 s. Envoyer le segment (`from`/`to` le long de la branche + horaires) une fois par minute et laisser le front interpoler sur une géométrie qu'il possède déjà : ~15× moins d'appels, coût serveur constant | L | P2 | à faire |
@@ -95,13 +95,12 @@ Arrêté le 2026-07-30. Critère : valeur visible rapportée à l'effort, les pe
 groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des tâches mais la
 porte d'un déploiement public, qui n'est pas d'actualité.
 
-1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**~~ — faits. **SEC-8** et
-   **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs lignes).
-2. **PERF-1** — timeout, contrôle du code HTTP et GET conditionnel sur le refresh GTFS. Trois
-   petites choses qui évitent 109 Mo par jour pour rien et un refresh pendu sans fin.
-3. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
+1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**~~ — faits.
+   **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
+   lignes).
+2. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
    chantiers derrière ; UX-3a a déjà ouvert le chemin d'affichage des statuts.
-4. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
+3. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
    nouveaux modes de panne à surveiller. Attention : la dépendance est triviale, mais la valeur
    n'arrive qu'avec un collecteur et des alertes — c'est là qu'est le vrai coût.
 

@@ -7,7 +7,7 @@ import type { NetworkResponse } from "../api/types";
 
 /**
  * `empty` = le backend répond 200 avec un réseau vide : c'est le premier démarrage, où il charge
- * le GTFS (~109 Mo) avant d'avoir quoi que ce soit à servir. Ni une panne, ni une erreur.
+ * le GTFS (~125 Mo) avant d'avoir quoi que ce soit à servir. Ni une panne, ni une erreur.
  */
 export type NetworkStatus = "loading" | "empty" | "error" | "ready";
 

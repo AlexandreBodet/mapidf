@@ -25,9 +25,9 @@ lancement le lisent — `docker compose` nativement, IntelliJ via sa configurati
 
 ## Premier démarrage
 À la première exécution (base vide, ou après une migration Flyway), le backend télécharge le
-GTFS IDFM complet (~109 Mo) et le charge avant que la carte n'ait quoi que ce soit à afficher.
-Pendant ce temps, `GET /api/network` répond **200 avec un réseau vide** (pas 404) : ce n'est pas
-une panne. Le front l'affiche désormais explicitement (« Réseau pas encore prêt ») et réessaie
+GTFS IDFM complet (~125 Mo, mesuré le 2026-07-30) et le charge avant que la carte n'ait quoi
+que ce soit à afficher. Pendant ce temps, `GET /api/network` répond **200 avec un réseau vide** (pas 404) : ce n'est pas
+une panne. Le front l'affiche désormais explicitement (« Plan en préparation ») et réessaie
 toutes les 10 s, au lieu de rester sur une carte vide jusqu'à un rechargement manuel. La
 progression se suit dans les logs backend : `[GTFS] N ligne(s) découverte(s) pour
 les modes [...]`, puis par ligne `[GTFS] ligne X (nom) : N candidate(s) → M branche(s)
@@ -41,7 +41,7 @@ ligne unique configurée à la main, ni de `LINE_ID` côté frontend : le front 
 réseau dynamiquement via `GET /api/network`.
 
 Le mode `METRO` est **pré-configuré** dans `application.yml` (`app.network.modes:
-[METRO]`, et `gtfs-static-url` = GTFS IDFM complet ~109 Mo, filtré en streaming par le
+[METRO]`, et `gtfs-static-url` = GTFS IDFM complet ~125 Mo, filtré en streaming par le
 backend pour ne garder que les lignes du ou des modes suivis). Rien d'autre à configurer que
 le `.env` décrit plus haut (`PRIM_API_KEY` + `POSTGRES_PASSWORD`). Pour suivre d'autres
 modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin).

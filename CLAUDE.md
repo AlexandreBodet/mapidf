@@ -69,7 +69,7 @@ et `app.network.exclude` (route_id à écarter) dans
 [application.yml](backend/src/main/resources/application.yml). Les lignes ne sont **pas**
 listées à la main : `GtfsStaticLoader.discoverLines` parcourt `routes.txt`, dérive le mode
 depuis `route_type`, et ne retient une route que si son mode est suivi et qu'elle n'est pas
-exclue. Le GTFS IDFM complet (~109 Mo) reste filtré **en streaming** par le loader, mais sur
+exclue. Le GTFS IDFM complet (~125 Mo) reste filtré **en streaming** par le loader, mais sur
 tout ce périmètre (plus une seule ligne cible). Le front n'a **plus de `LINE_ID`** : il
 charge le réseau dynamiquement via `GET /network`, il n'y a plus de résolution de ligne
 côté URL.
