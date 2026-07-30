@@ -281,6 +281,11 @@ export class VehicleLayer {
           "icon-rotate": ["get", "bearing"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
+          // `icon-allow-overlap` ne dit QUE « dessine-moi quand même » : la boîte de la flèche
+          // entre malgré tout dans la grille de collision et évince les symboles placés ensuite
+          // — dont `stops-labels`, en dessous donc placée après (MapLibre place du haut vers le
+          // bas). À 15 fps, les noms de stations clignotaient au passage des trains.
+          "icon-ignore-placement": true,
           // Borne basse alignée sur MIN_VEHICLE_ZOOM : rien n'est visible en dessous (minzoom
           // ci-dessus), inutile d'interpoler depuis un zoom inatteignable pour cette couche.
           "icon-size": ["interpolate", ["linear"], ["zoom"], MIN_VEHICLE_ZOOM, 0.5, 13, 0.85, 16, 1.5],
