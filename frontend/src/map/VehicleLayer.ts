@@ -11,6 +11,16 @@ const SNAP_DISTANCE_M = 300;
 // et divise d'autant le coût de setData (goulot à l'échelle réseau).
 const RENDER_INTERVAL_MS = 66;
 
+// Échelle de zoom voulue (retour utilisateur : au dézoom, 705 flèches formaient un tas
+// illisible — les trains doivent disparaître AVANT les stations) :
+//   zoom 10  → tracés seuls
+//   zoom 11  → tracés + stations
+//   zoom 12  → + trains          ← ouverture (cf. `zoom` initial dans MapView.tsx)
+//   zoom 13+ → + noms de stations
+// Partagée par les trois couches (vehicles, vehicles-halo, vehicles-highlight) : un halo ou
+// un anneau sans sa flèche serait pire que rien.
+const MIN_VEHICLE_ZOOM = 12;
+
 /**
  * Pourquoi les deux anneaux (`vehicles-halo`, `vehicles-highlight`) sont pilotés par
  * `setFilter` sur la propriété `journeyRef`, et NON par `feature-state` — qui est pourtant la
@@ -232,6 +242,7 @@ export class VehicleLayer {
         id: "vehicles-halo",
         type: "circle",
         source: "vehicles",
+        minzoom: MIN_VEHICLE_ZOOM,
         filter: journeyRefFilter([]),
         paint: {
           "circle-radius": 12,
@@ -247,6 +258,7 @@ export class VehicleLayer {
         id: "vehicles-highlight",
         type: "circle",
         source: "vehicles",
+        minzoom: MIN_VEHICLE_ZOOM,
         filter: journeyRefFilter([]),
         paint: {
           "circle-radius": 11,
@@ -262,12 +274,15 @@ export class VehicleLayer {
         id: "vehicles",
         type: "symbol",
         source: "vehicles",
+        minzoom: MIN_VEHICLE_ZOOM,
         layout: {
           "icon-image": ["get", "icon"],
           "icon-rotate": ["get", "bearing"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 13, 0.85, 16, 1.5],
+          // Borne basse alignée sur MIN_VEHICLE_ZOOM : rien n'est visible en dessous (minzoom
+          // ci-dessus), inutile d'interpoler depuis un zoom inatteignable pour cette couche.
+          "icon-size": ["interpolate", ["linear"], ["zoom"], MIN_VEHICLE_ZOOM, 0.5, 13, 0.85, 16, 1.5],
         },
         paint: {
           // APPROXIMATE = course à un seul appel SIRI (36 % du flux mesuré) : le train est
@@ -382,6 +397,17 @@ export class VehicleLayer {
   private render(now: number) {
     const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
     if (!source) {
+      return;
+    }
+    // Sous MIN_VEHICLE_ZOOM, les trois couches sont masquées par leur `minzoom` : un `setData`
+    // ici ne serait affiché par personne. On sort avant de calculer bounds/culling/features.
+    // Pas de nouvel écouteur pour rattraper le retour au-dessus du seuil : MapLibre émet déjà
+    // "move" pendant un zoom (molette, pincement, boutons de la NavigationControl, pas
+    // seulement un pan), et `moveHandler` (posé plus bas, sur cet événement) rappelle déjà
+    // render() dès que le throttle le permet — donc dès que le zoom repasse au-dessus, le
+    // prochain "move" (ou la prochaine frame de la boucle si des trains sont encore en train
+    // d'animer) refait un `setData` à jour. Rien à faire côté zoomend/moveend spécifiquement.
+    if (this.map.getZoom() < MIN_VEHICLE_ZOOM) {
       return;
     }
     // Culling : on n'envoie que les véhicules du viewport élargi (marge 20 %). Les anims
