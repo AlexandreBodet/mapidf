@@ -26,7 +26,10 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
         // demotiles n'affiche que les frontières (aucune rue).
         style: "https://tiles.openfreemap.org/styles/liberty",
         center: [2.34, 48.86],
-        zoom: 11,
+        // 12 = seuil d'apparition des trains (VehicleLayer.MIN_VEHICLE_ZOOM) : sous ce zoom,
+        // les trois couches véhicule sont masquées, donc ouvrir plus bas n'afficherait aucun
+        // train au chargement. Voir l'échelle complète en commentaire dans VehicleLayer.ts.
+        zoom: 12,
       });
       // Le style de fond (OpenFreeMap Liberty) référence des icônes de POI absentes de son
       // sprite (equestrian, ferry_terminal, office…), ce qui spamme la console d'erreurs

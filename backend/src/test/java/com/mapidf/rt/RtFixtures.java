@@ -7,6 +7,43 @@ final class RtFixtures {
     private RtFixtures() {
     }
 
+    static java.io.InputStream stream(byte[] json) {
+        return new java.io.ByteArrayInputStream(json);
+    }
+
+    /** Corps gzippé, comme PRIM le renvoie quand on envoie Accept-Encoding: gzip. */
+    static byte[] gzip(byte[] raw) throws java.io.IOException {
+        var out = new java.io.ByteArrayOutputStream();
+        try (var gz = new java.util.zip.GZIPOutputStream(out)) {
+            gz.write(raw);
+        }
+        return out.toByteArray();
+    }
+
+    // Course ligne 9 portant un RecordedAtTime plus vieux que la réponse (cas mesuré : 9 min
+    // d'écart sur une course à un seul appel).
+    static byte[] siriStaleJourneySample() {
+        String json = """
+            {"Siri":{"ServiceDelivery":{"ResponseTimestamp":"2026-07-22T14:00:00.000Z",
+              "EstimatedTimetableDelivery":[{"EstimatedJourneyVersionFrame":[{
+                "EstimatedVehicleJourney":[{
+                  "RecordedAtTime":"2026-07-22T13:51:00.000Z",
+                  "LineRef":{"value":"STIF:Line::C01379:"},
+                  "DirectionRef":{"value":"0"},
+                  "DatedVehicleJourneyRef":{"value":"J1"},
+                  "DestinationName":[{"value":"Gamma"}],
+                  "EstimatedCalls":{"EstimatedCall":[{
+                    "StopPointRef":{"value":"STIF:StopPoint:Q:2:"},
+                    "ExpectedDepartureTime":"2026-07-22T14:05:00.000Z",
+                    "DepartureStatus":"ON_TIME"
+                  }]}
+                }]
+              }]}]
+            }}}
+            """;
+        return json.getBytes(StandardCharsets.UTF_8);
+    }
+
     // La 9 est incluse dans le flux multi-lignes ; réutilisé par les tests de résilience.
     static byte[] siriLineNineSample() {
         return siriMultiLineSample();

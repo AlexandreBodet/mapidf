@@ -18,12 +18,16 @@ public record RtSnapshot(Instant asOf, Map<String, List<LiveJourney>> byLine) {
     }
 
     /**
-     * Une course temps réel = son identité + la liste de ses arrêts estimés (dans l'ordre du flux,
-     * PAS forcément trié). Le calcul de position ({@link com.mapidf.position.PositionEngine}) choisit
-     * l'arrêt imminent et interpole à partir de ces heures.
+     * Une course temps réel = son identité + la liste de ses arrêts estimés (dans l'ordre du
+     * flux, PAS trié).
+     *
+     * <p>{@code recordedAt} est l'horodatage de dernière mise à jour de la course, présent sur
+     * les 705 courses métro mesurées le 2026-07-29 (médiane 0,4 min, max 16,8 min d'âge).
+     * Information affichée telle quelle : ce n'est PAS un critère d'atténuation — mesuré sur
+     * une ligne 8 en perturbation, c'était la ligne à la donnée la plus fraîche du réseau.
      */
-    public record LiveJourney(String lineRef, String journeyRef, String directionRef, String destination,
-                              List<Call> calls) {
+    public record LiveJourney(String lineRef, String journeyRef, String directionRef,
+                              String destination, Instant recordedAt, List<Call> calls) {
 
         public LiveJourney {
             calls = List.copyOf(calls);

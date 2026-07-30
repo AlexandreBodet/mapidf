@@ -1,0 +1,17 @@
+# Le profil "test" (cf. @MapIdfTest) doit être hermétique. Sans ce fichier, @EnableScheduling
+# déclenche GtfsStaticService.refresh() avec initialDelay=0, qui télécharge les 109 Mo du GTFS
+# IDFM réel, et RealtimePoller.poll(), qui appelle PRIM — les deux échouant silencieusement
+# dans leur try/catch. Un refresh de fond écraserait en plus le LineRegistry en pleine IT.
+# Les deux méthodes sortent immédiatement quand leur URL est vide.
+#
+# Ce fichier remplace l'ancien backend/src/main/resources/application-test.yml (supprimé) :
+# les deux portaient le même nom classpath:/application-test.yml et se shadowaient
+# silencieusement (seul celui du classpath de test était résolu).
+app:
+  prim:
+    gtfs-static-url: ""
+    realtime-base-url: ""
+    api-key: "test-key-not-a-secret"
+  network:
+    modes: [METRO]
+    exclude: []

@@ -1,23 +1,25 @@
 package com.mapidf.rt;
 
-import com.mapidf.configurations.properties.LineProperties;
 import com.mapidf.configurations.properties.PrimProperties;
+import com.mapidf.network.LineRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -26,7 +28,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.GZIPInputStream;
 
 @Slf4j
 @Component
@@ -34,8 +40,12 @@ public class RealtimePoller {
 
     @FunctionalInterface
     public interface Fetcher {
-        byte[] get(String url) throws Exception;
+        InputStream get(String url) throws Exception;
     }
+
+    // Mesuré le 2026-07-29 : 5,8 s pour 3,96 Mo. On garde une marge confortable tout en
+    // restant nettement sous l'intervalle de poll (60 s), pour ne jamais chevaucher.
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(45);
 
     // Fenêtre de service métro (Europe/Paris), enjambe minuit : inutile de poller la nuit.
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
@@ -43,27 +53,53 @@ public class RealtimePoller {
     private static final LocalTime SERVICE_END = LocalTime.of(1, 30);
 
     private final PrimProperties prim;
-    private final LineProperties line;
     private final ObjectMapper objectMapper;
+    private final LineRegistry registry;
     private final AtomicReference<RtSnapshot> snapshot = new AtomicReference<>(RtSnapshot.empty());
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build();
     private Counter pollFailures;
+    private MeterRegistry meters;
+    // Une jauge par ligne suivie, exigée par la spec comme garde-fou de son risque n°1 : si IDFM
+    // introduit une ligne au code atypique, la dérivation du LineRef échoue et la ligne tombe à
+    // zéro train. Agrégé sur le réseau, le total resterait de l'ordre de 700 et ne dirait rien.
+    // Micrometer ne garde qu'une référence FAIBLE vers l'état d'une jauge : ces AtomicInteger
+    // doivent donc vivre dans le poller, sinon la jauge renverrait NaN après un GC.
+    private final Map<String, AtomicInteger> journeysByLine = new ConcurrentHashMap<>();
 
-    public RealtimePoller(PrimProperties prim, LineProperties line, ObjectMapper objectMapper) {
+    public RealtimePoller(PrimProperties prim, ObjectMapper objectMapper, LineRegistry registry) {
         this.prim = prim;
-        this.line = line;
         this.objectMapper = objectMapper;
+        this.registry = registry;
     }
 
     @Autowired
-    public void attachMetrics(MeterRegistry registry) {
-        this.pollFailures = registry.counter("mapidf.rt.poll.failures");
-        registry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
+    public void attachMetrics(MeterRegistry meterRegistry) {
+        this.meters = meterRegistry;
+        this.pollFailures = meterRegistry.counter("mapidf.rt.poll.failures");
+        meterRegistry.gauge("mapidf.rt.snapshot.age.seconds", snapshot,
             ref -> ref.get().asOf().equals(Instant.EPOCH)
                 ? 0.0
                 : Duration.between(ref.get().asOf(), Instant.now()).getSeconds());
+    }
+
+    /**
+     * Nombre de courses temps réel retenues, par ligne suivie. Publié pour TOUTES les lignes du
+     * registry, y compris celles absentes du flux : c'est précisément le zéro qu'on veut voir.
+     */
+    private void publishJourneyGauges(RtSnapshot fresh) {
+        if (meters == null) {
+            return;
+        }
+        registry.current().linesBySiriRef().forEach((siriLineRef, line) -> journeysByLine
+            .computeIfAbsent(line.id(), id -> {
+                AtomicInteger holder = new AtomicInteger();
+                meters.gauge("mapidf.rt.journeys", List.of(Tag.of("line", id)),
+                    holder, AtomicInteger::get);
+                return holder;
+            })
+            .set(fresh.forLine(siriLineRef).size()));
     }
 
     public RtSnapshot current() {
@@ -72,6 +108,11 @@ public class RealtimePoller {
 
     // fixedDelay : le prochain poll ne démarre qu'après la fin du précédent → pas de
     // chevauchement ni de rafale de connexions vers PRIM si un appel traîne.
+    //
+    // Le flux estimated-timetable est désormais appelé SANS filtre : il couvre tout le
+    // réseau (12 018 courses/1 013 lignes mesurées le 2026-07-29) en un seul appel, à quota
+    // constant quel que soit le nombre de lignes suivies. Le périmètre (LineRef SIRI des
+    // lignes suivies) est appliqué à la lecture, dans parse(), depuis LineRegistry.
     @Scheduled(fixedDelayString = "${app.prim.poll-interval}")
     public void poll() {
         if (prim.realtimeBaseUrl() == null || prim.realtimeBaseUrl().isBlank()) {
@@ -88,76 +129,98 @@ public class RealtimePoller {
         return !now.isBefore(SERVICE_START) || now.isBefore(SERVICE_END);
     }
 
-    void pollOnce(Fetcher fetcher, Instant asOf) {
-        try {
-            snapshot.set(parse(objectMapper, fetcher.get(buildUrl()), asOf));
+    // public (et non package-private) pour permettre aux IT de contrôleur d'injecter un
+    // snapshot déterministe sans appeler PRIM : le poll réel passe par poll(), planifié.
+    public void pollOnce(Fetcher fetcher, Instant asOf) {
+        try (InputStream body = fetcher.get(prim.realtimeBaseUrl())) {
+            RtSnapshot fresh = parse(objectMapper, body, asOf, registry.trackedSiriLineRefs());
+            snapshot.set(fresh);
+            publishJourneyGauges(fresh);
             log.info("[RT] Poll réussi");
         } catch (Exception e) {
             if (pollFailures != null) {
                 pollFailures.increment();
             }
-            log.warn("[RT] Échec du poll, snapshot conservé: {}", e.getMessage());
+            log.warn("[RT] Échec du poll, snapshot conservé : {}", e.getMessage());
         }
     }
 
-    // estimated-timetable : sans LineRef = tout le réseau (prêt multi-lignes) ;
-    // avec LineRef = filtré sur la ligne suivie (réponse légère au MVP mono-ligne).
-    private String buildUrl() {
-        String base = prim.realtimeBaseUrl();
-        if (line.siriLineRef() == null || line.siriLineRef().isBlank()) {
-            return base;
-        }
-        return base + "?LineRef=" + URLEncoder.encode(line.siriLineRef(), StandardCharsets.UTF_8);
-    }
-
-    private byte[] fetch(String url) throws Exception {
+    // Package-private (et non private) pour permettre à un test de vérifier le décodage gzip
+    // au niveau HTTP réel, sans passer par parse() (qui, lui, ignore totalement l'encodage).
+    InputStream fetch(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
             .header(prim.authHeader(), prim.apiKey())
-            .timeout(Duration.ofSeconds(10))  // bien < l'intervalle de poll (60 s)
+            // Le HttpClient de Java ne négocie pas gzip tout seul et ne décompresse pas : on
+            // demande explicitement et on décode. Mesuré : 3,96 Mo au lieu de 45,6 Mo (×11,5),
+            // soit ~4,7 Go/jour au lieu de ~55.
+            .header("Accept-Encoding", "gzip")
+            .timeout(REQUEST_TIMEOUT)
             .GET()
             .build();
-        HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        // On DOIT vérifier le code HTTP : sur 429 (quota) ou 5xx, PRIM renvoie un corps
-        // JSON d'erreur qui se parserait en 0 course et écraserait le dernier bon snapshot.
-        // En levant ici, pollOnce conserve le snapshot précédent (dégradation gracieuse).
+        HttpResponse<InputStream> response =
+            httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        // On DOIT vérifier le code HTTP : sur 429 (quota) ou 5xx, PRIM renvoie un corps JSON
+        // d'erreur qui se parserait en 0 course et écraserait le dernier bon snapshot.
         if (response.statusCode() / 100 != 2) {
+            response.body().close();
             throw new IOException("réponse HTTP " + response.statusCode() + " de PRIM");
         }
-        return response.body();
+        boolean gzipped = response.headers().firstValue("Content-Encoding")
+            .map(value -> value.toLowerCase(java.util.Locale.ROOT).contains("gzip"))
+            .orElse(false);
+        return gzipped ? new GZIPInputStream(response.body()) : response.body();
     }
 
-    // Parse le flux SIRI-ET (global ou filtré) en indexant les courses par LineRef.
-    static RtSnapshot parse(ObjectMapper mapper, byte[] json, Instant asOf) {
-        if (json == null || json.length == 0) {
-            return new RtSnapshot(asOf, Map.of());
-        }
-        JsonNode deliveries = mapper.readTree(json)
-            .path("Siri").path("ServiceDelivery").path("EstimatedTimetableDelivery");
-
+    /**
+     * Parse le flux SIRI global en streaming : on avance jusqu'aux {@code
+     * EstimatedVehicleJourney} et on lit UNE course à la fois en sous-arbre, gardée seulement si
+     * son {@code LineRef} est suivi. Pic mémoire = une course, au lieu des 45,6 Mo du corps plus
+     * l'arbre complet qu'imposait {@code readTree(byte[])}.
+     *
+     * <p>Un ensemble de lignes vide (registry pas encore réhydraté) ne matérialise rien : le
+     * poll suivant reprendra avec un registry rempli.
+     */
+    static RtSnapshot parse(ObjectMapper mapper, InputStream body, Instant asOf,
+                            Set<String> trackedLineRefs) {
         Map<String, List<RtSnapshot.LiveJourney>> byLine = new HashMap<>();
-        for (JsonNode delivery : deliveries) {
-            for (JsonNode frame : delivery.path("EstimatedJourneyVersionFrame")) {
-                for (JsonNode journey : frame.path("EstimatedVehicleJourney")) {
-                    try {
-                        RtSnapshot.LiveJourney live = toJourney(journey);
-                        if (live != null) {
-                            byLine.computeIfAbsent(live.lineRef(), key -> new ArrayList<>()).add(live);
-                        }
-                    } catch (RuntimeException e) {
-                        // Une course pourrie (horodatage illisible, structure inattendue) ne doit pas
-                        // faire perdre tout le snapshot — surtout en réseau complet (multi-ligne).
-                        log.warn("[RT] Course ignorée (parse impossible): {}", e.getMessage());
+        try (JsonParser parser = mapper.createParser(body)) {
+            while (parser.nextToken() != null) {
+                if (parser.currentToken() != JsonToken.PROPERTY_NAME
+                    || !"EstimatedVehicleJourney".equals(parser.currentName())) {
+                    continue;
+                }
+                JsonToken value = parser.nextToken();
+                if (value == JsonToken.START_ARRAY) {
+                    while (parser.nextToken() != JsonToken.END_ARRAY) {
+                        collect(parser.readValueAsTree(), trackedLineRefs, byLine);
                     }
+                } else if (value == JsonToken.START_OBJECT) {
+                    collect(parser.readValueAsTree(), trackedLineRefs, byLine);
                 }
             }
         }
         return new RtSnapshot(asOf, byLine);
     }
 
-    // Construit la course = son identité + TOUS ses appels (arrêts estimés). La liste du flux
-    // n'est ni triée ni bornée au prochain arrêt : le tri et le choix de l'arrêt imminent se font
-    // dans PositionEngine (qui connaît l'instant de calcul). On ignore les appels sans arrêt/heure.
-    private static RtSnapshot.LiveJourney toJourney(JsonNode journey) {
+    private static void collect(JsonNode journey, Set<String> trackedLineRefs,
+                                Map<String, List<RtSnapshot.LiveJourney>> byLine) {
+        String lineRef = journey.path("LineRef").path("value").asString("");
+        if (!trackedLineRefs.contains(lineRef)) {
+            return;
+        }
+        try {
+            RtSnapshot.LiveJourney live = toJourney(journey, lineRef);
+            if (live != null) {
+                byLine.computeIfAbsent(lineRef, key -> new ArrayList<>()).add(live);
+            }
+        } catch (RuntimeException e) {
+            // Une course pourrie ne doit pas faire perdre tout le snapshot — surtout en réseau
+            // complet, où une seule course cassée coûterait les 705 autres.
+            log.warn("[RT] Course ignorée (parse impossible) : {}", e.getMessage());
+        }
+    }
+
+    private static RtSnapshot.LiveJourney toJourney(JsonNode journey, String lineRef) {
         List<RtSnapshot.LiveJourney.Call> calls = new ArrayList<>();
         for (JsonNode call : callList(journey.path("EstimatedCalls").path("EstimatedCall"))) {
             String stopRef = call.path("StopPointRef").path("value").asString(null);
@@ -171,17 +234,19 @@ public class RealtimePoller {
         if (calls.isEmpty()) {
             return null;
         }
-        String lineRef = journey.path("LineRef").path("value").asString("");
         String directionRef = journey.path("DirectionRef").path("value").asString("");
         String destination = firstValue(journey.path("DestinationName"));
-        // DatedVehicleJourneyRef est souvent absent : on replie sur une identité composite
-        // (et non sur le seul stopRef, qui collisionnerait entre deux courses de sens opposés
-        // partageant leur premier arrêt du flux non trié) → pas de fusion de trains côté front.
+        String recordedAtRaw = journey.path("RecordedAtTime").asString(null);
+        Instant recordedAt = recordedAtRaw == null ? null : Instant.parse(recordedAtRaw);
+        // Mesuré le 2026-07-29 : DatedVehicleJourneyRef est renseigné sur les 705 courses
+        // métro, donc l'identité est stable entre deux polls (ce qui fait vivre l'animation
+        // à 705 véhicules). Le repli composite ne sert qu'aux modes moins bien renseignés.
         String journeyRef = journey.path("DatedVehicleJourneyRef").path("value").asString(null);
         if (journeyRef == null) {
             journeyRef = lineRef + "|" + directionRef + "|" + destination + "|" + calls.getFirst().time();
         }
-        return new RtSnapshot.LiveJourney(lineRef, journeyRef, directionRef, destination, calls);
+        return new RtSnapshot.LiveJourney(lineRef, journeyRef, directionRef, destination,
+            recordedAt, calls);
     }
 
     private static List<JsonNode> callList(JsonNode callsNode) {

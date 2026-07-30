@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -11,15 +12,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RealtimePollerParseTest {
 
+    private static final String LINE_NINE = "STIF:Line::C01379:";
+    private static final String LINE_ONE = "STIF:Line::C01371:";
+
     @Test
     void indexesEstimatedTimetableByLine() {
         RtSnapshot snapshot = RealtimePoller.parse(
-            new ObjectMapper(), RtFixtures.siriMultiLineSample(), Instant.parse("2026-07-22T14:00:00Z"));
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE, LINE_ONE));
 
-        List<RtSnapshot.LiveJourney> nine = snapshot.forLine("STIF:Line::C01379:");
+        List<RtSnapshot.LiveJourney> nine = snapshot.forLine(LINE_NINE);
         assertThat(nine).hasSize(1);
         RtSnapshot.LiveJourney journey = nine.getFirst();
-        assertThat(journey.lineRef()).isEqualTo("STIF:Line::C01379:");
+        assertThat(journey.lineRef()).isEqualTo(LINE_NINE);
         assertThat(journey.journeyRef()).isEqualTo("J1");
         assertThat(journey.directionRef()).isEqualTo("0");
         assertThat(journey.destination()).isEqualTo("Gamma");
@@ -29,7 +34,7 @@ class RealtimePollerParseTest {
             assertThat(call.departureStatus()).isEqualTo("ON_TIME");
         });
 
-        assertThat(snapshot.forLine("STIF:Line::C01371:")).extracting(RtSnapshot.LiveJourney::journeyRef)
+        assertThat(snapshot.forLine(LINE_ONE)).extracting(RtSnapshot.LiveJourney::journeyRef)
             .containsExactly("J2");
         assertThat(snapshot.forLine("STIF:Line::UNKNOWN:")).isEmpty();
     }
@@ -39,9 +44,10 @@ class RealtimePollerParseTest {
         // parse ne trie pas et ne filtre pas : il garde tous les appels tels quels (le choix de
         // l'arrêt imminent revient à PositionEngine). Le tableau EstimatedCall est non trié.
         RtSnapshot snapshot = RealtimePoller.parse(
-            new ObjectMapper(), RtFixtures.siriUnorderedCallsSample(), Instant.parse("2026-07-22T14:00:00Z"));
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriUnorderedCallsSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
 
-        RtSnapshot.LiveJourney journey = snapshot.forLine("STIF:Line::C01379:").getFirst();
+        RtSnapshot.LiveJourney journey = snapshot.forLine(LINE_NINE).getFirst();
         assertThat(journey.calls()).extracting(RtSnapshot.LiveJourney.Call::stopRef)
             .containsExactly("STIF:StopPoint:Q:5:", "STIF:StopPoint:Q:2:",
                 "STIF:StopPoint:Q:1:", "STIF:StopPoint:Q:8:");
@@ -71,7 +77,8 @@ class RealtimePollerParseTest {
                    {"StopPointRef":{"value":"STIF:StopPoint:Q:222:"},"ExpectedArrivalTime":"pas-une-date","DepartureStatus":"ON_TIME"}]}}
               ]}]}]}}}
             """;
-        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(), json.getBytes(StandardCharsets.UTF_8), Instant.now());
+        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(),
+            RtFixtures.stream(json.getBytes(StandardCharsets.UTF_8)), Instant.now(), Set.of("L"));
         List<RtSnapshot.LiveJourney> journeys = snapshot.forLine("L");
         assertThat(journeys).hasSize(1);
         assertThat(journeys.getFirst().journeyRef()).isEqualTo("BON");
@@ -90,9 +97,67 @@ class RealtimePollerParseTest {
                    {"StopPointRef":{"value":"STIF:StopPoint:Q:111:"},"ExpectedArrivalTime":"2026-07-28T09:00:00.000Z"}]}}
               ]}]}]}}}
             """;
-        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(), json.getBytes(StandardCharsets.UTF_8), Instant.now());
+        RtSnapshot snapshot = RealtimePoller.parse(new ObjectMapper(),
+            RtFixtures.stream(json.getBytes(StandardCharsets.UTF_8)), Instant.now(), Set.of("L"));
         List<RtSnapshot.LiveJourney> journeys = snapshot.forLine("L");
         assertThat(journeys).hasSize(2);
         assertThat(journeys.get(0).journeyRef()).isNotEqualTo(journeys.get(1).journeyRef());
+    }
+
+    @Test
+    void keepsOnlyTheTrackedLinesOfTheGlobalFeed() {
+        // Le flux global couvre 1 013 lignes pour 12 018 courses ; on n'en matérialise que
+        // celles du périmètre, au fil de l'eau.
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
+
+        assertThat(snapshot.byLine()).containsOnlyKeys(LINE_NINE);
+        assertThat(snapshot.forLine(LINE_ONE)).isEmpty();
+    }
+
+    @Test
+    void keepsSeveralLinesWhenSeveralAreTracked() {
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE, LINE_ONE));
+
+        assertThat(snapshot.byLine()).containsOnlyKeys(LINE_NINE, LINE_ONE);
+        assertThat(snapshot.forLine(LINE_ONE)).singleElement()
+            .extracting(RtSnapshot.LiveJourney::destination).isEqualTo("Delta");
+    }
+
+    @Test
+    void keepsNothingWhenNoLineIsTrackedYet() {
+        // Registry pas encore réhydraté : on ne sait pas quoi suivre, donc on ne matérialise
+        // rien plutôt que d'ingérer les 12 018 courses du réseau. Le poll suivant (≤60 s)
+        // reprendra avec un registry rempli.
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of());
+
+        assertThat(snapshot.byLine()).isEmpty();
+    }
+
+    @Test
+    void readsTheRecordedAtTimeOfEachJourney() {
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriStaleJourneySample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
+
+        assertThat(snapshot.forLine(LINE_NINE)).singleElement()
+            .extracting(RtSnapshot.LiveJourney::recordedAt)
+            .isEqualTo(Instant.parse("2026-07-22T13:51:00Z"));
+    }
+
+    @Test
+    void toleratesAJourneyWithoutRecordedAtTime() {
+        // Les fixtures historiques n'en portent pas : l'absence ne doit pas perdre la course.
+        RtSnapshot snapshot = RealtimePoller.parse(
+            new ObjectMapper(), RtFixtures.stream(RtFixtures.siriMultiLineSample()),
+            Instant.parse("2026-07-22T14:00:00Z"), Set.of(LINE_NINE));
+
+        assertThat(snapshot.forLine(LINE_NINE)).singleElement()
+            .extracting(RtSnapshot.LiveJourney::recordedAt).isNull();
     }
 }

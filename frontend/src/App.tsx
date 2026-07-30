@@ -1,61 +1,93 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { useMap } from "./map/MapView";
-import { useLineShape } from "./map/useLineShape";
+import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
-import { Legend } from "./ui/Legend";
-import { fetchDepartures } from "./api/lines";
-import { LINE_ID, VEHICLE_POLL_MS } from "./api/config";
-import type { VehiclesResponse, DeparturesResponse, VehicleSummary } from "./api/types";
+import { LinePicker } from "./ui/LinePicker";
+import { fetchDepartures } from "./api/network";
+import { VEHICLE_POLL_MS } from "./api/config";
+import type { DeparturesResponse, Vehicle } from "./api/types";
+import type { VehicleFeatureProperties } from "./map/VehicleLayer";
 
-type V = VehiclesResponse["vehicles"][number];
-type Selected = VehicleSummary | null;
-
-function toSelected(v: V): Selected {
-  return { headsign: v.headsign, nextStop: v.nextStop, status: v.status, source: v.source, expectedTime: v.expectedTime };
-}
+// Un clic direct sur une flèche ne fournit que journeyRef (VehicleFeatureProperties, allégée
+// tâche 14 : headsign/nextStop/expectedTime/status n'y sont plus). Le Vehicle complet vient
+// de la Map tenue par useVehicles, qui rappelle onSelected dès que selectedJourneyRef change.
+type Selected = Vehicle | null;
 
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
   const departuresAbort = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [selectedJourneyRef, setSelectedJourneyRef] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [lineColor, setLineColor] = useState("#e30613");
-  const [count, setCount] = useState(0);
+  const [visibleLines, setVisibleLines] = useState<Set<string> | null>(null);
+  const [counts, setCounts] = useState<Map<string, number>>(new Map());
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
-  const highlightedTripIds = useMemo(
-    () => new Set(station?.directions.flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? []),
+  // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
+  const highlightedJourneyRefs = useMemo(
+    () =>
+      new Set(
+        station?.lines.flatMap((l) => l.directions).flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? [],
+      ),
     [station],
   );
-  useLineShape(map, LINE_ID, setLineColor);
+  const network = useNetwork(map, visibleLines);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
-  useVehicles(map, LINE_ID, lineColor, selectedTripId, follow, (v) => {
+  useVehicles(map, network, selectedJourneyRef, follow, (v) => {
     if (v) {
-      setSelected(toSelected(v));
+      setSelected(v);
     }
-  }, setCount, highlightedTripIds);
+  }, setCounts, highlightedJourneyRefs, visibleLines);
+
+  const toggleLine = (lineId: string) => {
+    setVisibleLines((current) => {
+      // Premier clic depuis « toutes » (visibleLines === null) : on isole la ligne cliquée
+      // plutôt que de la retirer d'un ensemble complet — c'est l'intention la plus fréquente
+      // sur 16 lignes (voir une seule ligne), et retirer demanderait 15 clics sinon.
+      if (current === null) {
+        return new Set([lineId]);
+      }
+      const all = new Set(network?.lines.map((line) => line.id) ?? []);
+      const next = new Set(current);
+      if (next.has(lineId)) {
+        // Ne pas vider la carte d'un clic : si c'est la dernière ligne encore visible, on la
+        // garde (no-op). « tout afficher » reste l'échappatoire explicite, mais un clic isolé
+        // ne doit pas produire un état vide silencieux.
+        if (next.size === 1) {
+          // `current`, pas `next` : renvoyer un Set neuf pour un no-op déclenche un re-render et
+          // le refiltrage des 321 stations pour rien.
+          return current;
+        }
+        next.delete(lineId);
+      } else {
+        next.add(lineId);
+      }
+      return next.size === all.size ? null : next;
+    });
+  };
 
   useEffect(() => {
     if (!map) {
       return;
     }
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      const props = e.features?.[0]?.properties;
+      const props = e.features?.[0]?.properties as VehicleFeatureProperties | undefined;
       if (!props) {
         return;
       }
       setStation(null);
       setSelectedStationId(null);
       map.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
-      setSelected(props as Selected);
-      setSelectedTripId(props.tripId as string);
+      // Pas de setSelected ici : la feature ne porte plus le Vehicle complet (tâche 14).
+      // useVehicles rappelle onSelected avec le Vehicle depuis sa Map dès que
+      // selectedJourneyRef change, ci-dessous.
+      setSelectedJourneyRef(props.journeyRef);
       setFollow(true);
     };
     map.on("click", "vehicles", onClick);
@@ -67,7 +99,7 @@ export default function App() {
       }
       // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
       setSelected(null);
-      setSelectedTripId(null);
+      setSelectedJourneyRef(null);
       setFollow(false);
       map.setFilter("stops-selected", ["==", ["get", "id"], id]);
       if (coords) {
@@ -78,7 +110,7 @@ export default function App() {
       const controller = new AbortController();
       departuresAbort.current = controller;
       try {
-        const fresh = await fetchDepartures(LINE_ID, id, controller.signal);
+        const fresh = await fetchDepartures(id, controller.signal);
         if (!controller.signal.aborted) {
           setStation(fresh);
         }
@@ -133,7 +165,7 @@ export default function App() {
     const controller = new AbortController();
     const tick = async () => {
       try {
-        const fresh = await fetchDepartures(LINE_ID, selectedStationId, controller.signal);
+        const fresh = await fetchDepartures(selectedStationId, controller.signal);
         if (!cancelled) {
           setStation(fresh);
         }
@@ -154,7 +186,7 @@ export default function App() {
 
   const clearSelection = () => {
     setSelected(null);
-    setSelectedTripId(null);
+    setSelectedJourneyRef(null);
     setFollow(false);
   };
 
@@ -166,10 +198,10 @@ export default function App() {
     map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
   };
 
-  const followTrainFromPanel = (tripId: string) => {
+  const followTrainFromPanel = (journeyRef: string) => {
     closeStation();
     setSelected(null);
-    setSelectedTripId(tripId);
+    setSelectedJourneyRef(journeyRef);
     setFollow(true);
   };
 
@@ -182,8 +214,23 @@ export default function App() {
         onFollow={() => setFollow((f) => !f)}
         onClose={clearSelection}
       />
-      <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
-      <Legend color={lineColor} count={count} />
+      <StopPanel
+        data={station}
+        onClose={closeStation}
+        onSelectTrain={followTrainFromPanel}
+        // Isolement inconditionnel : même intention qu'un clic dans LinePicker, quel que
+        // soit visibleLines courant. La station reste affichée par construction : elle est
+        // desservie par lineId (c'est sa propre pastille), donc son filtre dans useNetwork
+        // (station.lineIds.some(id => visibleLines.has(id))) la garde visible.
+        onSelectLine={(lineId) => setVisibleLines(new Set([lineId]))}
+      />
+      <LinePicker
+        lines={network?.lines ?? []}
+        counts={counts}
+        visible={visibleLines}
+        onToggle={toggleLine}
+        onShowAll={() => setVisibleLines(null)}
+      />
     </>
   );
 }
