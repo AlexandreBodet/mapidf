@@ -7,6 +7,9 @@ interface Props {
   counts: Map<string, number>;
   /** Perturbations en cours par ligne ; une ligne absente n'a rien à signaler. */
   disruptions: Map<string, LineDisruptions>;
+  /** Liste des perturbations ouverte. Piloté par App : la carte s'en sert pour l'emphase. */
+  disruptionsOpen: boolean;
+  onToggleDisruptions: () => void;
   /** null = toutes les lignes visibles. */
   visible: Set<string> | null;
   /** Horodatage du dernier snapshot servi par `/vehicles` ; null avant le premier poll. */
@@ -27,14 +30,36 @@ function withoutLinePrefix(title: string): string {
   return separator > 0 ? title.slice(separator + 3) : title;
 }
 
+/**
+ * Le flux met « Autre » en résumé quand il n'en a pas — mesuré sur « Métro 14 / 5 / 4 :
+ * Information - Autre », dont tout le sens était dans le message. Le libellé de gravité en dit
+ * alors davantage.
+ */
+function badgeText(shortMessage: string, fallback: string): string {
+  return !shortMessage || shortMessage.toLowerCase() === "autre" ? fallback : shortMessage;
+}
+
 /** Ordre humain : 1, 2, 3, 3b, 4… 14 — et non l'ordre alphabétique, qui mettrait 14 avant 3. */
 function humanOrder(a: NetworkLine, b: NetworkLine): number {
   const num = (id: string) => Number.parseInt(id, 10) || Number.MAX_SAFE_INTEGER;
   return num(a.id) - num(b.id) || a.id.localeCompare(b.id);
 }
 
-export function LinePicker({ lines, counts, disruptions, visible, asOf, stale, onToggle, onShowAll }: Props) {
-  const [showDisruptions, setShowDisruptions] = useState(false);
+export function LinePicker({
+  lines, counts, disruptions, disruptionsOpen, onToggleDisruptions,
+  visible, asOf, stale, onToggle, onShowAll,
+}: Props) {
+  // Quelles perturbations ont leur détail déplié. Fermé par défaut : le détail fait souvent
+  // plusieurs lignes, et l'essentiel tient dans le badge.
+  const [openDetails, setOpenDetails] = useState<Set<string>>(new Set());
+  const toggleDetail = (key: string) =>
+    setOpenDetails((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) {
+        next.add(key);
+      }
+      return next;
+    });
   const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
   const sorted = [...lines].sort(humanOrder);
   // Ordre humain aussi dans la liste : elle se lit à côté des pastilles.
@@ -66,27 +91,28 @@ export function LinePicker({ lines, counts, disruptions, visible, asOf, stale, o
       </div>
       {disrupted.length > 0 && (
         <button
-          onClick={() => setShowDisruptions((open) => !open)}
+          onClick={onToggleDisruptions}
           style={{
             marginTop: 6, padding: 0, border: "none", background: "none", cursor: "pointer",
             font: "inherit", color: "#b45309", textAlign: "left",
           }}
-          aria-expanded={showDisruptions}
+          aria-expanded={disruptionsOpen}
         >
           {disrupted.length === 1
             ? "1 ligne perturbée"
             : `${disrupted.length} lignes perturbées`}
-          {showDisruptions ? " ▾" : " ▸"}
+          {disruptionsOpen ? " ▾" : " ▸"}
         </button>
       )}
-      {showDisruptions && (
+      {disruptionsOpen && (
         <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
           {disrupted.flatMap((line) =>
             disruptions.get(line.id)!.items.map((item, index) => {
               const style = severityStyle(item.severity);
+              const key = `${line.id}-${index}`;
               return (
                 <li
-                  key={`${line.id}-${index}`}
+                  key={key}
                   style={{
                     display: "flex", gap: 6, alignItems: "flex-start",
                     padding: "6px 0", borderTop: "1px solid #eee",
@@ -110,11 +136,35 @@ export function LinePicker({ lines, counts, disruptions, visible, asOf, stale, o
                         background: style.color, color: "#fff", font: "bold 11px sans-serif",
                       }}
                     >
-                      {item.shortMessage || style.label}
+                      {badgeText(item.shortMessage, style.label)}
                     </span>
                     {/* Le titre répète l'indice de ligne (« Métro 13 : … »), déjà porté par la
-                        pastille : on n'en garde que la cause. */}
-                    <span style={{ color: "#444", marginLeft: 6 }}>{withoutLinePrefix(item.title)}</span>
+                        pastille : on n'en garde que la cause. Cliquable seulement s'il y a un
+                        détail à révéler — sinon le curseur mentirait. */}
+                    {item.detail ? (
+                      <button
+                        onClick={() => toggleDetail(key)}
+                        aria-expanded={openDetails.has(key)}
+                        style={{
+                          border: "none", background: "none", padding: 0, marginLeft: 6,
+                          font: "inherit", color: "#1d4ed8", cursor: "pointer", textAlign: "left",
+                        }}
+                      >
+                        {withoutLinePrefix(item.title)}{openDetails.has(key) ? " ▾" : " ▸"}
+                      </button>
+                    ) : (
+                      <span style={{ color: "#444", marginLeft: 6 }}>{withoutLinePrefix(item.title)}</span>
+                    )}
+                    {openDetails.has(key) && (
+                      // `pre-line` : le texte brut du serveur garde ses sauts de ligne. Hauteur
+                      // bornée, certains messages font un paragraphe entier.
+                      <div style={{
+                        color: "#555", marginTop: 4, whiteSpace: "pre-line",
+                        maxHeight: 140, overflowY: "auto",
+                      }}>
+                        {item.detail}
+                      </div>
+                    )}
                   </span>
                 </li>
               );

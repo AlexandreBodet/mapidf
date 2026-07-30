@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -215,7 +216,25 @@ public class DisruptionPoller {
             node.path("cause").asString(""),
             node.path("title").asString(""),
             node.path("shortMessage").asString(""),
+            toPlainText(node.path("message").asString("")),
             periods);
+    }
+
+    /**
+     * HTML du flux → texte brut. Les sauts de ligne structurants sont conservés, le reste des
+     * balises tombe, et les entités sont décodées ({@code P&#233;riode} → « Période »).
+     */
+    static String toPlainText(String html) {
+        if (html == null || html.isBlank()) {
+            return "";
+        }
+        String withBreaks = html.replaceAll("(?i)<br\\s*/?>|</p\\s*>", "\n");
+        String stripped = withBreaks.replaceAll("<[^>]*>", "");
+        return HtmlUtils.htmlUnescape(stripped)
+            .replaceAll("[ \\t\\u00A0]+", " ")
+            .replaceAll(" ?\n ?", "\n")
+            .replaceAll("\n{2,}", "\n")
+            .strip();
     }
 
     private static Instant instantOf(String raw) {

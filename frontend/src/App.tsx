@@ -33,6 +33,9 @@ export default function App() {
   // date de mise à jour de la donnée (Licence Mobilité, art. 5.7 « neutralité et loyauté »).
   const [asOf, setAsOf] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  // Remonté ici parce que la carte en dépend : panneau ouvert = stations perturbées mises en
+  // évidence par un halo.
+  const [disruptionsOpen, setDisruptionsOpen] = useState(false);
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -43,7 +46,7 @@ export default function App() {
     [station],
   );
   const disruptions = useDisruptions();
-  const { network, status } = useNetwork(map, visibleLines, disruptions.stationSeverity);
+  const { network, status } = useNetwork(map, visibleLines, disruptions.stationSeverity, disruptionsOpen);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
@@ -246,6 +249,8 @@ export default function App() {
         lines={network?.lines ?? []}
         counts={counts}
         disruptions={disruptions.byLine}
+        disruptionsOpen={disruptionsOpen}
+        onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}
         asOf={asOf}
         stale={stale}
         visible={visibleLines}

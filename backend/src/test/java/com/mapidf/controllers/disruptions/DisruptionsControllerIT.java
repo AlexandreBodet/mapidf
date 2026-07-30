@@ -39,7 +39,7 @@ class DisruptionsControllerIT {
           "disruptions": [
             {"id": "en-cours", "cause": "PERTURBATION", "severity": "PERTURBEE",
              "title": "Métro 9 : Incident - Trafic perturbé", "shortMessage": "Trafic perturbé",
-             "message": "<p>NE-DOIT-PAS-SORTIR</p>",
+             "message": "<p>Travaux : privil&#233;giez la ligne 14.<br>Risque de saturation.</p>",
              "applicationPeriods": [{"begin": "20200101T000000", "end": "20991231T235959"}]},
             {"id": "pire", "cause": "TRAVAUX", "severity": "BLOQUANTE",
              "title": "Métro 9 : Travaux - Trafic interrompu", "shortMessage": "Trafic interrompu",
@@ -137,12 +137,15 @@ class DisruptionsControllerIT {
     }
 
     @Test
-    void neverExposesTheHtmlMessageOfTheFeed() throws Exception {
-        // Le flux sert du HTML tiers dans `message` : le rendre serait une faille XSS, donc il
-        // ne doit même pas franchir l'API.
+    void transmitsTheDetailAsPlainTextAndNeverAsMarkup() throws Exception {
+        // Le message du flux porte souvent la seule information utile : il doit arriver — mais
+        // en texte, jamais en HTML. Aucune balise ne franchit l'API, et les entités sont déjà
+        // décodées côté serveur.
         mockMvc.perform(get("/disruptions"))
-            .andExpect(content().string(not(containsString("NE-DOIT-PAS-SORTIR"))))
-            .andExpect(content().string(not(containsString("<p>"))));
+            .andExpect(jsonPath("$.lines[?(@.lineId == '9')].items[1].detail",
+                hasItem("Travaux : privilégiez la ligne 14.\nRisque de saturation.")))
+            .andExpect(content().string(not(containsString("<"))))
+            .andExpect(content().string(not(containsString("&#"))));
     }
 
     @Test

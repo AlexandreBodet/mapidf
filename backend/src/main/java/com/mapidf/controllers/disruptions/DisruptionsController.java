@@ -83,6 +83,6 @@ public class DisruptionsController {
 
     private static Item toItem(Disruption disruption) {
         return new Item(disruption.severity().name(), disruption.cause(),
-            disruption.title(), disruption.shortMessage());
+            disruption.title(), disruption.shortMessage(), disruption.detail());
     }
 }

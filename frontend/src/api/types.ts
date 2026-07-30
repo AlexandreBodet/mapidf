@@ -71,6 +71,8 @@ export interface DisruptionItem {
   cause: string;
   title: string;
   shortMessage: string;
+  /** Message du flux réduit en texte brut côté serveur ; souvent la seule info utile. */
+  detail: string;
 }
 
 export interface LineDisruptions {

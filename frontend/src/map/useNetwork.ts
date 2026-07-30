@@ -28,14 +28,21 @@ function stationFilter(ids: string[]): FilterSpecification {
  * perturbations : les couches naissent après le fetch réseau, donc l'ordre des deux n'est pas
  * garanti — sans le premier appel, des perturbations déjà connues attendraient le poll suivant.
  */
-function applyDisruptionRings(map: MlMap, stationSeverity: Map<string, Severity>) {
+function applyDisruptionRings(map: MlMap, stationSeverity: Map<string, Severity>,
+                              emphasize: boolean) {
   if (!map.getLayer("stops-blocked")) {
     return;
   }
   const idsOf = (severity: Severity) =>
     [...stationSeverity.entries()].filter(([, value]) => value === severity).map(([id]) => id);
-  map.setFilter("stops-blocked", stationFilter(idsOf("BLOQUANTE")));
-  map.setFilter("stops-disrupted", stationFilter(idsOf("PERTURBEE")));
+  const blocked = idsOf("BLOQUANTE");
+  const disrupted = idsOf("PERTURBEE");
+  map.setFilter("stops-blocked", stationFilter(blocked));
+  map.setFilter("stops-disrupted", stationFilter(disrupted));
+  // Le halo n'est qu'un « regarde ici », posé le temps que le panneau est ouvert : la gravité,
+  // elle, reste lisible en permanence dans le rond.
+  map.setFilter("stops-disruption-halo",
+    stationFilter(emphasize ? [...blocked, ...disrupted] : []));
 }
 
 /**
@@ -47,6 +54,8 @@ export function useNetwork(
   map: MlMap | null,
   visibleLines: Set<string> | null,
   stationSeverity: Map<string, Severity> = new Map(),
+  /** Panneau des perturbations ouvert : les stations concernées reçoivent un halo. */
+  emphasizeDisruptions = false,
 ): {
   network: NetworkResponse | null;
   status: NetworkStatus;
@@ -56,6 +65,8 @@ export function useNetwork(
   // Lu par `draw`, qui vit hors du cycle de rendu et doit voir la dernière valeur connue.
   const severityRef = useRef(stationSeverity);
   severityRef.current = stationSeverity;
+  const emphasizeRef = useRef(emphasizeDisruptions);
+  emphasizeRef.current = emphasizeDisruptions;
 
   useEffect(() => {
     if (!map) {
@@ -182,11 +193,22 @@ export function useNetwork(
             "circle-stroke-width": 3,
           },
         });
-        // Anneaux de perturbation, dessinés PAR-DESSUS l'anneau de sélection : l'alerte gagne.
+        // Halo d'emphase, glissé SOUS les ronds de station (beforeId) pour ne pas les teinter.
+        // Neutre : la couleur de gravité est déjà dans le rond.
+        map.addLayer({
+          id: "stops-disruption-halo",
+          type: "circle",
+          source: "stops",
+          minzoom: 11,
+          filter: STATION_NONE,
+          paint: { "circle-radius": 12, "circle-color": "rgba(17,17,17,0.14)" },
+        }, "stops");
+        // Gravité PEINTE DANS le rond (même rayon que `stops`), et non en anneau supplémentaire :
+        // un troisième cercle autour des stations saturait la carte. Le liseré garde la couleur
+        // de la ligne, donc la station ne perd pas son identité.
         // Une couche par gravité plutôt qu'une couleur pilotée par la donnée, pour rester sur
         // `setFilter` — la couleur par propriété obligerait à réécrire la source à chaque poll.
-        // La couleur propre de la station (celle de sa ligne) n'est pas touchée : elle porte son
-        // identité. INFORMATION n'est pas peinte, elle n'empêche pas de voyager.
+        // INFORMATION n'est pas peinte : elle n'empêche pas de voyager.
         for (const [id, color] of [["stops-blocked", "#b91c1c"], ["stops-disrupted", "#b45309"]]) {
           map.addLayer({
             id,
@@ -195,15 +217,15 @@ export function useNetwork(
             minzoom: 11,
             filter: STATION_NONE,
             paint: {
-              "circle-radius": 8,
-              "circle-color": "rgba(0,0,0,0)",
-              "circle-stroke-color": color,
-              "circle-stroke-width": 3,
+              "circle-radius": 5,
+              "circle-color": color,
+              "circle-stroke-color": ["get", "color"],
+              "circle-stroke-width": 2,
             },
           });
         }
 
-        applyDisruptionRings(map, severityRef.current);
+        applyDisruptionRings(map, severityRef.current, emphasizeRef.current);
 
         const cursorEnter = () => { map.getCanvas().style.cursor = "pointer"; };
         const cursorLeave = () => { map.getCanvas().style.cursor = ""; };
@@ -261,9 +283,9 @@ export function useNetwork(
 
   useEffect(() => {
     if (map) {
-      applyDisruptionRings(map, stationSeverity);
+      applyDisruptionRings(map, stationSeverity, emphasizeDisruptions);
     }
-  }, [map, network, stationSeverity]);
+  }, [map, network, stationSeverity, emphasizeDisruptions]);
 
   return { network, status };
 }

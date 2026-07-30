@@ -113,6 +113,35 @@ class DisruptionPollerParseTest {
     }
 
     @Test
+    void reducesTheFeedHtmlToPlainText() {
+        // Cas réel mesuré : tout le sens d'un « Information - Autre » est dans le message.
+        assertThat(DisruptionPoller.toPlainText(
+            "<p>P&#233;riode : du 01 au 31 juillet.<br><br>Privil&#233;giez la ligne 14.</p>"))
+            .isEqualTo("Période : du 01 au 31 juillet.\nPrivilégiez la ligne 14.");
+    }
+
+    @Test
+    void leavesNoMarkupInThePlainText() {
+        assertThat(DisruptionPoller.toPlainText("<p onclick=\"x\">a<b>b</b><script>c</script></p>"))
+            .doesNotContain("<").doesNotContain(">");
+    }
+
+    @Test
+    void turnsAnAbsentMessageIntoAnEmptyDetail() {
+        assertThat(DisruptionPoller.toPlainText(null)).isEmpty();
+        assertThat(DisruptionPoller.toPlainText("   ")).isEmpty();
+    }
+
+    @Test
+    void carriesTheDetailOnTheParsedDisruption() {
+        assertThat(parse().forLine("9", NOW))
+            .filteredOn(disruption -> disruption.id().equals("en-cours"))
+            .singleElement()
+            .extracting(Disruption::detail)
+            .isEqualTo("du HTML qu'on ne rend pas");
+    }
+
+    @Test
     void readsTheFeedSeverityAndFallsBackOnUnknownValues() {
         assertThat(Disruption.Severity.fromFeed("BLOQUANTE")).isEqualTo(Disruption.Severity.BLOQUANTE);
         assertThat(Disruption.Severity.fromFeed("nouvelle-valeur")).isEqualTo(Disruption.Severity.INCONNUE);

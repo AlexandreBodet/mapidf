@@ -5,12 +5,15 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Une perturbation du flux {@code disruptions_bulk}. Le champ {@code message} du flux est
- * volontairement absent : il contient du HTML produit par un tiers, qu'on ne rendra pas.
- * {@code title} et {@code shortMessage} sont du texte, et suffisent.
+ * Une perturbation du flux {@code disruptions_bulk}.
+ *
+ * <p>{@code detail} est le champ {@code message} du flux <b>réduit en texte brut</b>. Il porte
+ * souvent la seule information utile — mesuré : « Information - Autre » pour titre, et tout le
+ * sens dans le message (« Importants travaux sur les RER B et D, privilégiez la 14 »). Le HTML
+ * du flux, lui, ne sort jamais d'ici : c'est le rendre qui serait dangereux, pas l'information.
  */
 public record Disruption(String id, Severity severity, String cause, String title,
-                         String shortMessage, List<Period> periods) {
+                         String shortMessage, String detail, List<Period> periods) {
 
     public Disruption {
         periods = List.copyOf(periods);

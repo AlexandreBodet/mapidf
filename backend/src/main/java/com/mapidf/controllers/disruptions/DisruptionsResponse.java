@@ -23,7 +23,11 @@ public record DisruptionsResponse(Instant asOf, List<LineDisruptions> lines,
     public record StationDisruption(String stationId, String severity) {
     }
 
-    /** Le HTML du champ {@code message} du flux n'est jamais transmis (cf. Disruption). */
-    public record Item(String severity, String cause, String title, String shortMessage) {
+    /**
+     * {@code detail} = le message du flux réduit en texte brut ; jamais de HTML (cf. Disruption).
+     * Souvent la seule information utile quand le titre dit « Information - Autre ».
+     */
+    public record Item(String severity, String cause, String title, String shortMessage,
+                       String detail) {
     }
 }

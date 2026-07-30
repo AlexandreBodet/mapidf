@@ -110,8 +110,10 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
 - **Perturbations : source = `disruptions_bulk`, pas SIRI `general-message`** (mesuré le
   2026-07-30 : ce dernier renvoie `InfoMessage: []` pour le métro et exige un paramètre par
   ligne). Un appel couvre tout le réseau, gzip obligatoire (1,53 Mo → 288 Ko).
-- **Le champ `message` d'une perturbation est du HTML tiers** : jamais rendu, jamais transmis
-  par l'API. `title` et `shortMessage` sont du texte.
+- **Le champ `message` d'une perturbation est du HTML tiers** : `DisruptionPoller.toPlainText`
+  le réduit en texte (balises retirées, entités décodées) avant qu'il ne sorte de l'API — le
+  rendre en HTML serait la faille. Il est indispensable : mesuré, un « Information - Autre »
+  n'a de sens que dans ce message.
 - **La plupart des perturbations sont des travaux futurs** (4 en cours sur 15 au moment de la
   mesure) : filtrer sur `applicationPeriods` couvrant l'instant, sinon on annonce une ligne
   coupée trois semaines à l'avance. Ce filtre ne contredit pas la décision ci-dessous : il ne
