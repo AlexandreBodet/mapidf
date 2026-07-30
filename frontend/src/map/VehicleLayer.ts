@@ -15,9 +15,10 @@ const RENDER_INTERVAL_MS = 66;
 // illisible — les trains doivent disparaître AVANT les stations) :
 //   zoom 10  → tracés seuls
 //   zoom 11  → tracés + stations
-//   zoom 12+ → + trains ET noms de stations  ← ouverture (cf. `zoom` initial dans MapView.tsx)
-// Les noms de stations partagent le seuil des trains : `stops-labels` est en minzoom 12
-// (useNetwork.ts), pas 13 comme une version antérieure de ce commentaire l'affirmait.
+//   zoom 12+ → + trains  ← ouverture (cf. `zoom` initial dans MapView.tsx)
+//   zoom 13+ → + noms de stations (`stops-labels`, useNetwork.ts)
+// Les noms ne partagent PLUS le seuil des trains : à 12, la collision MapLibre en écartait la
+// majorité (un nom médian couvre ~2 100 m au sol pour 400 m entre stations voisines).
 // Partagée par les trois couches (vehicles, vehicles-halo, vehicles-highlight) : un halo ou
 // un anneau sans sa flèche serait pire que rien.
 const MIN_VEHICLE_ZOOM = 12;

@@ -85,12 +85,15 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
           },
         });
         // Noms seulement en zoom rapproché (collision gérée par MapLibre) : coût maîtrisé
-        // même avec 321 stations.
+        // même avec 321 stations. Seuil 13 et pas 12 : à 12 un nom médian couvre ~2 100 m au
+        // sol pour 400 m entre deux stations voisines, donc MapLibre en écartait la majorité ;
+        // à 13 on retombe à ~1 060 m. La collision en supprime encore — c'est assumé, il faut
+        // ~15 pour les tenir tous. Cf. l'échelle complète commentée dans VehicleLayer.ts.
         map.addLayer({
           id: "stops-labels",
           type: "symbol",
           source: "stops",
-          minzoom: 12,
+          minzoom: 13,
           layout: {
             "text-field": ["get", "name"],
             "text-font": ["Noto Sans Regular"],

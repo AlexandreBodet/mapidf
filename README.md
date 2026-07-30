@@ -50,9 +50,9 @@ modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin
 
 ## Utilisation — échelle de zoom
 La carte se peuple progressivement avec le zoom : les tracés des lignes sont visibles à tout
-niveau, les stations apparaissent à partir du zoom 11, puis à partir du zoom 12 (zoom
-d'ouverture de la carte) les trains et les noms de stations apparaissent ensemble. En dessous de
-12, aucun train n'est affiché même si des courses circulent.
+niveau, les stations apparaissent à partir du zoom 11, les trains à partir du zoom 12 (zoom
+d'ouverture de la carte) et les noms de stations à partir du zoom 13. En dessous de 12, aucun
+train n'est affiché même si des courses circulent.
 
 Le sélecteur de lignes (bas de l'écran) fonctionne par isolement : un premier clic sur une ligne
 isole cette ligne seule ; les clics suivants ajoutent ou retirent des lignes du sous-ensemble
