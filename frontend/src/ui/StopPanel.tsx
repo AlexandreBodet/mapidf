@@ -1,5 +1,6 @@
 import type { DeparturesResponse } from "../api/types";
 import { formatEta } from "./formatEta";
+import { statusKind, statusLabel } from "./status";
 
 interface Props {
   data: DeparturesResponse | null;
@@ -8,23 +9,29 @@ interface Props {
   onSelectLine?: (lineId: string) => void;
 }
 
-/** DepartureStatus est transmis depuis toujours et n'était jamais affiché. */
-function DelayBadge({ status }: { status: string }) {
-  if (status.toUpperCase() !== "DELAYED") {
+/**
+ * Un passage supprimé affichait une heure d'arrivée en bleu, indiscernable d'un train qui vient
+ * — le pire cas au regard de l'art. 5.7 de la Licence Mobilité (ne pas induire en erreur sur le
+ * contenu). Rien n'est affiché pour « à l'heure » : le silence dit déjà que tout va bien.
+ */
+function StatusBadge({ status }: { status: string }) {
+  const kind = statusKind(status);
+  if (kind !== "delayed" && kind !== "cancelled") {
     return null;
   }
+  const cancelled = kind === "cancelled";
   return (
     <span
       style={{
         marginLeft: 6,
         padding: "0 5px",
         borderRadius: 8,
-        background: "#fde68a",
-        color: "#92400e",
+        background: cancelled ? "#fecaca" : "#fde68a",
+        color: cancelled ? "#991b1b" : "#92400e",
         font: "bold 11px sans-serif",
       }}
     >
-      retardé
+      {statusLabel(status)}
     </span>
   );
 }
@@ -112,8 +119,15 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
                       }}
                       title="Suivre ce métro"
                     >
-                      {formatEta(p.expectedTime)}
-                      <DelayBadge status={p.status} />
+                      <span
+                        style={{
+                          textDecoration:
+                            statusKind(p.status) === "cancelled" ? "line-through" : undefined,
+                        }}
+                      >
+                        {formatEta(p.expectedTime)}
+                      </span>
+                      <StatusBadge status={p.status} />
                     </button>
                   </li>
                 ))}

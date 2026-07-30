@@ -1,4 +1,5 @@
 import { formatEta } from "./formatEta";
+import { statusLabel } from "./status";
 import type { Vehicle } from "../api/types";
 
 interface Props {
@@ -12,20 +13,10 @@ interface Props {
   onClose: () => void;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  ON_TIME: "à l'heure",
-  ONTIME: "à l'heure",
-  DELAYED: "retardé",
-  EARLY: "en avance",
-  CANCELLED: "supprimé",
-  CANCELED: "supprimé",
-};
-
 export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: Props) {
   if (!vehicle) {
     return null;
   }
-  const statusLabel = STATUS_LABELS[vehicle.status?.toUpperCase()] ?? "—";
   return (
     <div
       style={{
@@ -54,7 +45,7 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
       <p style={{ margin: "4px 0" }}>
         Arrivée estimée : <b>{formatEta(vehicle.expectedTime, { withSeconds: true })}</b>
       </p>
-      <p style={{ margin: "4px 0" }}>État : {statusLabel}</p>
+      <p style={{ margin: "4px 0" }}>État : {statusLabel(vehicle.status)}</p>
       {/* Le métro n'a pas de GPS : la position est TOUJOURS estimée par interpolation, jamais
           mesurée. Le backend ne peut produire aucun autre cas. */}
       <p style={{ margin: "4px 0", color: "#666" }}>Position : estimée (horaire)</p>
