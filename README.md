@@ -10,9 +10,10 @@ Le `.env` (gitignoré) est la **seule** source des identifiants : aucun n'a de v
 dans le code, pour qu'aucun ne puisse suivre le projet jusqu'en production. Les trois chemins de
 lancement le lisent — `docker compose` nativement, IntelliJ via sa configuration de run, et
 `./mvnw spring-boot:run` via `spring.config.import` dans
-[application.yml](backend/src/main/resources/application.yml). Attention, ce n'est pas un
-garde-fou : Spring **n'échoue pas** sur un placeholder non résolu, il en garde le texte littéral
-(`${POSTGRES_PASSWORD}`) — sans `.env`, l'erreur remonte de la base, pas du démarrage.
+[application.yml](backend/src/main/resources/application.yml). Une configuration incomplète
+**empêche le démarrage**, en nommant les variables manquantes : c'est le rôle de
+`ConfigurationGuard`, car Spring seul ne lèverait pas — le Binder garde le texte littéral
+(`${POSTGRES_PASSWORD}`) et l'application démarrerait à moitié.
 
 ## Développement
 - Backend : `cd backend && ./mvnw spring-boot:run` (API :8000, Actuator :9000)

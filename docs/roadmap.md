@@ -26,9 +26,9 @@ d'une spec dans [superpowers/specs/](superpowers/specs/)).
 | SEC-4 | En-têtes de sécurité + TLS | [nginx.conf](../frontend/nginx.conf) : ni CSP, ni `X-Frame-Options`, ni HSTS, ni `server_tokens off`, ni `X-Forwarded-For` vers le back, ni cache-control sur les assets hashés. Aucun scénario HTTPS | M | P1 si public | à faire |
 | SEC-5 | Secrets hors du code | `mapidf/mapidf` était en dur dans `application.yml` et dans les composes | S | P1 | **fait** (`.env` seule source, zéro défaut dans le code, `spring.config.import` pour le CLI) |
 | SEC-6 | Chaîne d'appro | Aucun scan de dépendances (Dependabot, `npm audit`, dependency-check), image backend en **root**, `COPY . .` avant résolution Maven (aucune couche de cache), pas de `HEALTHCHECK` | M | P2 | à faire |
-| SEC-7 | Vrai garde-fou de configuration | Découvert en faisant SEC-5 : Spring **n'échoue pas** sur un placeholder non résolu dans un `@ConfigurationProperties` (`PropertySourcesPlaceholdersResolver` les ignore) — la valeur devient le texte `${POSTGRES_PASSWORD}`. Sans `.env`, l'appli démarre donc et l'erreur remonte de la base. Un contrôle explicite au démarrage (valeur vide ou commençant par `${`) donnerait le fail-fast que les placeholders ne donnent pas | S | P2 | à faire |
-| SEC-8 | Postgres local sans mot de passe | Constaté en testant SEC-5 : le Postgres de `localhost:5432` accepte **n'importe quel** mot de passe (démarrage réussi avec la valeur littérale `${POSTGRES_PASSWORD}`, Flyway a validé les 4 migrations). Volume initialisé en `trust` ? À vérifier — sinon le mot de passe du `.env` ne protège rien en local | S | P2 | à faire |
-| SEC-9 | PRIM sert le flux sans clé valide | Même test : `[RT] Poll réussi` avec `apikey: ${PRIM_API_KEY}` littéral, donc réponse 2xx de `estimated-timetable` sans clé exploitable. À confirmer — si c'est le cas, une clé absente ne se voit nulle part, et le décompte de quota par jeton (LEG-2) est à revoir | S | P2 | à confirmer |
+| SEC-7 | Garde-fou de configuration | Le Binder des `@ConfigurationProperties` ignore les placeholders non résolus (il en garde le texte littéral), là où `Environment.getProperty` lève. Conséquence mesurée : sans clé PRIM, l'appli démarrait, PRIM répondait 401, le poller avalait l'échec et `/vehicles` servait zéro véhicule — « 0 trains en circulation » sans alerte | S | P1 | **fait** (`ConfigurationGuard`, `BeanFactoryPostProcessor` qui nomme les variables absentes) |
+| SEC-8 | ~~Postgres local sans mot de passe~~ | **Réfuté.** Le démarrage réussissait parce que le `.env` était bel et bien importé : `--spring.config.import` en ligne de commande **s'ajoute** aux imports du YAML, il ne les remplace pas. Le mot de passe fourni était donc le vrai. Postgres n'a jamais rien accepté d'autre | — | — | **écarté** (mesure faussée) |
+| SEC-9 | ~~PRIM sert le flux sans clé valide~~ | **Réfuté** le 2026-07-30 par appel direct : `estimated-timetable` répond **401** sans en-tête `apikey`, et 401 avec la clé littérale non résolue. Le `[RT] Poll réussi` observé venait de la même mesure faussée que SEC-8. Aucune conséquence sur LEG-2 | — | — | **écarté** (mesure faussée) |
 
 ## 2. Légal — porte d'entrée d'une mise en ligne
 
@@ -95,15 +95,13 @@ Arrêté le 2026-07-30. Critère : valeur visible rapportée à l'effort, les pe
 groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des tâches mais la
 porte d'un déploiement public, qui n'est pas d'actualité.
 
-1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**~~ — faits.
-2. **SEC-9 puis SEC-7** — d'abord confirmer que PRIM sert le flux sans clé valide, parce que la
-   réponse dicte l'urgence de SEC-7 : si une clé fausse « marche », une erreur de configuration
-   ne se voit **nulle part**, et c'est ce garde-fou qui la révèle.
-3. **PERF-1** — timeout, contrôle du code HTTP et GET conditionnel sur le refresh GTFS. Trois
+1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**~~ — faits. **SEC-8** et
+   **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs lignes).
+2. **PERF-1** — timeout, contrôle du code HTTP et GET conditionnel sur le refresh GTFS. Trois
    petites choses qui évitent 109 Mo par jour pour rien et un refresh pendu sans fin.
-4. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
+3. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
    chantiers derrière ; UX-3a a déjà ouvert le chemin d'affichage des statuts.
-5. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
+4. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
    nouveaux modes de panne à surveiller. Attention : la dépendance est triviale, mais la valeur
    n'arrive qu'avec un collecteur et des alertes — c'est là qu'est le vrai coût.
 
