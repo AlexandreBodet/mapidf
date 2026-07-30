@@ -11,7 +11,8 @@ export function useVehicles(
   selectedJourneyRef: string | null = null,
   follow = false,
   onSelected?: (vehicle: Vehicle | null) => void,
-  onCounts?: (counts: Map<string, number>) => void,
+  /** `asOf` = horodatage du snapshot servi, affiché comme date de mise à jour de la donnée. */
+  onCounts?: (counts: Map<string, number>, asOf: string) => void,
   highlightedJourneyRefs: Set<string> = new Set(),
   visibleLines: Set<string> | null = null,
 ) {
@@ -52,7 +53,7 @@ export function useVehicles(
         for (const vehicle of response.vehicles) {
           counts.set(vehicle.lineId, (counts.get(vehicle.lineId) ?? 0) + 1);
         }
-        onCountsRef.current?.(counts);
+        onCountsRef.current?.(counts, response.asOf);
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
         const ref = selectedRef.current;
         if (ref) {

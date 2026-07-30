@@ -30,6 +30,23 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
         // les trois couches véhicule sont masquées, donc ouvrir plus bas n'afficherait aucun
         // train au chargement. Voir l'échelle complète en commentaire dans VehicleLayer.ts.
         zoom: 12,
+        // OBLIGATION DE LICENCE — ne pas retirer. Les données IDFM (GTFS statique et temps
+        // réel SIRI) sont sous « Licence Mobilité » : son article 5.4 impose, dès que la carte
+        // est utilisée publiquement, une mention informant l'utilisateur que le contenu vient
+        // de la base initiale et qu'il est soumis à la licence — avec lien vers les deux.
+        // L'attribution du fond de carte (OpenFreeMap / OpenMapTiles / OpenStreetMap) est,
+        // elle, fournie par la TileJSON de la source et posée automatiquement par MapLibre.
+        // `compact: false` : le défaut MapLibre replie tout derrière un bouton « ⓘ », ce que
+        // les guidelines OSM ne tolèrent que sur écran contraint — pas sur une carte plein écran.
+        attributionControl: {
+          compact: false,
+          customAttribution:
+            "Contient des informations de " +
+            '<a href="https://transport.data.gouv.fr/datasets/reseau-urbain-et-interurbain-dile-de-france-mobilites"' +
+            ' target="_blank" rel="noreferrer">Réseaux urbains et interurbains d\'Île-de-France Mobilités</a>' +
+            ", mises à disposition aux conditions de la " +
+            '<a href="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" target="_blank" rel="noreferrer">Licence Mobilités</a>',
+        },
       });
       // Le style de fond (OpenFreeMap Liberty) référence des icônes de POI absentes de son
       // sprite (equestrian, ferry_terminal, office…), ce qui spamme la console d'erreurs

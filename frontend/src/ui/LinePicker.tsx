@@ -5,6 +5,8 @@ interface Props {
   counts: Map<string, number>;
   /** null = toutes les lignes visibles. */
   visible: Set<string> | null;
+  /** Horodatage du dernier snapshot servi par `/vehicles` ; null avant le premier poll. */
+  asOf: string | null;
   onToggle: (lineId: string) => void;
   onShowAll: () => void;
 }
@@ -15,7 +17,7 @@ function humanOrder(a: NetworkLine, b: NetworkLine): number {
   return num(a.id) - num(b.id) || a.id.localeCompare(b.id);
 }
 
-export function LinePicker({ lines, counts, visible, onToggle, onShowAll }: Props) {
+export function LinePicker({ lines, counts, visible, asOf, onToggle, onShowAll }: Props) {
   const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
   const sorted = [...lines].sort(humanOrder);
   return (
@@ -86,6 +88,10 @@ export function LinePicker({ lines, counts, visible, onToggle, onShowAll }: Prop
       </div>
       <div style={{ color: "#666", marginTop: 6 }}>
         Position estimée (pas de GPS en métro). Les trains atténués ont un placement approximatif.
+        {/* Date de mise à jour de la donnée : l'article 5.7 de la Licence Mobilité (« neutralité
+            et loyauté ») interdit d'induire en erreur sur le contenu ET sur sa date de mise à
+            jour. Le disclaimer ci-dessus couvre la nature estimée, cette ligne la fraîcheur. */}
+        {asOf && ` Données IDFM du ${new Date(asOf).toLocaleTimeString("fr-FR")}.`}
       </div>
     </div>
   );

@@ -51,3 +51,50 @@ isole cette ligne seule ; les clics suivants ajoutent ou retirent des lignes du 
 affiché, sans jamais le vider complètement ; « tout afficher » revient à toutes les lignes. Les
 pastilles de ligne affichées dans la fiche d'une station isolent elles aussi la ligne cliquée,
 quel que soit le sous-ensemble affiché auparavant.
+
+## Données, sources et licences
+
+Le code de MapIDF est sous [licence MIT](LICENSE). Les **données ne le sont pas** : elles
+appartiennent à leurs producteurs et gardent leurs propres conditions.
+
+| Source | Ce qu'on en tire | Licence |
+|---|---|---|
+| [Réseaux urbains et interurbains d'Île-de-France Mobilités](https://transport.data.gouv.fr/datasets/reseau-urbain-et-interurbain-dile-de-france-mobilites) — GTFS statique + SIRI Lite via PRIM | tracés, arrêts, couleurs de ligne, horaires temps réel | [Licence Mobilité](https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm) (v. 03.02.2021) |
+| [OpenFreeMap](https://openfreemap.org) / [OpenMapTiles](https://www.openmaptiles.org) / [OpenStreetMap](https://www.openstreetmap.org/copyright) | fond de carte (rues, POI) | ODbL (données OSM), attribution fournie par la TileJSON |
+| Natural Earth (relief basse résolution du style Liberty) | ombrage aux zooms lointains | domaine public |
+
+Ce n'est **pas** de l'ODbL : les données IDFM sont sous *Licence Mobilité*, un texte proche
+mais distinct, avec des clauses propres (art. 5.2 compatibilité avec la stratégie de mobilité,
+5.7 neutralité et loyauté, 5.6.d re-partage sur le Point d'Accès National).
+
+### Obligations tenues dans le code — ne pas les retirer
+
+- **Mention de la source (art. 5.4)** : posée en `customAttribution` dans
+  [MapView.tsx](frontend/src/map/MapView.tsx), avec `compact: false` pour que l'attribution
+  reste dépliée au lieu d'être repliée derrière le bouton « ⓘ » (défaut MapLibre).
+- **Neutralité et loyauté (art. 5.7)** : le pied du sélecteur de lignes
+  ([LinePicker.tsx](frontend/src/ui/LinePicker.tsx)) énonce que la position est **estimée**
+  (le métro n'a pas de GPS) et affiche l'**heure du dernier snapshot** — la licence interdit
+  d'induire en erreur sur le contenu comme sur sa date de mise à jour.
+- **Clé PRIM personnelle (art. 4.1)** : `PRIM_API_KEY` vit dans `.env` (gitignoré), ne sort
+  jamais du backend et n'est jamais exposée au frontend.
+
+### À traiter avant tout déploiement public
+
+L'usage strictement interne n'est pas une « utilisation publique » au sens de l'art. 5.6.c :
+les obligations ci-dessous ne se déclenchent qu'à l'exposition de l'appli hors de la machine
+de dev.
+
+- **Partage à l'identique (art. 5.5 et 5.6.d)** : le PostGIS peuplé par `GtfsStaticLoader` est
+  une base de données dérivée. Servir directement ses tracés et arrêts via `/api/network`
+  ouvert au public peut faire tomber l'art. 5.6.d (publication de la base dérivée sur
+  transport.data.gouv.fr, sous le jeu initial et au format d'origine). L'art. 5.6.b (utiliser
+  la base pour produire une « Création » n'engendre pas de base dérivée) est l'argument
+  inverse, mais il s'affaiblit à mesure que l'API expose la donnée brute.
+- **CGU de PRIM et « Chartes et prescriptions » IDFM** : non vérifiées ici (le site PRIM
+  renvoie 403 derrière Cloudflare hors navigateur). Deux points y sont traités et échappent
+  à la vérification faite dans ce repo — les quotas et l'éventuelle compensation financière
+  (l'art. 4.3 de la licence renvoie aux CGU de la plateforme), et l'usage des **marques** :
+  la Licence Mobilité exclut de son périmètre « toute marque déposée associée à la Base de
+  données », ce qui couvre indices de ligne, couleurs officielles et logos. À lire depuis un
+  navigateur avant publication.

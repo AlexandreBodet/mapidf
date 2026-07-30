@@ -27,6 +27,9 @@ export default function App() {
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [visibleLines, setVisibleLines] = useState<Set<string> | null>(null);
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
+  // Horodatage du dernier snapshot servi : affiché sous le compteur de trains, il informe de la
+  // date de mise à jour de la donnée (Licence Mobilité, art. 5.7 « neutralité et loyauté »).
+  const [asOf, setAsOf] = useState<string | null>(null);
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -43,7 +46,10 @@ export default function App() {
     if (v) {
       setSelected(v);
     }
-  }, setCounts, highlightedJourneyRefs, visibleLines);
+  }, (next, at) => {
+    setCounts(next);
+    setAsOf(at);
+  }, highlightedJourneyRefs, visibleLines);
 
   const toggleLine = (lineId: string) => {
     setVisibleLines((current) => {
@@ -227,6 +233,7 @@ export default function App() {
       <LinePicker
         lines={network?.lines ?? []}
         counts={counts}
+        asOf={asOf}
         visible={visibleLines}
         onToggle={toggleLine}
         onShowAll={() => setVisibleLines(null)}
