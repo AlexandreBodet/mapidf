@@ -5,6 +5,7 @@ interface Props {
   data: DeparturesResponse | null;
   onClose: () => void;
   onSelectTrain?: (journeyRef: string) => void;
+  onSelectLine?: (lineId: string) => void;
 }
 
 /** DepartureStatus est transmis depuis toujours et n'était jamais affiché. */
@@ -28,7 +29,7 @@ function DelayBadge({ status }: { status: string }) {
   );
 }
 
-export function StopPanel({ data, onClose, onSelectTrain }: Props) {
+export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props) {
   if (!data) {
     return null;
   }
@@ -77,14 +78,20 @@ export function StopPanel({ data, onClose, onSelectTrain }: Props) {
       {lines.map((line) => (
         <div key={line.lineId} style={{ margin: "10px 0 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span
+            <button
+              onClick={() => onSelectLine?.(line.lineId)}
+              // Isolement inconditionnel, comme un clic dans le sélecteur du bas : quel que
+              // soit le filtre courant, ce clic ne laisse que cette ligne (décision produit).
+              title={`N'afficher que la ligne ${line.shortName}`}
+              aria-label={`N'afficher que la ligne ${line.shortName}`}
               style={{
                 width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
                 font: "bold 11px sans-serif", display: "flex", alignItems: "center", justifyContent: "center",
+                border: "none", padding: 0, cursor: "pointer",
               }}
             >
               {line.shortName}
-            </span>
+            </button>
           </div>
           {line.directions.map((dir) => (
             // `destination` suffit comme clé : StationDepartureService.directionsOf groupe les

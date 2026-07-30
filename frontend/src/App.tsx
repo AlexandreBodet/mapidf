@@ -214,7 +214,16 @@ export default function App() {
         onFollow={() => setFollow((f) => !f)}
         onClose={clearSelection}
       />
-      <StopPanel data={station} onClose={closeStation} onSelectTrain={followTrainFromPanel} />
+      <StopPanel
+        data={station}
+        onClose={closeStation}
+        onSelectTrain={followTrainFromPanel}
+        // Isolement inconditionnel : même intention qu'un clic dans LinePicker, quel que
+        // soit visibleLines courant. La station reste affichée par construction : elle est
+        // desservie par lineId (c'est sa propre pastille), donc son filtre dans useNetwork
+        // (station.lineIds.some(id => visibleLines.has(id))) la garde visible.
+        onSelectLine={(lineId) => setVisibleLines(new Set([lineId]))}
+      />
       <LinePicker
         lines={network?.lines ?? []}
         counts={counts}
