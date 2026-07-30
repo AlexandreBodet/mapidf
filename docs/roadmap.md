@@ -49,7 +49,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 | ID | Chantier | Constat | Effort | Prio | Statut |
 |---|---|---|---|---|---|
-| UX-1 | États de chargement et d'erreur | `useNetwork` fetch **une seule fois** et ne réessaie jamais. Au premier démarrage (109 Mo de GTFS), `/network` répond 200 vide → **carte blanche définitive** jusqu'à un rechargement manuel. Idem, un `/vehicles` en échec est avalé silencieusement | S | P1 | à faire |
+| UX-1 | États de chargement et d'erreur | `useNetwork` ne fetchait qu'une fois : au premier démarrage (109 Mo de GTFS), `/network` répond 200 vide → carte blanche définitive jusqu'à un rechargement manuel. Et un `/vehicles` en échec était avalé silencieusement | S | P1 | **fait** (bandeau `NetworkStatus` + retry 10 s tant que le réseau manque ; mention « rafraîchissement interrompu » dans le `LinePicker`). Limite assumée : le panneau station garde ses passages en silence, l'alerte globale du `LinePicker` couvrant la même panne |
 | UX-2 | Adaptation mobile | Les 3 panneaux flottent à largeur fixe (260–300 px) et les 16 pastilles occupent le bas de l'écran. Déjà documenté dans les limitations | M | P1 | à faire |
 | UX-3 | Signaux non expliqués | L'opacité réduite (`confidence: APPROXIMATE`) n'a aucune légende. « Service terminé » (poller arrêté à 01h30) ne se distingue pas d'une panne. `Passage.status` (`DELAYED`) est transmis mais jamais affiché dans `StopPanel` | S | P1 | à faire |
 | UX-4 | Accessibilité | Aucun accès clavier (tout passe par des clics carte), panneaux en `div` sans rôles ni gestion du focus, information portée par la seule couleur (13/3bis et 6/7bis identiques), styles inline sans thème sombre | M | P2 | à faire |
@@ -92,7 +92,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 1. ~~**SEC-5**~~ (fait), puis **SEC-1** et **SEC-2** — deux correctifs courts qui referment des
    fuites bêtes.
-2. **UX-1** — aujourd'hui, un premier démarrage donne un écran blanc silencieux.
+2. ~~**UX-1**~~ (fait) — le premier démarrage ne donne plus un écran blanc silencieux.
 3. **QUA-2** — sans registre Prometheus, le garde-fou par ligne ne sert à personne.
 4. **PROD-1 + UX-3** — le plus gros gain perçu à effort moyen, et cohérent avec la décision
    « on veut voir les trains en perturbation ».

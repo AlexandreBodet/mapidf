@@ -6,26 +6,65 @@ import { whenStyleReady } from "./mapReady";
 import type { NetworkResponse } from "../api/types";
 
 /**
+ * `empty` = le backend répond 200 avec un réseau vide : c'est le premier démarrage, où il charge
+ * le GTFS (~109 Mo) avant d'avoir quoi que ce soit à servir. Ni une panne, ni une erreur.
+ */
+export type NetworkStatus = "loading" | "empty" | "error" | "ready";
+
+// Le réseau est statique une fois chargé : on ne réessaie que tant qu'il manque.
+const RETRY_MS = 10_000;
+
+/**
  * Charge le réseau en un appel et pose DEUX sources pour tout le réseau : `line-shapes`
  * (une feature par branche, coloriée par sa propriété) et `stops` (stations dédoublonnées
  * côté serveur). Le nombre de lignes n'ajoute donc aucune couche.
  */
-export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null): NetworkResponse | null {
+export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null): {
+  network: NetworkResponse | null;
+  status: NetworkStatus;
+  detail: string | null;
+} {
   const [network, setNetwork] = useState<NetworkResponse | null>(null);
+  const [state, setState] = useState<{ status: NetworkStatus; detail: string | null }>({
+    status: "loading",
+    detail: null,
+  });
 
   useEffect(() => {
     if (!map) {
       return;
     }
     let cancelled = false;
+    let timer = 0;
     let cancelReady: (() => void) | null = null;
     let cleanupCursors: (() => void) | null = null;
 
-    fetchNetwork().then((data) => {
+    const failed = (error: unknown) => {
       if (cancelled) {
         return;
       }
+      setState({
+        status: "error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      timer = window.setTimeout(load, RETRY_MS);
+    };
+
+    // Le réseau ne se dessine qu'une fois non vide : dessiner des sources vides au premier
+    // démarrage les figerait, le garde de `draw` sortant si `line-shapes` existe déjà.
+    // `then(succès, échec)` et non `.catch` : une erreur levée par le dessin MapLibre ne doit
+    // pas être maquillée en panne réseau, ni relancer des tentatives.
+    const load = (): Promise<void> => fetchNetwork().then((data) => {
+      if (cancelled) {
+        return;
+      }
+      if (data.lines.length === 0) {
+        setState({ status: "empty", detail: null });
+        timer = window.setTimeout(load, RETRY_MS);
+        return;
+      }
       setNetwork(data);
+      setState({ status: "ready", detail: null });
       const colorByLine = new Map(data.lines.map((line) => [line.id, line.color]));
 
       const draw = () => {
@@ -131,10 +170,12 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
         };
       };
       cancelReady = whenStyleReady(map, draw);
-    });
+    }, failed);
+    load();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       cancelReady?.();
       cleanupCursors?.();
     };
@@ -169,5 +210,5 @@ export function useNetwork(map: MlMap | null, visibleLines: Set<string> | null):
     });
   }, [map, network, visibleLines]);
 
-  return network;
+  return { network, status: state.status, detail: state.detail };
 }

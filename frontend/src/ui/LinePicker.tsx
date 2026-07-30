@@ -7,6 +7,8 @@ interface Props {
   visible: Set<string> | null;
   /** Horodatage du dernier snapshot servi par `/vehicles` ; null avant le premier poll. */
   asOf: string | null;
+  /** Dernier poll `/vehicles` en échec : ce qui est affiché ne bouge plus. */
+  stale: boolean;
   onToggle: (lineId: string) => void;
   onShowAll: () => void;
 }
@@ -17,7 +19,7 @@ function humanOrder(a: NetworkLine, b: NetworkLine): number {
   return num(a.id) - num(b.id) || a.id.localeCompare(b.id);
 }
 
-export function LinePicker({ lines, counts, visible, asOf, onToggle, onShowAll }: Props) {
+export function LinePicker({ lines, counts, visible, asOf, stale, onToggle, onShowAll }: Props) {
   const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
   const sorted = [...lines].sort(humanOrder);
   return (
@@ -86,6 +88,11 @@ export function LinePicker({ lines, counts, visible, asOf, onToggle, onShowAll }
           );
         })}
       </div>
+      {stale && (
+        <div style={{ color: "#b45309", marginTop: 6 }} role="status">
+          ⚠ Rafraîchissement interrompu — les positions affichées n'évoluent plus.
+        </div>
+      )}
       <div style={{ color: "#666", marginTop: 6 }}>
         Position estimée (pas de GPS en métro). Les trains atténués ont un placement approximatif.
         {/* Date de mise à jour de la donnée : l'article 5.7 de la Licence Mobilité (« neutralité

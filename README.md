@@ -26,7 +26,9 @@ garde-fou : Spring **n'échoue pas** sur un placeholder non résolu, il en garde
 À la première exécution (base vide, ou après une migration Flyway), le backend télécharge le
 GTFS IDFM complet (~109 Mo) et le charge avant que la carte n'ait quoi que ce soit à afficher.
 Pendant ce temps, `GET /api/network` répond **200 avec un réseau vide** (pas 404) : ce n'est pas
-une panne. La progression se suit dans les logs backend : `[GTFS] N ligne(s) découverte(s) pour
+une panne. Le front l'affiche désormais explicitement (« Réseau pas encore prêt ») et réessaie
+toutes les 10 s, au lieu de rester sur une carte vide jusqu'à un rechargement manuel. La
+progression se suit dans les logs backend : `[GTFS] N ligne(s) découverte(s) pour
 les modes [...]`, puis par ligne `[GTFS] ligne X (nom) : N candidate(s) → M branche(s)
 retenue(s)`, puis `[GTFS] N route(s), M branche(s), P stop_time(s) persistés`, et enfin
 `[REGISTRY] N ligne(s), M branche(s), P station(s)` une fois le réseau prêt à être servi.

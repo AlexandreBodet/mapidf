@@ -11,8 +11,13 @@ export function useVehicles(
   selectedJourneyRef: string | null = null,
   follow = false,
   onSelected?: (vehicle: Vehicle | null) => void,
-  /** `asOf` = horodatage du snapshot servi, affiché comme date de mise à jour de la donnée. */
-  onCounts?: (counts: Map<string, number>, asOf: string) => void,
+  /**
+   * Résultat de chaque poll. `asOf` = horodatage du snapshot servi, affiché comme date de mise
+   * à jour de la donnée. Sur échec, `counts`/`asOf` valent null (l'appelant garde son dernier
+   * état connu) et `failing` passe à vrai : sans ça, la carte continue d'animer des positions
+   * périmées sans le dire.
+   */
+  onSnapshot?: (counts: Map<string, number> | null, asOf: string | null, failing: boolean) => void,
   highlightedJourneyRefs: Set<string> = new Set(),
   visibleLines: Set<string> | null = null,
 ) {
@@ -24,10 +29,10 @@ export function useVehicles(
   // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
   const selectedRef = useRef(selectedJourneyRef);
   const onSelectedRef = useRef(onSelected);
-  const onCountsRef = useRef(onCounts);
+  const onSnapshotRef = useRef(onSnapshot);
   selectedRef.current = selectedJourneyRef;
   onSelectedRef.current = onSelected;
-  onCountsRef.current = onCounts;
+  onSnapshotRef.current = onSnapshot;
 
   useEffect(() => {
     // La couche n'est créée qu'une fois le réseau connu : c'est lui qui fournit les
@@ -53,14 +58,18 @@ export function useVehicles(
         for (const vehicle of response.vehicles) {
           counts.set(vehicle.lineId, (counts.get(vehicle.lineId) ?? 0) + 1);
         }
-        onCountsRef.current?.(counts, response.asOf);
+        onSnapshotRef.current?.(counts, response.asOf, false);
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
         const ref = selectedRef.current;
         if (ref) {
           onSelectedRef.current?.(byRef.get(ref) ?? null);
         }
       } catch {
-        // on conserve l'affichage courant
+        // On conserve l'affichage courant, mais on le signale : les flèches continuent de
+        // s'animer vers leur dernière cible connue, ce qui ne se distingue pas d'un flux vivant.
+        if (!cancelled) {
+          onSnapshotRef.current?.(null, null, true);
+        }
       }
       if (cancelled) {
         return;

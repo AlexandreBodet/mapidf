@@ -6,6 +6,7 @@ import { useVehicles } from "./map/useVehicles";
 import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { LinePicker } from "./ui/LinePicker";
+import { NetworkStatus } from "./ui/NetworkStatus";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -30,6 +31,7 @@ export default function App() {
   // Horodatage du dernier snapshot servi : affiché sous le compteur de trains, il informe de la
   // date de mise à jour de la donnée (Licence Mobilité, art. 5.7 « neutralité et loyauté »).
   const [asOf, setAsOf] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -39,16 +41,23 @@ export default function App() {
       ),
     [station],
   );
-  const network = useNetwork(map, visibleLines);
+  const { network, status, detail } = useNetwork(map, visibleLines);
   // À chaque poll, rafraîchit le panneau avec la donnée fraîche du train suivi
   // (prochain arrêt + ETA vivants). Si le train quitte le flux, on garde le dernier état connu.
   useVehicles(map, network, selectedJourneyRef, follow, (v) => {
     if (v) {
       setSelected(v);
     }
-  }, (next, at) => {
-    setCounts(next);
-    setAsOf(at);
+  }, (next, at, failing) => {
+    // null sur échec : on garde le dernier décompte et le dernier horodatage affichés, en
+    // signalant qu'ils ne bougent plus.
+    if (next) {
+      setCounts(next);
+    }
+    if (at) {
+      setAsOf(at);
+    }
+    setStale(failing);
   }, highlightedJourneyRefs, visibleLines);
 
   const toggleLine = (lineId: string) => {
@@ -214,6 +223,7 @@ export default function App() {
   return (
     <>
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
+      <NetworkStatus status={status} detail={detail} />
       <VehiclePanel
         vehicle={selected}
         following={follow}
@@ -234,6 +244,7 @@ export default function App() {
         lines={network?.lines ?? []}
         counts={counts}
         asOf={asOf}
+        stale={stale}
         visible={visibleLines}
         onToggle={toggleLine}
         onShowAll={() => setVisibleLines(null)}
