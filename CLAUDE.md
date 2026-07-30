@@ -118,3 +118,6 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   des arrêts par branche.
 - L'étiquette « prochain arrêt » peut sauter une station absente du flux SIRI : c'est
   cosmétique (trou de données), la position reste correcte.
+- **Pas d'adaptation mobile** : les trois panneaux flottent à largeur fixe (260 à 300 px) et
+  le sélecteur de 16 lignes occupe le bas de l'écran — encombrant sur un écran étroit.
+  Chantier volontairement laissé de côté avant ce merge.
