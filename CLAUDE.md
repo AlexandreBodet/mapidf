@@ -43,6 +43,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   utilise **`.asString()`**, pas `.asText()` (qui n'existe plus).
 - **TDD** : écris le test qui échoue avant l'implémentation (cf. skill superpowers).
 - Conventions Java/Spring maison : voir le projet de référence Steamulo.
+- **Migrations Flyway : une migration déjà appliquée ne se modifie JAMAIS**, pas même un
+  commentaire — le checksum change et Flyway refuse de démarrer sur toute base qui portait
+  l'ancienne version. Ce qui a évolué depuis se documente **près du code**, pas dans le `.sql` ;
+  un correctif se fait par une **nouvelle** migration. Les IT (Testcontainers, base vide à chaque
+  run) ne peuvent pas détecter cette faute : V3 s'y applique fraîche et valide toujours.
 - Secrets : `PRIM_API_KEY` vit dans **`.env` (gitignoré) — à ne JAMAIS commiter.**
   `.env.example` documente les variables attendues.
 

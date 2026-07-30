@@ -130,6 +130,17 @@ public class NetworkRegistryBuilder {
         return List.copyOf(stations);
     }
 
+    /**
+     * Rattache un quai à sa station parente. C'est ici, et nulle part en base, que se fait
+     * désormais la résolution station → quais : {@code platformsByStation} est construit une fois
+     * au build du registry et porté par {@link Station#platformIds()}, que {@code
+     * StationDepartureService} lit en mémoire. Plus aucune requête ne filtre sur {@code
+     * parent_station} — l'index {@code idx_stop_parent_station} créé en V3 n'a donc plus de
+     * lecteur ; il est conservé parce qu'il ne coûte rien à ces volumes (781 quais métro) et
+     * redeviendrait utile si on requêtait un jour par station parente. Le commentaire de V3, qui
+     * le rattache encore à {@code StopRepository.findByParentStation}, décrit l'intention d'alors
+     * et n'est pas réécrit : une migration déjà appliquée ne se modifie pas (cf. CLAUDE.md).
+     */
     private static String stationKey(Stop stop) {
         String parent = stop.getParentStation();
         return (parent == null || parent.isBlank()) ? stop.getGtfsId() : parent;
