@@ -3,8 +3,8 @@
 ## Démarrage
 1. `cp .env.example .env`, puis renseigner `PRIM_API_KEY` et `POSTGRES_PASSWORD`
 2. `docker compose up --build`
-3. Front : http://localhost:8080 — API : http://localhost:8000/api/network
-4. Santé backend : http://localhost:9000/actuator/health — mesures brutes sur
+3. Front : http://localhost:8080 — API : http://localhost:8100/api/network
+4. Santé backend : http://localhost:9100/actuator/health — mesures brutes sur
    `/actuator/metrics` et `/actuator/prometheus` (port publié sur la loopback seulement)
 
 Le `.env` (gitignoré) est la **seule** source des identifiants : aucun n'a de valeur par défaut
@@ -17,12 +17,31 @@ lancement le lisent — `docker compose` nativement, IntelliJ via sa configurati
 (`${POSTGRES_PASSWORD}`) et l'application démarrerait à moitié.
 
 ## Développement
-- Backend : `cd backend && ./mvnw spring-boot:run` (API :8000, Actuator :9000)
+- Backend : `cd backend && ./mvnw spring-boot:run` (API :8100, Actuator :9100)
 - Base seule (backend hors Docker) : `cd backend && docker compose up -d`
-- Front : `cd frontend && npm run dev` (proxy /api → :8000)
+- Front : `cd frontend && npm run dev` (proxy /api → :8100)
 - Tests : `cd backend && ./mvnw test` (tests unitaires seuls, rapide) — mais la vérification de
   référence du projet est `cd backend && ./mvnw verify` (build complet + tests d'intégration
   Testcontainers ; nécessite Docker).
+
+### Ports : rien à configurer
+
+L'API écoute sur **8100** et l'Actuator sur **9100**, et non sur 8000/9000 : ce sont les ports de
+la moitié des projets Spring, et un dev qui en fait tourner un autre ne pouvait pas démarrer
+celui-ci. Avec ces valeurs, un clone tourne sans qu'on ait rien à régler.
+
+S'il faut malgré tout les déplacer, **deux lignes dans le `.env`** suffisent — le `.env` reste la
+source unique, et les trois chemins de lancement la lisent (Docker, IntelliJ, `spring-boot:run`),
+le proxy du front compris :
+
+```properties
+SERVER_PORT=8200
+MANAGEMENT_SERVER_PORT=9200
+```
+
+Dans la pile Docker, ces valeurs ne changent que les ports **publiés** sur la machine : le
+conteneur, lui, garde 8100/9100 en dur (`environment` dans le compose), parce que nginx y
+proxifie vers `backend:8100`. Déplacer ses ports d'hôte ne peut donc pas casser `/api`.
 
 ## Premier démarrage
 À la première exécution (base vide, ou après une migration Flyway), le backend télécharge le
@@ -90,13 +109,17 @@ mais distinct, avec des clauses propres (art. 5.2 compatibilité avec la straté
 
 ### Obligations tenues dans le code — ne pas les retirer
 
-- **Mention de la source (art. 5.4)** : posée en `customAttribution` dans
-  [MapView.tsx](frontend/src/map/MapView.tsx), avec `compact: false` pour que l'attribution
-  reste dépliée au lieu d'être repliée derrière le bouton « ⓘ » (défaut MapLibre).
-- **Neutralité et loyauté (art. 5.7)** : le pied du sélecteur de lignes
-  ([LinePicker.tsx](frontend/src/ui/LinePicker.tsx)) énonce que la position est **estimée**
-  (le métro n'a pas de GPS) et affiche l'**heure du dernier snapshot** — la licence interdit
-  d'induire en erreur sur le contenu comme sur sa date de mise à jour.
+- **Mention de la source (art. 5.4)** : son texte vit dans
+  [attribution.ts](frontend/src/map/attribution.ts), posé en `customAttribution` par
+  [MapView.tsx](frontend/src/map/MapView.tsx). Dépliée au-dessus de 720 px, au lieu d'être
+  repliée derrière le bouton « ⓘ » (défaut MapLibre) ; en dessous, repliée **et** remontée en
+  haut à droite, faute de quoi elle se poserait par-dessus la feuille. Exception bornée,
+  détaillée dans [CLAUDE.md](CLAUDE.md).
+- **Neutralité et loyauté (art. 5.7)** : [SheetFooter.tsx](frontend/src/ui/SheetFooter.tsx)
+  énonce que la position est **estimée** (le métro n'a pas de GPS) et affiche l'**heure du
+  dernier snapshot** — la licence interdit d'induire en erreur sur le contenu comme sur sa date
+  de mise à jour. Il appartient au conteneur et non au sélecteur de lignes, sinon la mention
+  disparaîtrait dès qu'une fiche occupe la feuille sur écran étroit.
 - **Clé PRIM personnelle (art. 4.1)** : `PRIM_API_KEY` vit dans `.env` (gitignoré), ne sort
   jamais du backend et n'est jamais exposée au frontend.
 

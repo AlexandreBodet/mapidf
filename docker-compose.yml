@@ -14,14 +14,19 @@ services:
     # Surcharge le POSTGRES_URL du .env (qui vise localhost) : ici la base est l'hôte `db`.
     environment:
       POSTGRES_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      # Ports figés À L'INTÉRIEUR du conteneur, quoi que dise le `.env` : nginx y proxifie vers
+      # `backend:8100`. Un dev qui déplace ses ports d'hôte ne doit pas casser la pile Docker.
+      SERVER_PORT: 8100
+      MANAGEMENT_SERVER_PORT: 9100
     depends_on:
       db:
         condition: service_healthy
     restart: on-failure
-    # L'Actuator (9000) n'est publié que sur la loopback : health `show-details: always` et
-    # /metrics exposent version de PostgreSQL, URL JDBC et internes JVM. Reste joignable en
-    # http://localhost:9000 depuis la machine, inatteignable depuis le réseau.
-    ports: ["8000:8000", "127.0.0.1:9000:9000"]
+    # L'Actuator n'est publié que sur la loopback : health `show-details: always` et /metrics
+    # exposent version de PostgreSQL, URL JDBC et internes JVM. Reste joignable en
+    # http://localhost:9100 depuis la machine, inatteignable depuis le réseau.
+    # Seul le port d'hôte suit le `.env` ; celui du conteneur reste fixe (cf. `environment`).
+    ports: ["${SERVER_PORT:-8100}:8100", "127.0.0.1:${MANAGEMENT_SERVER_PORT:-9100}:9100"]
   frontend:
     build: ./frontend
     depends_on: [backend]

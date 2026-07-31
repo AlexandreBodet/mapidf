@@ -23,14 +23,14 @@ des horaires temps réel SIRI (prochain arrêt + heure estimée), pas mesurées.
 # Backend (depuis backend/)
 ./mvnw verify          # build + tous les tests, DONT les IT Testcontainers — la vérif de référence
 ./mvnw test            # tests unitaires seuls (plus rapide)
-./mvnw spring-boot:run # API :8000 (context-path /api), Actuator :9000
+./mvnw spring-boot:run # API :8100 (context-path /api), Actuator :9100
 
 # Frontend (depuis frontend/)
-npm run dev            # Vite, proxy /api → :8000
+npm run dev            # Vite, proxy /api → :8100
 npm run build          # build de prod — sert de vérif (pas de tests unitaires front)
 
 # Tout en Docker (depuis la racine)
-docker compose up --build   # front :8080, api :8000, actuator :9000
+docker compose up --build   # front :8080, api :8100, actuator :9100
 ```
 
 **Cycle de vie des apps** : ne suppose pas que le backend/front/Docker sont à toi à

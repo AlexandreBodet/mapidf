@@ -1,14 +1,16 @@
 server:
   servlet:
     context-path: /api
-  port: 8000
+  # 8000 et 9000 sont les ports de la moitié des projets Spring : un dev qui en fait tourner
+  # un autre ne peut pas démarrer celui-ci. Surchargeables par le `.env` (cf. README).
+  port: ${SERVER_PORT:8100}
   compression:
     enabled: true
     mime-types: application/json
     min-response-size: 4096
 management:
   server:
-    port: 9000
+    port: ${MANAGEMENT_SERVER_PORT:9100}
   endpoints:
     web:
       exposure:
