@@ -11,8 +11,8 @@ interface Props {
   onCranChange: (cran: Cran) => void;
   viewportHeight: number;
   /**
-   * Échappe au repli, comme `alert` et l'en-tête de fiche : titre/fermeture d'une fiche ouverte,
-   * sinon `null`. Contrairement à `summary`, jamais masquée au cran `apercu`.
+   * Titre et fermeture d'une fiche ouverte, `null` sinon. Échappe au repli comme `alert` : au
+   * cran `apercu`, on doit pouvoir refermer la fiche et savoir laquelle est ouverte.
    */
   header: ReactNode;
   /** Masqué au cran `apercu`, contrairement à `header` : résumé du réseau sans fiche ouverte. */
