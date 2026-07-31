@@ -103,14 +103,22 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
             // apparaît ou disparaît entre deux polls, et remonterait les sous-arbres pour rien.
             <div key={dir.destination} style={{ margin: "4px 0 0 4px" }}>
               <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
-              <ul style={{ margin: "0 0 0 16px", padding: 0, listStyle: "none" }}>
-                {dir.passages.map((p) => (
-                  <li key={p.journeyRef}>
+              {/* Rangée plutôt qu'empilement : à 44 px par cible tactile, trois passages
+                  empilés prenaient 132 px par direction (retour recette). */}
+              <ul
+                style={{
+                  margin: "0 0 0 16px", padding: 0, listStyle: "none",
+                  display: "flex", flexWrap: "wrap", alignItems: "center",
+                }}
+              >
+                {dir.passages.map((p, index) => (
+                  <li key={p.journeyRef} style={{ display: "flex", alignItems: "center" }}>
+                    {index > 0 && <span aria-hidden="true" style={{ color: "#bbb", margin: "0 4px" }}>·</span>}
                     <button
                       onClick={() => onSelectTrain?.(p.journeyRef)}
                       style={{
-                        border: "none", background: "none", padding: "2px 0", cursor: "pointer",
-                        font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                        border: "none", background: "none", padding: "2px 4px", cursor: "pointer",
+                        font: "inherit", color: "#1d4ed8", textAlign: "left",
                         minHeight: "var(--tap)",
                       }}
                       title="Suivre ce métro"
