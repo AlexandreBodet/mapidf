@@ -50,7 +50,8 @@ modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin
 ## API
 - `GET /api/network` — lignes, branches et tracés du réseau suivi.
 - `GET /api/vehicles` — positions courantes des véhicules (tous modes/lignes suivis).
-- `GET /api/stations/{id}/departures` — prochains passages à une station, groupés par ligne.
+- `GET /api/stations/{id}/departures` — prochains passages à une station, groupés par ligne,
+  et les perturbations visant ses quais.
 - `GET /api/disruptions` — perturbations **en cours** des lignes suivies (les travaux à venir
   sont écartés), avec la pire gravité par ligne et les stations dont un quai est touché.
 

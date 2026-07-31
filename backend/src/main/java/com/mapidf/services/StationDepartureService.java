@@ -46,7 +46,9 @@ public class StationDepartureService {
                 byLine.add(new LineDepartures(line.id(), line.shortName(), line.color(), directions));
             }
         }
-        return new DeparturesResponse(station.name(), byLine);
+        // Les perturbations sont ajoutées par le contrôleur : ce service ne connaît que les
+        // passages, et le flux perturbations est une autre source.
+        return new DeparturesResponse(station.name(), byLine, List.of());
     }
 
     private List<Direction> directionsOf(List<LiveJourney> journeys, Set<String> stopKeys,

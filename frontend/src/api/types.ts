@@ -55,6 +55,8 @@ export interface Passage {
 
 export interface DeparturesResponse {
   stationName: string;
+  /** Perturbations visant les quais de CETTE station ; celles de ligne entière sont ailleurs. */
+  disruptions: DisruptionItem[];
   lines: {
     lineId: string;
     shortName: string;

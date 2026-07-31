@@ -1,6 +1,7 @@
 import type { DeparturesResponse } from "../api/types";
 import { formatEta } from "./formatEta";
 import { statusKind, statusLabel } from "./status";
+import { DisruptionRow } from "./DisruptionRow";
 
 interface Props {
   data: DeparturesResponse | null;
@@ -79,6 +80,16 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
         ✕
       </button>
       <h3 style={{ margin: "0 0 8px" }}>{data.stationName}</h3>
+      {/* Perturbations visant les quais de cette station : c'est ce que l'anneau sur la carte a
+          promis d'expliquer. Placé avant les passages — savoir que l'arrêt n'est pas desservi
+          change la lecture des horaires qui suivent. */}
+      {data.disruptions.length > 0 && (
+        <ul style={{ margin: "0 0 4px", padding: 0, listStyle: "none" }}>
+          {data.disruptions.map((item, index) => (
+            <DisruptionRow key={index} item={item} />
+          ))}
+        </ul>
+      )}
       {lines.length === 0 && (
         <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
       )}

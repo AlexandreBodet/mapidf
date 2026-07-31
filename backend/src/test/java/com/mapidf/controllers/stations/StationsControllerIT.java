@@ -7,6 +7,7 @@ import java.time.Instant;
 import com.mapidf.MapIdfTest;
 import com.mapidf.gtfs.GtfsStaticLoader;
 import com.mapidf.gtfs.GtfsStaticService;
+import com.mapidf.disruptions.DisruptionPoller;
 import com.mapidf.rt.RealtimePoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ class StationsControllerIT {
     @Autowired GtfsStaticLoader loader;
     @Autowired GtfsStaticService staticService;
     @Autowired RealtimePoller poller;
+    @Autowired DisruptionPoller disruptionPoller;
     MockMvc mockMvc;
 
     /**
@@ -110,6 +112,52 @@ class StationsControllerIT {
             .andExpect(jsonPath("$.lines[1].directions", hasSize(1)))
             .andExpect(jsonPath("$.lines[1].directions[0].destination").value("Gamma"))
             .andExpect(jsonPath("$.lines[1].directions[0].passages[0].journeyRef").value("V9"));
+    }
+
+    /** Quai « 2 » = les deux quais de la station STC ; la ligne 9 est aussi coupée entièrement. */
+    private static final String DISRUPTIONS = """
+        {
+          "disruptions": [
+            {"id": "quai", "cause": "TRAVAUX", "severity": "BLOQUANTE",
+             "title": "Métro 9 : Travaux - Arrêt non desservi",
+             "shortMessage": "Arrêt non desservi",
+             "message": "<p>Descendez &#224; la station suivante.</p>",
+             "applicationPeriods": [{"begin": "20200101T000000", "end": "20991231T235959"}]},
+            {"id": "ligne", "cause": "PERTURBATION", "severity": "PERTURBEE",
+             "title": "Métro 9 : Incident", "shortMessage": "Trafic perturbé",
+             "applicationPeriods": [{"begin": "20200101T000000", "end": "20991231T235959"}]}
+          ],
+          "lines": [
+            {"id": "line:IDFM:C01379", "shortName": "9", "mode": "Metro", "impactedObjects": [
+              {"type": "line", "id": "line:IDFM:C01379", "disruptionIds": ["ligne"]},
+              {"type": "stop_point", "id": "stop_point:IDFM:2", "disruptionIds": ["quai"]}
+            ]}
+          ]
+        }
+        """;
+
+    @Test
+    void carriesTheDisruptionsAimedAtThePlatformsOfThisStation() throws Exception {
+        disruptionPoller.pollOnce(url -> new ByteArrayInputStream(
+            DISRUPTIONS.getBytes(StandardCharsets.UTF_8)), Instant.now());
+
+        // Seule la perturbation de QUAI remonte : celle de ligne entière vit dans le sélecteur de
+        // lignes, la répéter ici noierait une correspondance. Et son détail arrive en texte.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.disruptions", hasSize(1)))
+            .andExpect(jsonPath("$.disruptions[0].shortMessage").value("Arrêt non desservi"))
+            .andExpect(jsonPath("$.disruptions[0].severity").value("BLOQUANTE"))
+            .andExpect(jsonPath("$.disruptions[0].detail").value("Descendez à la station suivante."));
+    }
+
+    @Test
+    void servesAnEmptyDisruptionListWhenThePlatformsAreFine() throws Exception {
+        disruptionPoller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), Instant.now());
+
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(jsonPath("$.disruptions", hasSize(0)));
     }
 
     @Test
