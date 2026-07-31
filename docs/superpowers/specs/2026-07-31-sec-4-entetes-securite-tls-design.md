@@ -181,8 +181,13 @@ recompilation. C'est le gain visé, pas l'hermétisme.
 ```dockerfile
 HEALTHCHECK --interval=10s --timeout=3s --start-period=90s --retries=3 CMD \
   bash -c 'exec 3<>/dev/tcp/127.0.0.1/9100; printf "GET /actuator/health HTTP/1.0\r\n\r\n" >&3; \
-    grep -q "\"status\":\"UP\"" <&3'
+    head -1 <&3 | grep -qE "^HTTP/1\.[01] 200"'
 ```
+
+Le contrôle lit la **ligne de statut HTTP**, pas le corps : avec `show-details: always`, le corps
+liste aussi les sous-composants, et un `"status":"UP"` de sous-composant y suffirait à déclarer le
+conteneur sain même agrégat `DOWN` (Spring Boot mappe `DOWN`/`OUT_OF_SERVICE` sur 503, donc le code
+HTTP porte déjà l'agrégat).
 
 `start-period` généreux : au premier démarrage, le backend télécharge et charge le GTFS complet
 (~125 Mo) avant d'être prêt. Il ne doit pas être déclaré malade pendant ce temps.

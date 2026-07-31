@@ -414,15 +414,17 @@ FROM eclipse-temurin:25-jre
 WORKDIR /app
 # uid fixe et hors de la plage système de la distribution : les droits d'un volume monté un jour
 # restent prévisibles.
-RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin mapidf
+RUN groupadd --system --gid 10001 mapidf \
+ && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin mapidf
 COPY --from=build --chown=10001:10001 /app/target/*.jar app.jar
 USER 10001
 EXPOSE 8100 9100
 # L'image n'a ni curl ni wget, mais elle a bash : /dev/tcp interroge le vrai endpoint de santé
-# sans ajouter un paquet dans l'image finale. `start-period` généreux — au premier démarrage, le
-# backend charge le GTFS complet (~125 Mo) avant d'être prêt.
+# sans ajouter un paquet dans l'image finale. On lit la ligne de statut HTTP, pas le corps : un
+# sous-composant "UP" isolé y suffirait même agrégat DOWN. `start-period` généreux — au premier
+# démarrage, le backend charge le GTFS complet (~125 Mo) avant d'être prêt.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=90s --retries=3 CMD \
-  bash -c 'exec 3<>/dev/tcp/127.0.0.1/9100; printf "GET /actuator/health HTTP/1.0\r\n\r\n" >&3; grep -q "\"status\":\"UP\"" <&3'
+  bash -c 'exec 3<>/dev/tcp/127.0.0.1/9100; printf "GET /actuator/health HTTP/1.0\r\n\r\n" >&3; head -1 <&3 | grep -qE "^HTTP/1\.[01] 200"'
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
@@ -431,7 +433,7 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 Le backend de l'utilisateur tourne peut-être déjà, Actuator sur 9100. Si oui, ce test prouve le snippet pour de vrai (une simple lecture, rien n'est modifié) :
 
 ```bash
-bash -c 'exec 3<>/dev/tcp/127.0.0.1/9100; printf "GET /actuator/health HTTP/1.0\r\n\r\n" >&3; grep -q "\"status\":\"UP\"" <&3' && echo "snippet OK" || echo "snippet en échec ou backend absent"
+bash -c 'exec 3<>/dev/tcp/127.0.0.1/9100; printf "GET /actuator/health HTTP/1.0\r\n\r\n" >&3; head -1 <&3 | grep -qE "^HTTP/1\.[01] 200"' && echo "snippet OK" || echo "snippet en échec ou backend absent"
 ```
 
 Expected: `snippet OK`. Si le message est `snippet en échec ou backend absent`, vérifier d'abord que quelque chose écoute (`curl -s localhost:9100/actuator/health`) : sans backend local, ce contrôle est simplement reporté à la recette finale, ce n'est pas un échec de la tâche.
@@ -446,7 +448,8 @@ docker build -t mapidf-back-sec4 backend/
 docker run --rm --entrypoint id mapidf-back-sec4
 ```
 
-Expected: `uid=10001(mapidf)` — donc **pas** `uid=0(root)`.
+Expected: `uid=10001(mapidf) gid=10001(mapidf)` — donc **pas** `uid=0(root)`, et un gid explicite plutôt
+que celui choisi par défaut par `useradd`.
 
 **Si `dependency:go-offline` échoue** (il est connu pour buter sur certains plugins), ne pas le
 neutraliser par un `|| true` — remplacer la ligne par la variante plus étroite, qui résout les
