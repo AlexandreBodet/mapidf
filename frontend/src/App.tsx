@@ -14,7 +14,7 @@ import { PanelHeader } from "./ui/PanelHeader";
 import { Sheet } from "./ui/Sheet";
 import { useIsNarrow, useViewportHeight } from "./ui/useViewport";
 import { humanOrder } from "./ui/lineOrder";
-import type { Cran } from "./ui/sheetCrans";
+import { mapPadding, type Cran } from "./ui/sheetCrans";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -121,6 +121,10 @@ export default function App() {
       // selectedJourneyRef change, ci-dessous.
       setSelectedJourneyRef(props.journeyRef);
       setFollow(true);
+      // Sans ça, toucher une station feuille repliée semblerait ne rien produire. Mise à jour
+      // fonctionnelle : cet écouteur est posé une fois pour toutes et ne verrait pas un `cran`
+      // capturé au montage.
+      setCran((current) => (current === "apercu" ? "moitie" : current));
     };
     map.on("click", "vehicles", onClick);
     const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
@@ -138,6 +142,10 @@ export default function App() {
         map.easeTo({ center: coords as [number, number] });
       }
       setSelectedStationId(id);
+      // Sans ça, toucher une station feuille repliée semblerait ne rien produire. Mise à jour
+      // fonctionnelle : cet écouteur est posé une fois pour toutes et ne verrait pas un `cran`
+      // capturé au montage.
+      setCran((current) => (current === "apercu" ? "moitie" : current));
       departuresAbort.current?.abort();
       const controller = new AbortController();
       departuresAbort.current = controller;
@@ -184,6 +192,17 @@ export default function App() {
       map.off("touchstart", stopFollow);
     };
   }, [map]);
+
+  // La feuille flotte au-dessus d'une carte qui garde tout le viewport : rien ne rétrécit, donc
+  // aucun map.resize(). Un seul padding suffit à ce que TOUS les recentrages de MapLibre — le
+  // easeTo du clic station comme le jumpTo par frame du suivi — se posent au-dessus d'elle.
+  useEffect(() => {
+    if (!map) {
+      return;
+    }
+    const bottom = isNarrow ? mapPadding(cran, viewportHeight) : 0;
+    map.setPadding({ top: 0, right: 0, bottom, left: 0 });
+  }, [map, isNarrow, cran, viewportHeight]);
 
   // Le panneau passages est rafraîchi au rythme du poll tant qu'une station est sélectionnée,
   // pour que les ETA vivent et que les passages partis disparaissent (sinon on affiche des
