@@ -104,6 +104,23 @@ export default function App() {
     });
   };
 
+  // Les écouteurs de clic sont posés une fois pour toutes (deps `[map]`) : ils ne peuvent pas
+  // lire ces trois valeurs directement, elles y seraient figées à leur valeur au montage.
+  const sheet = useRef({ isNarrow, viewportHeight, cran });
+  sheet.current = { isNarrow, viewportHeight, cran };
+
+  // Le padding est posé AVANT le recentrage de l'appelant : sinon `easeTo` animerait vers un
+  // centre calculé avec l'ancien padding, puis `setPadding` déplacerait la vue d'un coup sec.
+  const openSheet = (map: maplibregl.Map) => {
+    const { isNarrow, viewportHeight, cran } = sheet.current;
+    const target = cran === "apercu" ? "moitie" : cran;
+    sheet.current.cran = target;
+    setCran(target);
+    if (isNarrow) {
+      map.setPadding({ top: 0, right: 0, bottom: mapPadding(target, viewportHeight), left: 0 });
+    }
+  };
+
   useEffect(() => {
     if (!map) {
       return;
@@ -121,10 +138,7 @@ export default function App() {
       // selectedJourneyRef change, ci-dessous.
       setSelectedJourneyRef(props.journeyRef);
       setFollow(true);
-      // Sans ça, toucher une station feuille repliée semblerait ne rien produire. Mise à jour
-      // fonctionnelle : cet écouteur est posé une fois pour toutes et ne verrait pas un `cran`
-      // capturé au montage.
-      setCran((current) => (current === "apercu" ? "moitie" : current));
+      openSheet(map);
     };
     map.on("click", "vehicles", onClick);
     const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
@@ -138,14 +152,12 @@ export default function App() {
       setSelectedJourneyRef(null);
       setFollow(false);
       map.setFilter("stops-selected", ["==", ["get", "id"], id]);
+      // Avant l'easeTo : il doit s'animer vers le centre définitif, padding compris.
+      openSheet(map);
       if (coords) {
         map.easeTo({ center: coords as [number, number] });
       }
       setSelectedStationId(id);
-      // Sans ça, toucher une station feuille repliée semblerait ne rien produire. Mise à jour
-      // fonctionnelle : cet écouteur est posé une fois pour toutes et ne verrait pas un `cran`
-      // capturé au montage.
-      setCran((current) => (current === "apercu" ? "moitie" : current));
       departuresAbort.current?.abort();
       const controller = new AbortController();
       departuresAbort.current = controller;
