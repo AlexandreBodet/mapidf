@@ -19,7 +19,10 @@ Est réussi si, à 390 × 844 et à 360 × 640 :
    atteignables sans dépassement d'écran ni défilement horizontal.
 3. Toute cible tactile mesure au moins 44 px dans sa plus petite dimension.
 4. Toucher une station produit un effet visible immédiatement, même feuille repliée.
-5. **Le rendu desktop est inchangé, au pixel.**
+5. **Aucune régression visible sur desktop.** Une nuance : sortir le titre et le `✕` des fiches
+   remplace un `float: right` par une rangée flex (`alignItems: flex-start`, qui reproduit le
+   comportement du float). Identique sur un titre d'une ligne ; à un cheveu près sur un nom de
+   station qui passe à la ligne. C'est la seule différence acceptée.
 
 ## 2. État des lieux mesuré
 
@@ -144,9 +147,19 @@ le plan se prépare. C'est le comportement du desktop, inchangé.
 - Transition de hauteur de 220 ms, **désactivée pendant le glissement** (sinon la feuille traîne
   derrière le doigt).
 
-## 8. Attribution : replier sous le seuil, et amender la règle
+## 8. Attribution : replier **et remonter** sous le seuil, et amender la règle
 
-`compact: true` en mode étroit — la mention passe derrière un `ⓘ` touché en un geste.
+`compact: true` en mode étroit — la mention passe derrière un `ⓘ` touché en un geste — **et le
+contrôle passe en `top-right`**.
+
+Le second point n'est pas cosmétique : replier seul ne suffirait pas. Le `ⓘ` reste ancré en bas à
+droite, donc **sous la feuille**, y compris repliée à 96 px — la mention deviendrait
+inatteignable, ce qui est pire que dépliée. Remonté en haut à droite, il ne masque rien (un seul
+bouton de 24 px, et les fiches descendent désormais dans la feuille) et reste à un geste.
+
+Ce n'est pas l'option « déplacer en haut à droite » écartée pendant le cadrage : celle-là gardait
+la mention **dépliée**, et trois à quatre lignes de texte couvraient le haut de la carte en
+permanence.
 
 C'est le cas que les recommandations OSM tolèrent explicitement, et que le commentaire de
 [MapView.tsx](../../../frontend/src/map/MapView.tsx) énonce déjà lui-même (« que sur écran
