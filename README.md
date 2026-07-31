@@ -88,9 +88,18 @@ quel que soit le sous-ensemble affiché auparavant.
 
 Sous 720 px de large, les panneaux flottants sont remplacés par une **feuille repliable** en bas
 d'écran : on la tire par sa poignée, ou on la touche pour passer au cran suivant (aperçu → moitié
-→ plein → aperçu). Elle porte le sélecteur de lignes par défaut ; ouvrir une station ou un train y
-affiche sa fiche, et la fermer ramène le sélecteur. Sur ces largeurs, la mention de source de la
-carte passe derrière un « ⓘ » en haut à droite.
+→ plein → aperçu). Un glissement vers le bas replie la feuille depuis **n'importe où** dans son
+corps, pas seulement la poignée — sauf si ce corps a du contenu à défiler vers le haut, auquel cas
+le défilement l'emporte tant qu'on n'est pas déjà remonté en haut. Au cran aperçu, la feuille ne
+montre plus que sa poignée (le résumé et le pied de licence se replient avec elle ; l'heure du
+dernier instantané reste lisible sur la poignée). Elle porte le sélecteur de lignes par défaut ;
+ouvrir une station ou un train y affiche sa fiche, et la fermer ramène le sélecteur. Sur ces
+largeurs, la mention de source de la carte passe derrière un « ⓘ » en haut à droite.
+
+En paysage (largeur au-dessus de 720 px mais hauteur réduite), la carte du sélecteur de lignes en
+bas à gauche peut se replier via un chevron `▾`/`▸` à côté du résumé — masque la grille des 16
+pastilles et la liste des perturbations sans toucher au compteur de trains. Ce chevron n'existe que
+sur cette carte flottante, jamais sur la feuille étroite.
 
 ## Données, sources et licences
 
@@ -115,11 +124,14 @@ mais distinct, avec des clauses propres (art. 5.2 compatibilité avec la straté
   repliée derrière le bouton « ⓘ » (défaut MapLibre) ; en dessous, repliée **et** remontée en
   haut à droite, faute de quoi elle se poserait par-dessus la feuille. Exception bornée,
   détaillée dans [CLAUDE.md](CLAUDE.md).
-- **Neutralité et loyauté (art. 5.7)** : [SheetFooter.tsx](frontend/src/ui/SheetFooter.tsx)
-  énonce que la position est **estimée** (le métro n'a pas de GPS) et affiche l'**heure du
-  dernier snapshot** — la licence interdit d'induire en erreur sur le contenu comme sur sa date
-  de mise à jour. Il appartient au conteneur et non au sélecteur de lignes, sinon la mention
-  disparaîtrait dès qu'une fiche occupe la feuille sur écran étroit.
+- **Neutralité et loyauté (art. 5.7)** : au-dessus de 720 px,
+  [SheetFooter.tsx](frontend/src/ui/SheetFooter.tsx) porte les deux obligations — la position est
+  **estimée** (le métro n'a pas de GPS) et l'**heure du dernier snapshot**. En dessous, la feuille
+  se replie au cran aperçu jusqu'à ne plus montrer que sa poignée : la nature estimée rejoint alors
+  la mention de source derrière le « ⓘ » (`ESTIMATION_NOTICE` dans `attribution.ts`), et la
+  fraîcheur de la donnée s'affiche directement sur la poignée
+  ([Sheet.tsx](frontend/src/ui/Sheet.tsx)) — le contenu de l'attribution MapLibre se fige à la
+  construction du contrôle et ne peut pas suivre chaque nouvel instantané.
 - **Clé PRIM personnelle (art. 4.1)** : `PRIM_API_KEY` vit dans `.env` (gitignoré), ne sort
   jamais du backend et n'est jamais exposée au frontend.
 
