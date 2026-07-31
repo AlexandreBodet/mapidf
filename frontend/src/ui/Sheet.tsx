@@ -1,4 +1,9 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  useRef, useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { cranHeight, nextCran, snap, type Cran } from "./sheetCrans";
 
 interface Props {
@@ -70,8 +75,10 @@ export function Sheet({ cran, onCranChange, viewportHeight, summary, children, l
   };
 
   // Un toucher sans déplacement, ou une touche Entrée/Espace sur la poignée : cran suivant.
-  const onClick = () => {
-    if (!gesture.current.moved) {
+  const onClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    // `detail === 0` = activation clavier, qui n'émet aucun événement pointeur : `moved` y
+    // porterait encore la trace du dernier glissement et bloquerait la touche pour de bon.
+    if (event.detail === 0 || !gesture.current.moved) {
       onCranChange(nextCran(cran));
     }
   };
