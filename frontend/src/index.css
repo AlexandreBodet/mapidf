@@ -13,6 +13,11 @@ body {
 :root {
   /* Hauteur minimale d'une cible tactile. 0 sur desktop : sans effet sur le rendu existant. */
   --tap: 0px;
+  /* Zone sûre basse (barre d'accueil des iPhone). Nommée ici plutôt qu'écrite en ligne dans la
+     feuille : `env()` vaut 0 sur la plupart des Android, ce qui rend le cas à encoche
+     intestable. La forcer depuis les outils de développement (`--safe-bottom: 34px` sur
+     `:root`) rejoue ce cas sans appareil Apple. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Doit rester synchronisé avec NARROW_MAX_WIDTH dans src/ui/useViewport.ts. */

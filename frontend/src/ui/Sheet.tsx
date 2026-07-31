@@ -223,8 +223,8 @@ export function Sheet({
         // CSS n'anime jamais vers/depuis "auto", ce qui rendait le repli instantané (résiduel A).
         // La zone sûre s'ajoute par-dessus, comme aux autres crans : sinon elle la rognerait et
         // l'aperçu perdrait sa ligne de résumé sur les iPhone récents.
-        height: `calc(${peeking ? peekHeight : height}px + env(safe-area-inset-bottom, 0px))`,
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        height: `calc(${peeking ? peekHeight : height}px + var(--safe-bottom))`,
+        paddingBottom: "var(--safe-bottom)",
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
