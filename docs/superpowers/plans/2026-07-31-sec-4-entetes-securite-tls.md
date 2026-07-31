@@ -17,7 +17,7 @@ Copiées de la spec [2026-07-31-sec-4-entetes-securite-tls-design.md](../specs/2
 - **`script-src` reste `'self'`** — jamais `unsafe-inline`, jamais `unsafe-eval`.
 - **Valeur exacte de la CSP** (une seule ligne, à reproduire caractère pour caractère dans `security-headers.conf` **et** dans `scripts/check-headers.sh`) :
   ```
-  default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
+  default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; child-src blob:; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
   ```
 - **`proxy_pass http://backend:8100;` reste SANS slash final.** Il transmet l'URI complète, `/api` étant le context-path du backend. Ajouter le slash casse tous les appels.
 - **Aucun `add_header Cache-Control` dans `location /api/`** : `add_header` **ajoute**, il ne remplace pas, et le backend envoie déjà son propre `Cache-Control` sur `/network`.
@@ -34,7 +34,7 @@ Copiées de la spec [2026-07-31-sec-4-entetes-securite-tls-design.md](../specs/2
 | `frontend/security-headers.conf` | **Créé.** Les seuls `add_header` de sécurité, inclus par chaque `location` | 2 |
 | `frontend/nginx.conf` | **Modifié.** Réécrit : compression, cache par chemin, en-têtes de proxy, `server_tokens off` | 2, 3 |
 | `frontend/Dockerfile` | **Modifié.** Image non privilégiée, copie de `security-headers.conf`, `HEALTHCHECK` | 3 |
-| `docker-compose.yml` | **Modifié.** Port du conteneur front, attente d'un backend sain | 3, 4 |
+| `docker-compose.yml` | **Modifié.** Port du conteneur front, `depends_on` simple vers backend | 3, 4 |
 | `backend/Dockerfile` | **Modifié.** Cache de couche Maven, utilisateur non-root, `HEALTHCHECK` | 4 |
 | `README.md` | **Modifié.** Section « Mise en ligne : ce qu'un terminateur TLS doit faire » | 5 |
 | `CLAUDE.md` | **Modifié.** Les pièges porteurs (héritage de `add_header`, slash de `proxy_pass`) | 5 |
@@ -390,7 +390,7 @@ git commit -m "feat(sec-4): front en uid 101 sur nginx-unprivileged, avec HEALTH
 
 **Interfaces:**
 - Consumes: rien des tâches précédentes.
-- Produces: une image backend en uid 10001 avec un `HEALTHCHECK` qui interroge `/actuator/health`. C'est lui qui rend possible le `condition: service_healthy` du service `frontend`.
+- Produces: une image backend en uid 10001 avec un `HEALTHCHECK` qui interroge `/actuator/health`, exploité par `docker compose ps` et un futur orchestrateur — il ne conditionne pas le démarrage de `frontend` (cf. Step 6).
 
 **Contexte pour l'implémenteur :** l'image `eclipse-temurin:25-jre` n'a **ni curl ni wget** (mesuré), mais elle a `/bin/bash`. D'où le `/dev/tcp`, qui interroge le vrai endpoint de santé sans ajouter de paquet dans l'image finale. Et le backend n'écrit qu'un fichier temporaire, par `Files.createTempFile` dans `/tmp` ([GtfsStaticLoader.java:91](../../../backend/src/main/java/com/mapidf/gtfs/GtfsStaticLoader.java#L91)) : `/tmp` est accessible en écriture à tout utilisateur, le passage en non-root ne casse donc pas le chargement GTFS.
 
@@ -479,15 +479,14 @@ docker build -t mapidf-back-sec4 backend/ 2>&1 | tail -20
 
 Expected: la sortie montre `CACHED` sur les étapes `COPY .mvn/`, `COPY mvnw pom.xml` et `RUN ./mvnw -B -q dependency:go-offline`, et ne réexécute que `COPY src/` et le `package`. C'est tout l'objet du découpage.
 
-- [ ] **Step 6 : faire attendre un backend sain par le front**
+- [ ] **Step 6 : garder un `depends_on` simple entre front et backend**
 
-Dans `docker-compose.yml`, service `frontend`, remplacer `depends_on: [backend]` par :
-
-```yaml
-    depends_on:
-      backend:
-        condition: service_healthy
-```
+Ne pas conditionner le démarrage de `frontend` à `backend: condition: service_healthy` : un
+`.env` incomplet fait boucler le backend indéfiniment, et nginx ne démarrerait alors jamais —
+alors que le front sait s'afficher seul avec un bandeau « Plan en préparation » (acquis d'UX-1).
+`docker-compose.yml` garde donc `depends_on: [backend]` : nginx n'a besoin que du nom DNS pour
+démarrer, et le conteneur existant suffit à le fournir. Le `HEALTHCHECK` du backend reste en
+place — il sert `docker compose ps` et un futur orchestrateur.
 
 - [ ] **Step 7 : vérifier que le compose reste valide**
 

@@ -11,7 +11,7 @@ set -uo pipefail
 BASE="${1:-http://localhost:8080}"
 failures=0
 
-CSP="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+CSP="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; child-src blob:; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
 
 # Corps ignoré : seuls les en-têtes comptent. Noms ramenés en minuscules pour comparer sans
 # dépendre de la casse choisie par le serveur.
@@ -82,6 +82,13 @@ fi
 echo "→ /assets/absent-de-toute-facon.js (404)"
 headers_of "$BASE/assets/absent-de-toute-facon.js" > "$tmp/missing"
 security_headers "$tmp/missing"
+
+# La location la plus tentante à croire inutile (« c'est du JSON, pourquoi une CSP ? ») : sans ce
+# passage, le script resterait vert si son include disparaissait. Pas de Cache-Control ici : c'est
+# le backend qui pose le sien sur /network, nginx n'en ajoute délibérément pas sur /api/.
+echo "→ $BASE/api/network (proxy backend)"
+headers_of "$BASE/api/network" > "$tmp/api"
+security_headers "$tmp/api"
 
 if (( failures > 0 )); then
   printf '\n%d écart(s). La conf nginx et ce script ne disent pas la même chose.\n' "$failures"

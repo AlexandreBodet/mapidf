@@ -57,6 +57,7 @@ style-src-elem 'self';
 style-src-attr 'unsafe-inline';
 img-src 'self' data: blob: https://tiles.openfreemap.org;
 connect-src 'self' https://tiles.openfreemap.org;
+child-src blob:;
 worker-src blob:;
 frame-ancestors 'none';
 base-uri 'none';
@@ -76,7 +77,11 @@ object-src 'none';
 - `connect-src` couvre `/api` (même origine) et les tuiles, sprites et glyphes — tous récupérés
   en XHR/fetch, pas en `<img>` ni en `@font-face` : c'est pourquoi il n'y a **pas** de
   `font-src`.
-- `worker-src blob:` sans `'self'` : MapLibre ne charge jamais de worker par URL.
+- `worker-src blob:` sans `'self'` : MapLibre ne charge jamais de worker par URL. `child-src
+  blob:` juste avant est le même genre de repli que le triple `style-src` : les moteurs qui
+  ignorent `worker-src` (Safari < 15.5, Firefox < 58) retombent sur `child-src`, puis sur
+  `default-src 'none'` — sans lui, ces navigateurs refusent le worker de MapLibre et la carte
+  reste blanche.
 
 **L'exception assumée** : `style-src-attr 'unsafe-inline'` est irréductible tant que le rendu est
 en styles inline (décision d'origine du projet, ~15 composants). Elle n'ouvre quelque chose qu'à
@@ -121,9 +126,10 @@ un déploiement se voit au rechargement sans retransférer le HTML à chaque nav
 paire, ou tout est retéléchargé, ou un `index.html` caché continue de réclamer des assets
 supprimés.
 
-`gzip on` sur les types texte (JS, CSS, JSON, SVG). Pas de brotli : `nginx:alpine` n'embarque pas
-le module, et l'ajouter demanderait de construire nginx — hors de proportion pour un gain de
-quelques pourcents sur des assets déjà gzippés.
+`gzip on` sur les types texte (JS, CSS, JSON, SVG). Pas de brotli :
+`nginxinc/nginx-unprivileged:alpine` n'embarque pas le module, et l'ajouter demanderait de
+construire nginx — hors de proportion pour un gain de quelques pourcents sur des assets déjà
+gzippés.
 
 ## 6. Le proxy vers le backend
 
@@ -192,8 +198,12 @@ HTTP porte déjà l'agrégat).
 `start-period` généreux : au premier démarrage, le backend télécharge et charge le GTFS complet
 (~125 Mo) avant d'être prêt. Il ne doit pas être déclaré malade pendant ce temps.
 
-Bénéfice de bord dans le compose : `frontend` peut attendre un backend **sain**
-(`condition: service_healthy`) et non simplement démarré.
+Ce `HEALTHCHECK` ne conditionne cependant pas le démarrage de `frontend` dans le compose :
+`depends_on: [backend]` suffit, nginx n'ayant besoin que du nom DNS. Un
+`condition: service_healthy` ferait dépendre nginx d'un backend sain, or un `.env` incomplet le
+fait boucler indéfiniment — nginx ne démarrerait alors jamais, privant le front du bandeau « Plan
+en préparation » qu'il sait afficher seul (acquis d'UX-1). Le `HEALTHCHECK` reste utile à
+`docker compose ps` et à un futur orchestrateur.
 
 ## 8. Le TLS : documenté et prêt, pas simulé
 
@@ -247,7 +257,8 @@ automatiquement : il vaut mieux qu'une prose de README, pas mieux qu'une CI.
    lointains, les glyphes qu'à partir du zoom 13 — les deux doivent être vus).
 4. Une fiche station, un train suivi, le sélecteur de lignes, une perturbation dépliée.
 5. Mode étroit (< 720 px) : la feuille, et le « ⓘ » de l'attribution.
-6. `docker compose ps` : les deux services `healthy`.
+6. `docker compose ps` : les trois services `healthy` (`db`, `backend`, `frontend` ont chacun
+   leur `HEALTHCHECK`).
 7. `docker compose exec backend id` et `... exec frontend id` : aucun `uid=0`.
 
 ## 11. Hors périmètre, volontairement

@@ -76,7 +76,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   chaque `location`** : les poser une seule fois au niveau `server` les ferait disparaître des
   réponses de `/assets/` (qui a son propre `Cache-Control`), silencieusement. Et pas de
   `Cache-Control` dans `/api/` : `add_header` ajoute au lieu de remplacer, il doublerait celui du
-  backend sur `/network`. Le script vérifie l'inclusion par `location` et les en-têtes sur 404 (où seul `always` les fait passer).
+  backend sur `/network`. Le script vérifie l'inclusion sur les trois `location` (`/`, `/assets/`,
+  `/api/`) et les en-têtes sur 404 (où seul `always` les fait passer). Toute nouvelle origine
+  externe côté front doit être déclarée dans `security-headers.conf`, faute de quoi la ressource
+  sera bloquée — et ça ne se voit ni au `npm run build`, ni avec `npm run dev` (sans CSP),
+  seulement dans un navigateur sur la pile Docker.
 - **`proxy_pass http://backend:8100;` sans slash final est volontaire** : il transmet l'URI
   complète, `/api` étant le context-path du backend. Le « corriger » casse tous les appels.
 
