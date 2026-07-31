@@ -5,19 +5,26 @@ import { fetchVehicles } from "../api/network";
 import { VEHICLE_POLL_MS } from "../api/config";
 import { VehicleLayer } from "./VehicleLayer";
 
+/**
+ * Résultat d'un poll `/vehicles`. Un champ `null` veut dire « inconnu, garde ta dernière valeur » —
+ * c'est le cas de tous sur échec, `failing` disant alors que la carte continue d'animer des
+ * positions périmées.
+ */
+export interface PollOutcome {
+  counts: Map<string, number> | null;
+  /** Date de la donnée servie, affichée comme sa date de mise à jour. */
+  asOf: string | null;
+  failing: boolean;
+  inService: boolean | null;
+}
+
 export function useVehicles(
   map: MlMap | null,
   network: NetworkResponse | null,
   selectedJourneyRef: string | null = null,
   follow = false,
   onSelected?: (vehicle: Vehicle | null) => void,
-  /**
-   * Résultat de chaque poll. `asOf` = horodatage du snapshot servi, affiché comme date de mise
-   * à jour de la donnée. Sur échec, `counts`/`asOf` valent null (l'appelant garde son dernier
-   * état connu) et `failing` passe à vrai : sans ça, la carte continue d'animer des positions
-   * périmées sans le dire.
-   */
-  onSnapshot?: (counts: Map<string, number> | null, asOf: string | null, failing: boolean) => void,
+  onSnapshot?: (outcome: PollOutcome) => void,
   highlightedJourneyRefs: Set<string> = new Set(),
   visibleLines: Set<string> | null = null,
 ) {
@@ -58,7 +65,11 @@ export function useVehicles(
         for (const vehicle of response.vehicles) {
           counts.set(vehicle.lineId, (counts.get(vehicle.lineId) ?? 0) + 1);
         }
-        onSnapshotRef.current?.(counts, response.asOf, false);
+        onSnapshotRef.current?.({
+          counts, asOf: response.asOf, failing: false,
+          // `?? null` : un backend qui n'a pas encore le champ ne doit pas passer pour éteint.
+          inService: response.inService ?? null,
+        });
         // Rafraîchit le panneau du train suivi avec la donnée fraîche de ce poll.
         const ref = selectedRef.current;
         if (ref) {
@@ -68,7 +79,8 @@ export function useVehicles(
         // On conserve l'affichage courant, mais on le signale : les flèches continuent de
         // s'animer vers leur dernière cible connue, ce qui ne se distingue pas d'un flux vivant.
         if (!cancelled) {
-          onSnapshotRef.current?.(null, null, true);
+          // `inService` reste inconnu : le backend est injoignable, pas l'horloge du réseau.
+          onSnapshotRef.current?.({ counts: null, asOf: null, failing: true, inService: null });
         }
       }
       if (cancelled) {

@@ -50,7 +50,10 @@ public class RealtimePoller {
     // Fenêtre de service métro (Europe/Paris), enjambe minuit : inutile de poller la nuit.
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
     private static final LocalTime SERVICE_START = LocalTime.of(5, 30);
-    private static final LocalTime SERVICE_END = LocalTime.of(1, 30);
+    // 03h00 et non 01h30 : les derniers départs sont vers 00h45 en semaine et ~01h45 les vendredis
+    // et samedis, et un train roule ensuite jusqu'à son terminus. Fermer plus tôt effaçait de la
+    // carte des trains qui circulaient encore.
+    private static final LocalTime SERVICE_END = LocalTime.of(3, 0);
 
     private final PrimProperties prim;
     private final ObjectMapper objectMapper;
@@ -118,13 +121,27 @@ public class RealtimePoller {
         if (prim.realtimeBaseUrl() == null || prim.realtimeBaseUrl().isBlank()) {
             return;
         }
-        if (!inServiceHours(LocalTime.now(PARIS))) {
-            return;
-        }
-        pollOnce(this::fetch, Instant.now());
+        tick(LocalTime.now(PARIS), Instant.now());
     }
 
-    // Vrai pendant la fenêtre de service, qui enjambe minuit (05h30 → 01h30).
+    // Séparé de poll() pour que la fin de service soit testable sans horloge injectée.
+    void tick(LocalTime localTime, Instant now) {
+        if (!inServiceHours(localTime)) {
+            // Oublier le dernier instantané, et pas seulement cesser de poller : PositionEngine
+            // place au dernier arrêt connu quand tous les appels sont passés, donc le garder
+            // peuplait la carte nocturne de courses figées à leur terminus.
+            snapshot.set(RtSnapshot.empty());
+            return;
+        }
+        pollOnce(this::fetch, now);
+    }
+
+    /** Des trains peuvent circuler à cet instant — le front distingue ainsi la nuit d'une panne. */
+    public boolean inServiceNow() {
+        return inServiceHours(LocalTime.now(PARIS));
+    }
+
+    // Vrai pendant la fenêtre de service, qui enjambe minuit (05h30 → 03h00).
     static boolean inServiceHours(LocalTime now) {
         return !now.isBefore(SERVICE_START) || now.isBefore(SERVICE_END);
     }

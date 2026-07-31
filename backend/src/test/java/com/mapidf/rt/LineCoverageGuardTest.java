@@ -118,6 +118,23 @@ class LineCoverageGuardTest {
     }
 
     @Test
+    void staysSilentInTheTailOfService() {
+        // 02 h : le poller tourne encore (fenêtre élargie à 03 h pour ne pas effacer les derniers
+        // trains), mais les lignes s'éteignent l'une après l'autre. Un zéro isolé y est normal —
+        // c'est le seul moment où « une ligne à zéro pendant que le réseau roule » ne veut rien
+        // dire. Même raison au réveil du réseau, avant 06h30.
+        feed(MIDDAY, NINE);
+        at(0);
+
+        assertThat(guard.check(
+            ZonedDateTime.of(2026, 7, 31, 2, 0, 0, 0, ZoneId.of("Europe/Paris")).toInstant()))
+            .isEmpty();
+        assertThat(guard.check(
+            ZonedDateTime.of(2026, 7, 31, 6, 0, 0, 0, ZoneId.of("Europe/Paris")).toInstant()))
+            .isEmpty();
+    }
+
+    @Test
     void staysSilentOutsideServiceHours() {
         // 3 h du matin : le poller ne tourne pas, tout est à zéro par construction.
         feed(MIDDAY, NINE);

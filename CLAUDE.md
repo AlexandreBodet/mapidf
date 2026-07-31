@@ -134,6 +134,17 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   mesure) : filtrer sur `applicationPeriods` couvrant l'instant, sinon on annonce une ligne
   coupée trois semaines à l'avance. Ce filtre ne contredit pas la décision ci-dessous : il ne
   masque aucun train.
+- **Hors des heures de service (05h30–03h00), le snapshot est oublié, pas seulement figé.**
+  `PositionEngine` place au dernier arrêt connu quand tous les appels sont passés (« on n'exclut
+  jamais un train qui a des données ») : garder le snapshot de 02h59 peuplait la carte nocturne de
+  ~705 courses immobiles à leur terminus. `RealtimePoller.tick` remet donc l'instantané à vide, et
+  `/vehicles` porte `inService` pour que le front distingue la nuit d'une panne. `LineCoverageGuard`
+  a sa **propre** fenêtre (06h30–00h30), plus étroite : dans la queue de service les lignes
+  s'éteignent une à une, un zéro isolé n'y veut rien dire.
+- **`/vehicles.asOf` est la date de la DONNÉE, pas celle de la requête** (`RtSnapshot.dataDate`,
+  `null` avant le premier poll). C'était l'inverse, et le pied de page tamponnait l'heure courante
+  sur un instantané vieux de plusieurs heures — l'art. 5.7 interdit d'induire en erreur sur la date
+  de mise à jour autant que sur le contenu.
 - **Décision produit ferme : PAS de seuil d'ETA pour masquer un train.** Un seuil ferait
   disparaître les trains lors des perturbations de trafic — exactement ce qu'on veut voir.
   Tout filtrage doit s'appuyer sur un **signal non temporel** (fiabilité du placement).

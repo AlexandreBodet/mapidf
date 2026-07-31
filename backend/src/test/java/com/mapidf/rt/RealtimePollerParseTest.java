@@ -1,11 +1,16 @@
 package com.mapidf.rt;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
 
+import com.mapidf.configurations.properties.PrimProperties;
+import com.mapidf.network.LineRegistry;
+import com.mapidf.network.NetworkSnapshot;
+import com.mapidf.network.TrackedLine;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +19,17 @@ class RealtimePollerParseTest {
 
     private static final String LINE_NINE = "STIF:Line::C01379:";
     private static final String LINE_ONE = "STIF:Line::C01371:";
+
+    private static RealtimePoller poller() {
+        LineRegistry registry = new LineRegistry();
+        registry.publish(NetworkSnapshot.of(List.of(
+            new TrackedLine(LINE_NINE, LINE_NINE, LINE_NINE, "9", "#000000", "METRO", List.of())),
+            List.of()));
+        return new RealtimePoller(
+            new PrimProperties("", "apikey", "", "http://rt", Duration.ofSeconds(10), "",
+                Duration.ofMinutes(5)),
+            new ObjectMapper(), registry);
+    }
 
     @Test
     void indexesEstimatedTimetableByLine() {
@@ -56,10 +72,37 @@ class RealtimePollerParseTest {
     @Test
     void serviceWindowWrapsAroundMidnight() {
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(12, 0))).isTrue();  // plein service
-        assertThat(RealtimePoller.inServiceHours(LocalTime.of(1, 0))).isTrue();   // après minuit, avant 01h30
+        assertThat(RealtimePoller.inServiceHours(LocalTime.of(1, 0))).isTrue();   // après minuit
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(5, 45))).isTrue();  // juste après ouverture
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(3, 0))).isFalse();  // nuit
         assertThat(RealtimePoller.inServiceHours(LocalTime.of(5, 0))).isFalse();  // avant ouverture
+    }
+
+    @Test
+    void serviceWindowCoversTheTailOfServiceAfterOneOClock() {
+        // Les derniers métros partent vers 00h45 en semaine, ~01h45 les vendredis et samedis, et
+        // roulent jusqu'à leur terminus. Fermer à 01h30 les effaçait de la carte alors qu'ils
+        // circulaient encore.
+        assertThat(RealtimePoller.inServiceHours(LocalTime.of(1, 45))).isTrue();
+        assertThat(RealtimePoller.inServiceHours(LocalTime.of(2, 30))).isTrue();
+        assertThat(RealtimePoller.inServiceHours(LocalTime.of(2, 59))).isTrue();
+        assertThat(RealtimePoller.inServiceHours(LocalTime.of(3, 1))).isFalse();
+    }
+
+    @Test
+    void forgetsTheSnapshotOnceServiceIsOver() {
+        // Le snapshot survivrait à la fin du service, et PositionEngine place au dernier arrêt
+        // connu quand tous les appels sont passés : la nuit, la carte montrerait ~705 courses
+        // figées à leur terminus, annoncées « en circulation ».
+        RealtimePoller poller = poller();
+        byte[] siri = RtFixtures.siriLineNineSample();
+        poller.pollOnce(url -> RtFixtures.stream(siri), Instant.ofEpochSecond(100));
+        assertThat(poller.current().byLine()).isNotEmpty();
+
+        poller.tick(LocalTime.of(4, 0), Instant.ofEpochSecond(200));
+
+        assertThat(poller.current().byLine()).isEmpty();
+        assertThat(poller.current().dataDate()).isNull();
     }
 
     @Test

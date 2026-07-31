@@ -42,6 +42,7 @@ export default function App() {
   // date de mise à jour de la donnée (Licence Mobilité, art. 5.7 « neutralité et loyauté »).
   const [asOf, setAsOf] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  const [inService, setInService] = useState(true);
   // Remonté ici parce que la carte en dépend : panneau ouvert = stations perturbées mises en
   // évidence par un halo.
   const [disruptionsOpen, setDisruptionsOpen] = useState(false);
@@ -73,16 +74,19 @@ export default function App() {
     if (v) {
       setSelected(v);
     }
-  }, (next, at, failing) => {
-    // null sur échec : on garde le dernier décompte et le dernier horodatage affichés, en
-    // signalant qu'ils ne bougent plus.
-    if (next) {
-      setCounts(next);
+  }, (outcome) => {
+    // null sur échec : on garde le dernier décompte, le dernier horodatage et le dernier état de
+    // service affichés, en signalant qu'ils ne bougent plus.
+    if (outcome.counts) {
+      setCounts(outcome.counts);
     }
-    if (at) {
-      setAsOf(at);
+    if (outcome.asOf) {
+      setAsOf(outcome.asOf);
     }
-    setStale(failing);
+    if (outcome.inService !== null) {
+      setInService(outcome.inService);
+    }
+    setStale(outcome.failing);
   }, highlightedJourneyRefs, visibleLines);
 
   const toggleLine = (lineId: string) => {
@@ -302,6 +306,7 @@ export default function App() {
   const networkSummary = (
     <NetworkSummary
       total={total}
+      inService={inService}
       disruptedCount={disrupted.length}
       disruptionsOpen={disruptionsOpen}
       onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}

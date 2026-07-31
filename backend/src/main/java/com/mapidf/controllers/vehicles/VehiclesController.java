@@ -41,6 +41,6 @@ public class VehiclesController {
                 vehicles.add(VehicleDto.from(vehicle));
             }
         }
-        return new VehiclesResponse(now, vehicles);
+        return new VehiclesResponse(snapshot.dataDate(), poller.inServiceNow(), vehicles);
     }
 }

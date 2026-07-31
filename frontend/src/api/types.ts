@@ -43,7 +43,10 @@ export interface Vehicle {
 }
 
 export interface VehiclesResponse {
-  asOf: string;
+  /** Date de la donnée servie, `null` avant le premier poll abouti — jamais l'heure de la requête. */
+  asOf: string | null;
+  /** Faux hors des heures de service : une carte sans train est alors normale, pas une panne. */
+  inService: boolean;
   vehicles: Vehicle[];
 }
 

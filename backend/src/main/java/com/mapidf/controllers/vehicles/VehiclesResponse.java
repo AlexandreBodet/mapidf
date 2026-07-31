@@ -5,7 +5,14 @@ import java.util.List;
 
 import com.mapidf.position.Vehicle;
 
-public record VehiclesResponse(Instant asOf, List<VehicleDto> vehicles) {
+/**
+ * @param asOf       date de la donnée servie (instant du dernier poll SIRI), {@code null} avant le
+ *                   premier poll réussi — jamais l'instant de la requête, qui prétendrait à une
+ *                   fraîcheur que la donnée n'a pas
+ * @param inService  des trains peuvent circuler à cet instant. Une liste vide pendant le service
+ *                   est une panne ; hors service, c'est la nuit
+ */
+public record VehiclesResponse(Instant asOf, boolean inService, List<VehicleDto> vehicles) {
 
     /**
      * @param recordedAt  dernière mise à jour de la course côté SIRI (information d'affichage)

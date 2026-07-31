@@ -44,8 +44,11 @@ Conséquences :
   L'ancien `requete-ligne` (1 appel/min **par ligne**) ne passait pas à l'échelle.
 - Au MVP mono-ligne, le poller garde le filtre `?LineRef=` (réponse ~129 Ko) ; retirer
   le filtre = ingestion réseau complète (évolution multi-lignes, sans nouvel appel).
-- Poll **PT60S borné aux heures de service** (~05h30–01h30, `inServiceHours`) ≈ 1200/j.
-  Quota `estimated-timetable` (doc ~1000/j, à relever à 1500 côté PRIM). Bucket
+- Poll **PT60S borné aux heures de service** (05h30–03h00, `inServiceHours`) ≈ 1290/j.
+  Quota `estimated-timetable` (doc ~1000/j, à relever à 1500 côté PRIM) : la marge est de
+  ~210 appels/j, à revoir avant d'élargir encore la fenêtre ou de raccourcir l'intervalle.
+  La fin à 03h00 couvre la queue de service (derniers départs ~00h45, ~01h45 les vendredis et
+  samedis) : fermer plus tôt effaçait de la carte des trains qui roulaient encore. Bucket
   **distinct** de `requete-ligne` (constaté : 200 alors que `requete-ligne` était 429).
 - `gtfs-rt` sous `/marketplace/` = 403 Cloudflare (chemin inexistant) → piste protobuf
   abandonnée, inutile ici.

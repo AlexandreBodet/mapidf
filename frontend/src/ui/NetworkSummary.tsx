@@ -1,5 +1,7 @@
 interface Props {
   total: number;
+  /** Hors des heures de service, une carte sans train est normale : le compteur mentirait. */
+  inService: boolean;
   disruptedCount: number;
   disruptionsOpen: boolean;
   onToggleDisruptions: () => void;
@@ -17,13 +19,13 @@ interface Props {
  * seul contenu visible quand la feuille est repliée — d'où son extraction hors du `LinePicker`.
  */
 export function NetworkSummary({
-  total, disruptedCount, disruptionsOpen, onToggleDisruptions, canShowAll, onShowAll,
+  total, inService, disruptedCount, disruptionsOpen, onToggleDisruptions, canShowAll, onShowAll,
   collapsible, expanded, onToggleExpanded,
 }: Props) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <b>{total} trains en circulation</b>
+        <b>{inService ? `${total} trains en circulation` : "Service terminé"}</b>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {canShowAll && (
             <button
@@ -51,6 +53,12 @@ export function NetworkSummary({
           )}
         </div>
       </div>
+      {/* Sans cette phrase, une carte vide se lit comme une panne — c'est le seul moment où le
+          silence de l'appli et son échec se ressemblent. Aucune heure citée : le premier métro
+          dépend de la ligne, et la fenêtre de service vit côté serveur. */}
+      {!inService && (
+        <div style={{ color: "#666", marginTop: 2 }}>Reprise au premier métro.</div>
+      )}
       {disruptedCount > 0 && (
         <button
           onClick={onToggleDisruptions}

@@ -33,6 +33,15 @@ public class LineCoverageGuard {
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
 
     /**
+     * Fenêtre de surveillance, plus étroite que celle du poller (05h30–03h00) : au réveil du
+     * réseau comme dans sa queue de service, les lignes s'allument et s'éteignent l'une après
+     * l'autre, et « une ligne à zéro alors que le reste roule » ne veut alors rien dire. Le
+     * garde-fou ne parle que quand les seize lignes doivent avoir des courses.
+     */
+    private static final LocalTime WATCH_START = LocalTime.of(6, 30);
+    private static final LocalTime WATCH_END = LocalTime.of(0, 30);
+
+    /**
      * 15 min : très au-delà de l'intervalle entre deux métros (2 à 8 min) et de deux polls
      * manqués. Un zéro qui dure aussi longtemps est structurel, pas un creux de trafic. Constante
      * et non configurable : la spec écarte tout seuil par ligne, ce n'est pas un réglage mais un
@@ -61,7 +70,7 @@ public class LineCoverageGuard {
      *     capturer les logs.
      */
     List<String> check(Instant now) {
-        if (!RealtimePoller.inServiceHours(LocalTime.ofInstant(now, PARIS))) {
+        if (!watching(LocalTime.ofInstant(now, PARIS))) {
             // La nuit, le poller ne tourne pas : toutes les lignes sont à zéro par construction.
             forget();
             return List.of();
@@ -103,6 +112,11 @@ public class LineCoverageGuard {
             }
         });
         return fresh;
+    }
+
+    // Enjambe minuit, comme la fenêtre de service.
+    private static boolean watching(LocalTime now) {
+        return !now.isBefore(WATCH_START) || now.isBefore(WATCH_END);
     }
 
     private void forget() {

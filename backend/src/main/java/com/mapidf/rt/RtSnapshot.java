@@ -43,6 +43,14 @@ public record RtSnapshot(Instant asOf, Map<String, List<LiveJourney>> byLine) {
         return byLine.getOrDefault(lineRef, List.of());
     }
 
+    /**
+     * Date de la donnée, ou {@code null} tant qu'aucun poll n'a abouti — l'{@code EPOCH} de
+     * {@link #empty()} n'est pas une date de mise à jour et ne doit jamais s'afficher comme telle.
+     */
+    public Instant dataDate() {
+        return Instant.EPOCH.equals(asOf) ? null : asOf;
+    }
+
     public static RtSnapshot empty() {
         return new RtSnapshot(Instant.EPOCH, Map.of());
     }
