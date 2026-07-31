@@ -83,9 +83,10 @@ echo "→ /assets/absent-de-toute-facon.js (404)"
 headers_of "$BASE/assets/absent-de-toute-facon.js" > "$tmp/missing"
 security_headers "$tmp/missing"
 
-# La location la plus tentante à croire inutile (« c'est du JSON, pourquoi une CSP ? ») : sans ce
-# passage, le script resterait vert si son include disparaissait. Pas de Cache-Control ici : c'est
-# le backend qui pose le sien sur /network, nginx n'en ajoute délibérément pas sur /api/.
+# La location la plus tentante à croire inutile (« c'est du JSON, pourquoi une CSP ? »), donc celle
+# dont il faut constater que les en-têtes y arrivent — l'include du niveau server suffirait à les
+# fournir par héritage, ce qu'aucun contrôle HTTP ne peut distinguer. Passe en 200 comme en 502.
+# Pas de Cache-Control ici : c'est le backend qui pose le sien sur /network, jamais nginx.
 echo "→ $BASE/api/network (proxy backend)"
 headers_of "$BASE/api/network" > "$tmp/api"
 security_headers "$tmp/api"

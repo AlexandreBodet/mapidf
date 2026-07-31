@@ -23,7 +23,7 @@ d'une spec dans [superpowers/specs/](superpowers/specs/)).
 | SEC-1 | Ne pas publier l'Actuator | Le port `9000` était publié sur toutes les interfaces, avec `show-details: always` et `metrics` : version PostgreSQL, URL JDBC, internes JVM | S | P0 | **fait** (publié sur `127.0.0.1` seulement ; un déploiement derrière proxy devra en plus ne pas router `/actuator`) |
 | SEC-2 | Clé PRIM envoyée à un tiers | `GtfsStaticService.refresh` posait l'en-tête `apikey` sur **toutes** les requêtes GTFS, dont le miroir `eu.ftp.opendatasoft.com` de l'URL par défaut | S | P0 | **fait** (`requiresPrimKey`, clé envoyée au seul domaine PRIM) |
 | SEC-3 | Rate limiting | Les 3 endpoints sont anonymes et sans quota. `/vehicles` recalcule ~705 positions par appel : un client qui boucle coûte du CPU linéairement | M | P1 si public | à faire |
-| SEC-4 | En-têtes de sécurité + TLS | [nginx.conf](../frontend/nginx.conf) : ni CSP, ni `X-Frame-Options`, ni HSTS, ni `server_tokens off`, ni `X-Forwarded-For` vers le back, ni cache-control sur les assets hashés. Aucun scénario HTTPS | M | P1 si public | **fait** — [spec](superpowers/specs/2026-07-31-sec-4-entetes-securite-tls-design.md). CSP stricte (`script-src 'self'`, sans `unsafe-eval`), en-têtes de sécurité inclus par chaque `location`, cache un an sur les assets hachés et `no-cache` sur `index.html`, gzip, `server_tokens off`, `X-Forwarded-*` vers le back, et `scripts/check-headers.sh` qui échoue si un en-tête disparaît. Absorbe la part « Dockerfile » de SEC-6 : front en uid 101 (`nginx-unprivileged`), backend en uid 10001, `HEALTHCHECK` des deux côtés, résolution Maven en couche cachée. **Reste à SEC-6** : scan de dépendances. **TLS non terminé par la pile** : le scénario est documenté dans le README, la décision revient à l'hébergeur |
+| SEC-4 | En-têtes de sécurité + TLS | [nginx.conf](../frontend/nginx.conf) : ni CSP, ni `X-Frame-Options`, ni HSTS, ni `server_tokens off`, ni `X-Forwarded-For` vers le back, ni cache-control sur les assets hashés. Aucun scénario HTTPS | M | P1 si public | **fait** — [spec](superpowers/specs/2026-07-31-sec-4-entetes-securite-tls-design.md). CSP stricte (`script-src 'self'`, sans `unsafe-eval`), en-têtes de sécurité inclus par chaque `location` **et** au niveau `server` (les erreurs émises avant tout choix de `location` sortaient nues — mesuré sur un 400), cache un an sur les assets hachés et `no-cache` sur `index.html`, gzip, `server_tokens off`, `X-Forwarded-Proto` préservé par un `map` (un `proxy_set_header $scheme` écrasait la valeur du terminateur), et `scripts/check-headers.sh` qui échoue si un en-tête disparaît. CSP éprouvée **en navigateur sur deux moteurs** (Chrome et Firefox : raster, glyphes, sprites, worker blob, images `data:`/`blob:`), pas seulement raisonnée. Absorbe la part « Dockerfile » de SEC-6 : front en uid 101 (`nginx-unprivileged`), backend en uid 10001, `HEALTHCHECK` des deux côtés, résolution Maven en couche cachée. **Reste à SEC-6** : scan de dépendances. **TLS non terminé par la pile** : le scénario est documenté dans le README, la décision revient à l'hébergeur |
 | SEC-5 | Secrets hors du code | `mapidf/mapidf` était en dur dans `application.yml` et dans les composes | S | P1 | **fait** (`.env` seule source, zéro défaut dans le code, `spring.config.import` pour le CLI) |
 | SEC-6 | Chaîne d'appro | Aucun scan de dépendances (Dependabot, `npm audit`, dependency-check). Le durcissement des images (non-root, `HEALTHCHECK`, cache de couche Maven) a été absorbé par SEC-4 | M | P2 | à faire |
 | SEC-7 | Garde-fou de configuration | Le Binder des `@ConfigurationProperties` ignore les placeholders non résolus (il en garde le texte littéral), là où `Environment.getProperty` lève. Conséquence mesurée : sans clé PRIM, l'appli démarrait, PRIM répondait 401, le poller avalait l'échec et `/vehicles` servait zéro véhicule — « 0 trains en circulation » sans alerte | S | P1 | **fait** (`ConfigurationGuard`, `BeanFactoryPostProcessor` qui nomme les variables absentes) |
@@ -97,13 +97,17 @@ groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des
 porte d'un déploiement public, qui n'est pas d'actualité.
 
 1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**, **PROD-1**,
-   **QUA-2**, **UX-2**~~ — faits.
+   **QUA-2**, **UX-2**, **UX-3b**, **SEC-4**~~ — faits.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
 2. **QUA-3** (outillage front) — le suivant, et UX-2 a montré pourquoi : cinq de ses six défauts
    n'ont été trouvés qu'en relisant le code ou à l'œil sur un téléphone, faute de harnais. Vitest
    est déjà là ; restent ESLint, Prettier, les autres fonctions pures et de quoi tester un
-   composant.
+   composant. **QUA-8** (sortir du style inline) attend ce harnais, et **UX-4** attend QUA-8.
+3. **SEC-3** + **PERF-3** ensemble, le jour où une mise en ligne se précise : un cache serveur de
+   ~1 s sur `/vehicles` (effort S) retire l'essentiel de la charge qu'un quota devrait ensuite
+   borner. SEC-4 a fermé ce qui pouvait l'être sans hébergeur ; le reste attend une décision de
+   déploiement, **SEC-6** (scan de dépendances) compris.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
 **UX-3b** (demande un signal API), **PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5**

@@ -76,8 +76,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   chaque `location`** : les poser une seule fois au niveau `server` les ferait disparaître des
   réponses de `/assets/` (qui a son propre `Cache-Control`), silencieusement. Et pas de
   `Cache-Control` dans `/api/` : `add_header` ajoute au lieu de remplacer, il doublerait celui du
-  backend sur `/network`. Le script vérifie l'inclusion sur les trois `location` (`/`, `/assets/`,
-  `/api/`) et les en-têtes sur 404 (où seul `always` les fait passer). Toute nouvelle origine
+  backend sur `/network`. Un **quatrième** `include`, au niveau `server`, couvre les erreurs émises
+  avant tout choix de `location` (mesuré : un 400 sur en-tête surdimensionné sortait nu) — et c'est
+  lui le vrai filet : depuis, un `location` privé de son `include` **hérite** des en-têtes, donc
+  `scripts/check-headers.sh` constate qu'ils sont bien servis sur les quatre chemins (dont un 404 et
+  `/api/`) sans pouvoir distinguer « posé ici » d'« hérité ». Toute nouvelle origine
   externe côté front doit être déclarée dans `security-headers.conf`, faute de quoi la ressource
   sera bloquée — et ça ne se voit ni au `npm run build`, ni avec `npm run dev` (sans CSP),
   seulement dans un navigateur sur la pile Docker.
