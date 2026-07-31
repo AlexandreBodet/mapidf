@@ -101,6 +101,35 @@ bas à gauche peut se replier via un chevron `▾`/`▸` à côté du résumé �
 pastilles et la liste des perturbations sans toucher au compteur de trains. Ce chevron n'existe que
 sur cette carte flottante, jamais sur la feuille étroite.
 
+## Mise en ligne : ce que doit faire un terminateur TLS
+
+La pile ne termine pas le TLS : elle est faite pour être placée **derrière** un terminateur
+(reverse proxy, ingress, tunnel), qui reste à choisir avec l'hébergeur. Ce qui est déjà prêt de
+notre côté : nginx émet tous les en-têtes de sécurité (dont HSTS, inactif tant que l'origine est
+en `http:`) et relaie `X-Forwarded-For`/`X-Forwarded-Proto` au backend.
+
+Ce que le terminateur doit faire, et que rien ici ne peut faire à sa place :
+
+1. Terminer le TLS et rediriger 80 → 443.
+2. Transmettre `X-Forwarded-Proto: https`.
+3. **Ne pas router `/actuator`.** La pile ne le publie que sur la loopback de l'hôte ; un proxy
+   trop généreux annulerait ce garde-fou et exposerait la version de PostgreSQL, l'URL JDBC et
+   les internes de la JVM.
+4. Laisser passer les en-têtes de réponse de nginx sans les réécrire — c'est à ce moment-là que
+   HSTS devient actif, sans changement de configuration.
+
+Aucune question de CORS ne se pose : une seule origine sert l'application et l'API.
+
+Les en-têtes servis se vérifient sur une pile lancée :
+
+```bash
+scripts/check-headers.sh                      # http://localhost:8080 par défaut
+scripts/check-headers.sh https://exemple.fr   # ou une instance déployée
+```
+
+Le détail de chaque directive de la CSP, et la mesure qui la justifie, sont dans la
+[spec SEC-4](docs/superpowers/specs/2026-07-31-sec-4-entetes-securite-tls-design.md).
+
 ## Données, sources et licences
 
 Le code de MapIDF est sous [licence MIT](LICENSE). Les **données ne le sont pas** : elles
