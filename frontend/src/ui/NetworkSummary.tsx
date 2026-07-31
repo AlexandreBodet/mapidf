@@ -6,6 +6,10 @@ interface Props {
   /** Un sous-ensemble de lignes est isolé : « tout afficher » a du sens. */
   canShowAll: boolean;
   onShowAll: () => void;
+  /** Chevron de repli : seule la branche large l'expose, la feuille étroite a déjà ses crans. */
+  collapsible?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 /**
@@ -14,22 +18,38 @@ interface Props {
  */
 export function NetworkSummary({
   total, disruptedCount, disruptionsOpen, onToggleDisruptions, canShowAll, onShowAll,
+  collapsible, expanded, onToggleExpanded,
 }: Props) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <b>{total} trains en circulation</b>
-        {canShowAll && (
-          <button
-            onClick={onShowAll}
-            style={{
-              border: "none", background: "none", color: "#1d4ed8", cursor: "pointer",
-              font: "inherit", minHeight: "var(--tap)",
-            }}
-          >
-            tout afficher
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {canShowAll && (
+            <button
+              onClick={onShowAll}
+              style={{
+                border: "none", background: "none", color: "#1d4ed8", cursor: "pointer",
+                font: "inherit", minHeight: "var(--tap)",
+              }}
+            >
+              tout afficher
+            </button>
+          )}
+          {collapsible && (
+            <button
+              onClick={onToggleExpanded}
+              aria-expanded={expanded}
+              aria-label={expanded ? "Replier le sélecteur de lignes" : "Déplier le sélecteur de lignes"}
+              style={{
+                border: "none", background: "none", color: "#666", cursor: "pointer",
+                font: "inherit", minHeight: "var(--tap)", padding: 0,
+              }}
+            >
+              {expanded ? "▾" : "▸"}
+            </button>
+          )}
+        </div>
       </div>
       {disruptedCount > 0 && (
         <button

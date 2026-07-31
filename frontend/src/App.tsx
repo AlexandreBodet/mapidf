@@ -44,6 +44,9 @@ export default function App() {
   // Remonté ici parce que la carte en dépend : panneau ouvert = stations perturbées mises en
   // évidence par un halo.
   const [disruptionsOpen, setDisruptionsOpen] = useState(false);
+  // Chevron de repli du sélecteur (branche large uniquement) : déplié par défaut pour ne rien
+  // changer à ce qui est vu au premier chargement.
+  const [pickerExpanded, setPickerExpanded] = useState(true);
   const isNarrow = useIsNarrow();
   const viewportHeight = useViewportHeight();
   // Détenu ici, pas dans la feuille : la carte en dérive son padding de caméra (tâche 4), et
@@ -303,6 +306,11 @@ export default function App() {
       onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}
       canShowAll={visibleLines !== null}
       onShowAll={() => setVisibleLines(null)}
+      // La feuille étroite a déjà ses crans pour replier le sélecteur : le chevron n'a de sens
+      // que sur la carte flottante du rendu large.
+      collapsible={!isNarrow}
+      expanded={pickerExpanded}
+      onToggleExpanded={() => setPickerExpanded((open) => !open)}
     />
   );
   const linePicker = (
@@ -378,7 +386,7 @@ export default function App() {
             style={{ padding: "10px 12px", font: "13px sans-serif", maxWidth: 300 }}
           >
             {networkSummary}
-            {linePicker}
+            {pickerExpanded && linePicker}
             <SheetFooter stale={stale} asOf={asOf} />
           </FloatingCard>
         </>
