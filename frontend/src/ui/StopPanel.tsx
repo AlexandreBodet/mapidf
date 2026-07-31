@@ -104,7 +104,9 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
             <div key={dir.destination} style={{ margin: "4px 0 0 4px" }}>
               <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
               {/* Rangée plutôt qu'empilement : à 44 px par cible tactile, trois passages
-                  empilés prenaient 132 px par direction (retour recette). */}
+                  empilés prenaient 132 px par direction (retour recette). Le séparateur suit
+                  l'horaire qu'il termine, jamais celui qu'il précède : sinon un repli le laissait
+                  orphelin en début de ligne. */}
               <ul
                 style={{
                   margin: "0 0 0 16px", padding: 0, listStyle: "none",
@@ -113,7 +115,6 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
               >
                 {dir.passages.map((p, index) => (
                   <li key={p.journeyRef} style={{ display: "flex", alignItems: "center" }}>
-                    {index > 0 && <span aria-hidden="true" style={{ color: "#bbb", margin: "0 4px" }}>·</span>}
                     <button
                       onClick={() => onSelectTrain?.(p.journeyRef)}
                       style={{
@@ -133,6 +134,9 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
                       </span>
                       <StatusBadge status={p.status} />
                     </button>
+                    {index < dir.passages.length - 1 && (
+                      <span aria-hidden="true" style={{ color: "#bbb" }}>·</span>
+                    )}
                   </li>
                 ))}
               </ul>
