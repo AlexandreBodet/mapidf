@@ -264,6 +264,9 @@ export default function App() {
       onToggle={toggleLine}
     />
   );
+  // Les deux fiches n'ont jamais eu la même largeur : 280 px pour une station, 260 pour un
+  // train. Les unifier serait une régression visible sur desktop.
+  const ficheWidth = station ? 280 : 260;
   // Une seule fiche existe à la fois : `App` vide la sélection train à l'ouverture d'une station
   // et l'inverse. C'est ce qui permet à la feuille de la tâche 3 de n'avoir qu'un contenu.
   const ficheHeader = station
@@ -298,7 +301,7 @@ export default function App() {
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
       <NetworkStatus status={status} />
       {ficheHeader && (
-        <FloatingCard anchor="top-right" style={{ width: 280, maxHeight: "70dvh", overflowY: "auto" }}>
+        <FloatingCard anchor="top-right" style={{ width: ficheWidth, maxHeight: "70dvh", overflowY: "auto" }}>
           {ficheHeader}
           {ficheBody}
         </FloatingCard>
