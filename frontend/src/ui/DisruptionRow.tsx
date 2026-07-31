@@ -1,16 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { DisruptionItem } from "../api/types";
 import { severityStyle } from "./severity";
-
-/**
- * « Métro 13 : Travaux - Arrêt non desservi » → « Travaux - Arrêt non desservi ». Le flux
- * préfixe ses titres par le mode et l'indice, que le contexte porte déjà (pastille de ligne dans
- * le sélecteur, nom de station dans la fiche). Titre inchangé si le format diffère.
- */
-function withoutLinePrefix(title: string): string {
-  const separator = title.indexOf(" : ");
-  return separator > 0 ? title.slice(separator + 3) : title;
-}
+import { disruptionTitle } from "./disruptionTitle";
 
 /**
  * Le flux met « Autre » en résumé quand il n'en a pas — mesuré sur « Métro 14 / 5 / 4 :
@@ -32,6 +23,8 @@ export function DisruptionRow({ item, leading }: Props) {
   // Chaque ligne possède son état : le parent n'a pas à tenir un registre des détails ouverts.
   const [open, setOpen] = useState(false);
   const style = severityStyle(item.severity);
+  // `leading` n'est jamais autre chose que la pastille de ligne : sa présence EST la condition.
+  const title = disruptionTitle(item.title, leading != null);
   return (
     <li
       style={{
@@ -60,10 +53,10 @@ export function DisruptionRow({ item, leading }: Props) {
               minHeight: "var(--tap)",
             }}
           >
-            {withoutLinePrefix(item.title)}{open ? " ▾" : " ▸"}
+            {title}{open ? " ▾" : " ▸"}
           </button>
         ) : (
-          <span style={{ color: "#444", marginLeft: 6 }}>{withoutLinePrefix(item.title)}</span>
+          <span style={{ color: "#444", marginLeft: 6 }}>{title}</span>
         )}
         {open && (
           // `pre-line` : le texte brut du serveur garde ses sauts de ligne. Hauteur bornée,
