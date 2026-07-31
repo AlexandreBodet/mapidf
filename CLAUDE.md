@@ -169,7 +169,15 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
 - L'étiquette « prochain arrêt » peut sauter une station absente du flux SIRI : c'est
   cosmétique (trou de données), la position reste correcte.
 - **Feuille repliable sous 720 px** (largeur seule : un téléphone en paysage garde les cartes
-  flottantes, une feuille sur 390 px de haut serait pire que le mal). La feuille flotte au-dessus
-  d'une carte qui garde tout le viewport ; c'est `map.setPadding` qui décale les recentrages, pas
-  une mise en colonne — donc jamais de `map.resize()`. Le cran `moitié` laisse du blanc sous un
-  contenu court : prix assumé d'un repère stable.
+  flottantes, une feuille sur 390 px de haut serait pire que le mal). Elle flotte au-dessus d'une
+  carte qui garde tout le viewport ; c'est `map.setPadding` qui décale les recentrages, pas une
+  mise en colonne — donc jamais de `map.resize()`. Trois conséquences assumées : le cran `moitié`
+  laisse du blanc sous un contenu court (prix d'un repère stable) ; **au cran `plein` le suivi
+  d'un train passe derrière la feuille**, le padding de caméra étant plafonné à 45 % de la
+  hauteur (le réduire ne déplacerait que l'absurdité) ; et l'aperçu n'est la poignée seule que
+  sans fiche ouverte — avec une fiche il porte son titre et son `✕`, pour qu'on puisse la
+  refermer sans déplier.
+- **`--tap` ne touche que nos composants** : les contrôles MapLibre (zoom, boussole, et le `ⓘ`
+  de l'attribution) restent sous les 44 px tactiles, et peuvent chevaucher le bandeau d'état sous
+  384 px de large. Corriger demanderait une règle CSS visant leurs classes, hors du style inline
+  du projet.

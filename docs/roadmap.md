@@ -73,7 +73,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 |---|---|---|---|---|---|
 | QUA-1 | CI | Pas de `.github/` : toute la discipline `./mvnw verify` + `npm run build` est manuelle | S | — | **écarté** (2026-07-30, décision produit : pas maintenant) |
 | QUA-2 | Métriques exploitables | Les jauges par ligne existent (`mapidf.rt.journeys`, `mapidf.position.*`) mais **aucun registre Prometheus** n'est dans le `pom.xml` : impossible d'alerter sur `journeys{line=X} == 0` ou sur `poll.failures`. Le garde-fou observable est aveugle | S | P1 | **fait** (registre Prometheus + `LineCoverageGuard` : WARN quand une ligne suivie reste 15 min à zéro alors que le réseau circule — réseau entier à zéro = panne de flux, donc silence). Le garde-fou n'attend plus qu'on pense à lire une métrique |
-| QUA-3 | Outillage front | Ni ESLint, ni Prettier, ni test unitaire — alors que `formatEta`, `color`, la logique de `toggleLine` et le culling de `VehicleLayer` sont testables et déjà subtils | M | P1 | à faire |
+| QUA-3 | Outillage front | **Vitest est en place** depuis UX-2 (16 tests sur `sheetCrans` et `lineOrder`) — restent ESLint, Prettier, les autres fonctions pures (`formatEta`, `color`, `statusKind`, `severityStyle`, `badgeText`, `toggleLine`, culling de `VehicleLayer`) et un harnais de composants, dont UX-2 a montré le besoin : ses défauts de geste et de caméra ne se voyaient qu'à l'œil | M | P1 | **entamé** (Vitest + 2 modules testés) |
 | QUA-4 | Seuil de couverture | Jacoco produit un rapport, sans règle `check` : la couverture peut chuter sans que `verify` rougisse | S | P2 | à faire |
 | QUA-5 | Dépendances en retard | React 18, Vite 5, MapLibre 4, Node 20 dans l'image — des majeures existent pour les quatre | M | P2 | à faire |
 | QUA-6 | Doublon de compose | Un `docker-compose.yml` à la racine (pile complète) **et** dans `backend/` (base seule, backend hors Docker). Les deux ont désormais un en-tête qui dit lequel sert à quoi ; reste à décider si un seul fichier suffirait | S | P3 | atténué |
@@ -99,11 +99,10 @@ porte d'un déploiement public, qui n'est pas d'actualité.
    **QUA-2**, **UX-2**~~ — faits.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
-2. ~~**QUA-2**~~ (fait) — garde-fou interne journalisé plutôt qu'une pile de supervision.
-3. **QUA-3** (outillage front) — les fonctions pures testables (`severityStyle`, `badgeText`,
-   `withoutLinePrefix`, `statusKind`, `formatEta`, `toggleLine`) n'ont pas bougé pendant UX-2, qui
-   était un chantier de mise en page ; Vitest est déjà en place, introduit au passage pour
-   l'arithmétique des crans de la feuille.
+2. **QUA-3** (outillage front) — le suivant, et UX-2 a montré pourquoi : cinq de ses six défauts
+   n'ont été trouvés qu'en relisant le code ou à l'œil sur un téléphone, faute de harnais. Vitest
+   est déjà là ; restent ESLint, Prettier, les autres fonctions pures et de quoi tester un
+   composant.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
 **UX-3b** (demande un signal API), **PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5**
