@@ -44,8 +44,7 @@ colonne, donc aucun `map.resize()` et aucun recalcul de tuiles quand la feuille 
 Ce qui change à chaque cran, c'est ce que la caméra considère comme visible : un unique
 `map.setPadding({ bottom })`. MapLibre en tient compte pour tous ses recentrages — le `easeTo`
 du clic station comme le `jumpTo` par frame du suivi se posent d'eux-mêmes **au-dessus** de la
-feuille, sans une ligne de changement dans `VehicleLayer`. Effet de bord favorable :
-`getBounds()`, qui sert au culling des véhicules, colle désormais à la zone réellement vue.
+feuille, sans une ligne de changement dans `VehicleLayer`.
 
 `bottom` est **plafonné à 45 % de la hauteur du viewport** : au cran plein, un padding de 90 %
 rendrait la géométrie de caméra absurde. Le padding retombe à 0 dès qu'on quitte le mode étroit.
@@ -153,9 +152,10 @@ le plan se prépare. C'est le comportement du desktop, inchangé.
 contrôle passe en `top-right`**.
 
 Le second point n'est pas cosmétique : replier seul ne suffirait pas. Le `ⓘ` reste ancré en bas à
-droite, donc **sous la feuille**, y compris repliée à 96 px — la mention deviendrait
-inatteignable, ce qui est pire que dépliée. Remonté en haut à droite, il ne masque rien (un seul
-bouton de 24 px, et les fiches descendent désormais dans la feuille) et reste à un geste.
+droite, donc **par-dessus le contenu de la feuille** (les conteneurs de contrôles MapLibre portent
+`z-index: 2`), y compris repliée à 96 px — ce qui le rend illisible et brouille les deux. Remonté
+en haut à droite, il ne masque rien (un seul bouton de 24 px, et les fiches descendent désormais
+dans la feuille) et reste à un geste.
 
 Ce n'est pas l'option « déplacer en haut à droite » écartée pendant le cadrage : celle-là gardait
 la mention **dépliée**, et trois à quatre lignes de texte couvraient le haut de la carte en

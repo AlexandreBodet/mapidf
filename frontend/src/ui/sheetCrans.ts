@@ -30,20 +30,23 @@ function neighbour(cran: Cran, direction: 1 | -1): Cran {
   return ORDER[Math.min(ORDER.length - 1, Math.max(0, index))];
 }
 
-export function snap(
-  heightPx: number,
-  velocityPxPerMs: number,
-  viewportHeight: number,
-  from: Cran,
-): Cran {
+export function snap(heightPx: number, velocityPxPerMs: number, viewportHeight: number): Cran {
+  const distance = (cran: Cran) => Math.abs(cranHeight(cran, viewportHeight) - heightPx);
+  const nearest = ORDER.reduce((best, cran) => (distance(cran) < distance(best) ? cran : best));
+  // Le biais part du cran le plus proche, pas du cran de départ : sinon un geste vif et long
+  // n'avancerait que d'un cran, quelle que soit la distance parcourue.
   if (velocityPxPerMs > FLICK) {
-    return neighbour(from, 1);
+    return neighbour(nearest, 1);
   }
   if (velocityPxPerMs < -FLICK) {
-    return neighbour(from, -1);
+    return neighbour(nearest, -1);
   }
-  const distance = (cran: Cran) => Math.abs(cranHeight(cran, viewportHeight) - heightPx);
-  return ORDER.reduce((best, cran) => (distance(cran) < distance(best) ? cran : best));
+  return nearest;
+}
+
+/** Plafonne une hauteur de feuille au padding de caméra acceptable (cf. mapPadding). */
+export function clampPadding(heightPx: number, viewportHeight: number): number {
+  return Math.min(heightPx, Math.round(viewportHeight * MAX_PADDING_RATIO));
 }
 
 /**
@@ -52,5 +55,5 @@ export function snap(
  * qu'une bande de quelques dizaines de pixels pour calculer un centre.
  */
 export function mapPadding(cran: Cran, viewportHeight: number): number {
-  return Math.min(cranHeight(cran, viewportHeight), Math.round(viewportHeight * MAX_PADDING_RATIO));
+  return clampPadding(cranHeight(cran, viewportHeight), viewportHeight);
 }

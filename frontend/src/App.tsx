@@ -9,12 +9,13 @@ import { StopPanel } from "./ui/StopPanel";
 import { LinePicker } from "./ui/LinePicker";
 import { NetworkStatus } from "./ui/NetworkStatus";
 import { NetworkSummary } from "./ui/NetworkSummary";
+import { SheetFooter } from "./ui/SheetFooter";
 import { FloatingCard } from "./ui/FloatingCard";
 import { PanelHeader } from "./ui/PanelHeader";
 import { Sheet } from "./ui/Sheet";
 import { useIsNarrow, useViewportHeight } from "./ui/useViewport";
 import { humanOrder } from "./ui/lineOrder";
-import { mapPadding, type Cran } from "./ui/sheetCrans";
+import { clampPadding, mapPadding, PEEK_HEIGHT, type Cran } from "./ui/sheetCrans";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -48,6 +49,9 @@ export default function App() {
   // Détenu ici, pas dans la feuille : la carte en dérive son padding de caméra (tâche 4), et
   // ouvrir une station doit pouvoir remonter la feuille.
   const [cran, setCran] = useState<Cran>("apercu");
+  // Hauteur réelle de l'aperçu, mesurée par la feuille : elle se dimensionne sur son contenu, dont
+  // la hauteur dépend du nombre de lignes perturbées et de l'alerte de gel.
+  const [peekHeight, setPeekHeight] = useState(PEEK_HEIGHT);
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -113,12 +117,15 @@ export default function App() {
   // centre calculé avec l'ancien padding, puis `setPadding` déplacerait la vue d'un coup sec.
   const openSheet = (map: maplibregl.Map) => {
     const { isNarrow, viewportHeight, cran } = sheet.current;
+    // Hors mode étroit il n'y a pas de feuille : monter le cran ferait retourner l'effet de
+    // padding, dont le `setPadding` tuerait l'`easeTo` que l'appelant lance juste après.
+    if (!isNarrow) {
+      return;
+    }
     const target = cran === "apercu" ? "moitie" : cran;
     sheet.current.cran = target;
     setCran(target);
-    if (isNarrow) {
-      map.setPadding({ top: 0, right: 0, bottom: mapPadding(target, viewportHeight), left: 0 });
-    }
+    map.setPadding({ top: 0, right: 0, bottom: mapPadding(target, viewportHeight), left: 0 });
   };
 
   useEffect(() => {
@@ -212,9 +219,17 @@ export default function App() {
     if (!map) {
       return;
     }
-    const bottom = isNarrow ? mapPadding(cran, viewportHeight) : 0;
-    map.setPadding({ top: 0, right: 0, bottom, left: 0 });
-  }, [map, isNarrow, cran, viewportHeight]);
+    // L'aperçu se dimensionne sur son contenu : sa hauteur est mesurée, pas calculée.
+    const sheetHeight = cran === "apercu"
+      ? clampPadding(peekHeight, viewportHeight)
+      : mapPadding(cran, viewportHeight);
+    const bottom = isNarrow ? sheetHeight : 0;
+    // setPadding délègue à jumpTo, qui appelle stop() AVANT de comparer : réécrire une valeur
+    // inchangée tuerait l'easeTo qu'openSheet vient de lancer côté appelant.
+    if (map.getPadding().bottom !== bottom) {
+      map.setPadding({ top: 0, right: 0, bottom, left: 0 });
+    }
+  }, [map, isNarrow, cran, viewportHeight, peekHeight]);
 
   // Le panneau passages est rafraîchi au rythme du poll tant qu'une station est sélectionnée,
   // pour que les ETA vivent et que les passages partis disparaissent (sinon on affiche des
@@ -288,7 +303,6 @@ export default function App() {
       onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}
       canShowAll={visibleLines !== null}
       onShowAll={() => setVisibleLines(null)}
-      stale={stale}
     />
   );
   const linePicker = (
@@ -299,7 +313,6 @@ export default function App() {
       disruptions={disruptions.byLine}
       disruptionsOpen={disruptionsOpen}
       visible={visibleLines}
-      asOf={asOf}
       onToggle={toggleLine}
     />
   );
@@ -345,6 +358,8 @@ export default function App() {
           onCranChange={setCran}
           viewportHeight={viewportHeight}
           summary={ficheHeader ?? networkSummary}
+          footer={<SheetFooter stale={stale} asOf={asOf} />}
+          onPeekHeight={setPeekHeight}
           label={station || selected ? "Détail" : "État du réseau"}
         >
           {ficheBody ?? linePicker}
@@ -363,6 +378,7 @@ export default function App() {
           >
             {networkSummary}
             {linePicker}
+            <SheetFooter stale={stale} asOf={asOf} />
           </FloatingCard>
         </>
       )}

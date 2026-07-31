@@ -14,13 +14,11 @@ interface Props {
   disruptionsOpen: boolean;
   /** null = toutes les lignes visibles. */
   visible: Set<string> | null;
-  /** Horodatage du dernier snapshot servi par `/vehicles` ; null avant le premier poll. */
-  asOf: string | null;
   onToggle: (lineId: string) => void;
 }
 
 export function LinePicker({
-  lines, disrupted, counts, disruptions, disruptionsOpen, visible, asOf, onToggle,
+  lines, disrupted, counts, disruptions, disruptionsOpen, visible, onToggle,
 }: Props) {
   return (
     <>
@@ -93,13 +91,6 @@ export function LinePicker({
             </button>
           );
         })}
-      </div>
-      <div style={{ color: "#666", marginTop: 6 }}>
-        Position estimée (pas de GPS en métro). Les trains atténués ont un placement approximatif.
-        {/* Date de mise à jour de la donnée : l'article 5.7 de la Licence Mobilité (« neutralité
-            et loyauté ») interdit d'induire en erreur sur le contenu ET sur sa date de mise à
-            jour. Le disclaimer ci-dessus couvre la nature estimée, cette ligne la fraîcheur. */}
-        {asOf && ` Données IDFM du ${new Date(asOf).toLocaleTimeString("fr-FR")}.`}
       </div>
     </>
   );

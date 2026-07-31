@@ -76,13 +76,23 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
               // soit le filtre courant, ce clic ne laisse que cette ligne (décision produit).
               title={`N'afficher que la ligne ${line.shortName}`}
               aria-label={`N'afficher que la ligne ${line.shortName}`}
+              // La cible tactile est le bouton, transparent ; la pastille reste ronde dans son
+              // span. Porter `minHeight` sur le carré de 18 px en faisait une ellipse verticale.
               style={{
-                width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
-                font: "bold 11px sans-serif", display: "flex", alignItems: "center", justifyContent: "center",
-                border: "none", padding: 0, cursor: "pointer", minHeight: "var(--tap)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: "none", background: "none", padding: 0, cursor: "pointer",
+                minHeight: "var(--tap)",
               }}
             >
-              {line.shortName}
+              <span
+                style={{
+                  width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
+                  font: "bold 11px sans-serif", display: "flex", alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {line.shortName}
+              </span>
             </button>
           </div>
           {line.directions.map((dir) => (

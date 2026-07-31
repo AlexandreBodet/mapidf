@@ -8,7 +8,6 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
   // On garde l'instance et un éventuel timer de destruction hors du cycle de rendu.
   const ref = useRef<{ instance: MlMap | null; pending: number }>({ instance: null, pending: 0 });
   const isNarrow = useIsNarrow();
-  const attribution = useRef<maplibregl.AttributionControl | null>(null);
   useEffect(() => {
     if (!container.current) {
       return;
@@ -66,10 +65,11 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
       }, 0);
     };
   }, [container]);
-  // Replié ET remonté sous le seuil. Replier seul ne suffirait pas : le bouton « ⓘ » reste
-  // ancré en bas à droite, donc SOUS la feuille même repliée — la mention deviendrait
-  // inatteignable, ce qui est pire que dépliée. Les recommandations OSM tolèrent le repli sur
-  // écran contraint, pas sur une carte plein écran (cf. CLAUDE.md).
+  // Replié ET remonté sous le seuil. Replier seul ne suffirait pas : le bouton « ⓘ » reste ancré
+  // en bas à droite, donc PAR-DESSUS le contenu de la feuille (les conteneurs de contrôles
+  // MapLibre portent z-index: 2), ce qui le rend illisible et brouille les deux. Les
+  // recommandations OSM tolèrent le repli sur écran contraint, pas sur une carte plein écran
+  // (cf. CLAUDE.md).
   useEffect(() => {
     if (!map) {
       return;
@@ -79,10 +79,8 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
       customAttribution: SOURCE_ATTRIBUTION,
     });
     map.addControl(control, isNarrow ? "top-right" : "bottom-right");
-    attribution.current = control;
     return () => {
       map.removeControl(control);
-      attribution.current = null;
     };
   }, [map, isNarrow]);
   return map;

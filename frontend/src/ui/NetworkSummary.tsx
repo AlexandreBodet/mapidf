@@ -6,8 +6,6 @@ interface Props {
   /** Un sous-ensemble de lignes est isolé : « tout afficher » a du sens. */
   canShowAll: boolean;
   onShowAll: () => void;
-  /** Dernier poll `/vehicles` en échec : ce qui est affiché ne bouge plus. */
-  stale: boolean;
 }
 
 /**
@@ -15,7 +13,7 @@ interface Props {
  * seul contenu visible quand la feuille est repliée — d'où son extraction hors du `LinePicker`.
  */
 export function NetworkSummary({
-  total, disruptedCount, disruptionsOpen, onToggleDisruptions, canShowAll, onShowAll, stale,
+  total, disruptedCount, disruptionsOpen, onToggleDisruptions, canShowAll, onShowAll,
 }: Props) {
   return (
     <>
@@ -45,11 +43,6 @@ export function NetworkSummary({
           {disruptedCount === 1 ? "1 ligne perturbée" : `${disruptedCount} lignes perturbées`}
           {disruptionsOpen ? " ▾" : " ▸"}
         </button>
-      )}
-      {stale && (
-        <div style={{ color: "#b45309", marginTop: 6 }} role="status">
-          ⚠ Positions plus mises à jour — la connexion au service est interrompue.
-        </div>
       )}
     </>
   );
