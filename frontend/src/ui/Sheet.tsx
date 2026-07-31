@@ -15,6 +15,11 @@ interface Props {
   children: ReactNode;
   /** Posé sous la zone qui défile : visible à tous les crans, quel que soit le contenu. */
   footer: ReactNode;
+  /**
+   * Échappe au repli, contrairement à `summary`/`footer` : une panne de rafraîchissement ne doit
+   * jamais devenir silencieuse au cran `apercu`. Rendu juste sous la poignée.
+   */
+  alert: ReactNode;
   label: string;
   /** Hauteur réelle de l'aperçu, mesurée : `App` en dérive le padding de caméra. */
   onPeekHeight: (height: number) => void;
@@ -31,7 +36,7 @@ const MOVE_THRESHOLD = 6;
  * contenu, et `App` détient le cran (la carte en dérive son padding de caméra).
  */
 export function Sheet({
-  cran, onCranChange, viewportHeight, summary, children, footer, label, onPeekHeight, asOf,
+  cran, onCranChange, viewportHeight, summary, children, footer, label, onPeekHeight, asOf, alert,
 }: Props) {
   const settled = cranHeight(cran, viewportHeight);
   // Non nul seulement pendant un glissement : sert aussi à couper la transition.
@@ -248,6 +253,10 @@ export function Sheet({
           </span>
         )}
       </button>
+      {/* Pas de `display: peeking ? "none" : undefined` ici, contrairement au résumé/pied
+          voisins : une alerte de gel doit rester visible même au cran apercu (retour recette,
+          correctif 1). */}
+      <div style={{ flex: "0 0 auto", padding: "0 12px" }}>{alert}</div>
       <div style={{ flex: "0 0 auto", padding: "0 12px", display: peeking ? "none" : undefined }}>
         {summary}
       </div>

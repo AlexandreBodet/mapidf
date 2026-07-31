@@ -10,6 +10,7 @@ import { LinePicker } from "./ui/LinePicker";
 import { NetworkStatus } from "./ui/NetworkStatus";
 import { NetworkSummary } from "./ui/NetworkSummary";
 import { SheetFooter } from "./ui/SheetFooter";
+import { StaleWarning } from "./ui/StaleWarning";
 import { FloatingCard } from "./ui/FloatingCard";
 import { PanelHeader } from "./ui/PanelHeader";
 import { Sheet } from "./ui/Sheet";
@@ -366,7 +367,8 @@ export default function App() {
           onCranChange={setCran}
           viewportHeight={viewportHeight}
           summary={ficheHeader ?? networkSummary}
-          footer={<SheetFooter stale={stale} asOf={asOf} />}
+          alert={<StaleWarning stale={stale} />}
+          footer={<SheetFooter asOf={asOf} />}
           onPeekHeight={setPeekHeight}
           label={station || selected ? "Détail" : "État du réseau"}
           asOf={asOf}
@@ -387,7 +389,8 @@ export default function App() {
           >
             {networkSummary}
             {pickerExpanded && linePicker}
-            <SheetFooter stale={stale} asOf={asOf} />
+            <StaleWarning stale={stale} />
+            <SheetFooter asOf={asOf} />
           </FloatingCard>
         </>
       )}
