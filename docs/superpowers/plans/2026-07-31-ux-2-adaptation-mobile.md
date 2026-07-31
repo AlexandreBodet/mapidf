@@ -379,7 +379,9 @@ interface Props {
 export function PanelHeader({ title, onClose }: Props) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 0 8px" }}>
-      <h3 style={{ margin: 0, font: "600 15px sans-serif", flex: 1, minWidth: 0 }}>{title}</h3>
+      {/* Aucun style de police : le `<h3>` d'origine n'en avait pas non plus et héritait du
+          défaut du navigateur (gras, 1.17em). En fixer un rétrécirait le titre. */}
+      <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
       <button
         onClick={onClose}
         aria-label="Fermer"
@@ -727,7 +729,7 @@ import { humanOrder } from "./ui/lineOrder";
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
       <NetworkStatus status={status} />
       {ficheHeader && (
-        <FloatingCard anchor="top-right" style={{ width: 280, maxHeight: "70dvh", overflowY: "auto" }}>
+        <FloatingCard anchor="top-right" style={{ width: ficheWidth, maxHeight: "70dvh", overflowY: "auto" }}>
           {ficheHeader}
           {ficheBody}
         </FloatingCard>
@@ -744,6 +746,14 @@ import { humanOrder } from "./ui/lineOrder";
 ```
 
 `70dvh` remplace ici le `70vh` de l'ancien `StopPanel` (correctif prévu en section 10 de la spec).
+
+**`ficheWidth` conserve les deux largeurs d'origine** — la fiche station faisait 280 px, la fiche
+train 260. Les unifier serait une régression visible sur desktop, ce que les contraintes globales
+interdisent. À déclarer avec les autres dérivées du step 10.2 :
+
+```tsx
+  const ficheWidth = station ? 280 : 260;
+```
 
 - [ ] **Step 11: Vérifier le build et les tests**
 
