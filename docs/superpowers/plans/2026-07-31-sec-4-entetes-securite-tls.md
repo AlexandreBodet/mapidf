@@ -534,7 +534,8 @@ Ce que le terminateur doit faire, et que rien ici ne peut faire à sa place :
 3. **Ne pas router `/actuator`.** La pile ne le publie que sur la loopback de l'hôte ; un proxy
    trop généreux annulerait ce garde-fou et exposerait la version de PostgreSQL, l'URL JDBC et
    les internes de la JVM.
-4. Laisser passer les en-têtes de réponse de nginx sans les réécrire — c'est à ce moment-là que
+4. **Restreindre le port API** (8100 par défaut) : contrairement à l'Actuator, la pile le publie sur toutes les interfaces. Un accès direct à ce port contourne nginx et tous ses en-têtes de sécurité. Sur une machine exposée, le restreindre à `127.0.0.1` ou au réseau interne de la pile.
+5. Laisser passer les en-têtes de réponse de nginx sans les réécrire — c'est à ce moment-là que
    HSTS devient actif, sans changement de configuration.
 
 Aucune question de CORS ne se pose : une seule origine sert l'application et l'API.
@@ -560,7 +561,7 @@ Dans `CLAUDE.md`, section « Conventions de code », ajouter à la fin de la lis
   chaque `location`** : les poser une seule fois au niveau `server` les ferait disparaître des
   réponses de `/assets/` (qui a son propre `Cache-Control`), silencieusement. Et pas de
   `Cache-Control` dans `/api/` : `add_header` ajoute au lieu de remplacer, il doublerait celui du
-  backend sur `/network`. `scripts/check-headers.sh` couvre les deux cas, 404 compris.
+  backend sur `/network`. Le script vérifie l'inclusion par `location` et les en-têtes sur 404 (où seul `always` les fait passer).
 - **`proxy_pass http://backend:8100;` sans slash final est volontaire** : il transmet l'URI
   complète, `/api` étant le context-path du backend. Le « corriger » casse tous les appels.
 ```
