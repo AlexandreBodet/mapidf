@@ -72,7 +72,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 | ID | Chantier | Constat | Effort | Prio | Statut |
 |---|---|---|---|---|---|
 | QUA-1 | CI | Pas de `.github/` : toute la discipline `./mvnw verify` + `npm run build` est manuelle | S | — | **écarté** (2026-07-30, décision produit : pas maintenant) |
-| QUA-2 | Métriques exploitables | Les jauges par ligne existent (`mapidf.rt.journeys`, `mapidf.position.*`) mais **aucun registre Prometheus** n'est dans le `pom.xml` : impossible d'alerter sur `journeys{line=X} == 0` ou sur `poll.failures`. Le garde-fou observable est aveugle | S | P1 | à faire |
+| QUA-2 | Métriques exploitables | Les jauges par ligne existent (`mapidf.rt.journeys`, `mapidf.position.*`) mais **aucun registre Prometheus** n'est dans le `pom.xml` : impossible d'alerter sur `journeys{line=X} == 0` ou sur `poll.failures`. Le garde-fou observable est aveugle | S | P1 | **fait** (registre Prometheus + `LineCoverageGuard` : WARN quand une ligne suivie reste 15 min à zéro alors que le réseau circule — réseau entier à zéro = panne de flux, donc silence). Le garde-fou n'attend plus qu'on pense à lire une métrique |
 | QUA-3 | Outillage front | Ni ESLint, ni Prettier, ni test unitaire — alors que `formatEta`, `color`, la logique de `toggleLine` et le culling de `VehicleLayer` sont testables et déjà subtils | M | P1 | à faire |
 | QUA-4 | Seuil de couverture | Jacoco produit un rapport, sans règle `check` : la couverture peut chuter sans que `verify` rougisse | S | P2 | à faire |
 | QUA-5 | Dépendances en retard | React 18, Vite 5, MapLibre 4, Node 20 dans l'image — des majeures existent pour les quatre | M | P2 | à faire |
@@ -83,7 +83,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 
 | ID | Piste | Pourquoi c'est la bonne direction | Effort | Prio | Statut |
 |---|---|---|---|---|---|
-| PROD-1 | Perturbations (`disruptions_bulk`) | Le manque le plus criant : on voit des trains, jamais « interruption entre X et Y ». SIRI `general-message` écarté (vide pour le métro, un paramètre par ligne) | M | P1 | **backend fait** (poller 5 min, `DisruptionSnapshot` indexé ligne + arrêt, `GET /disruptions` filtré sur l'instant, 13 tests). **Front fait** : gravité sur les pastilles (couleur + glyphe), liste dépliable (pastille de ligne + badge plein + cause), et **anneau par gravité sur les stations non desservies** (`/disruptions` résout les quais en stations parentes). **Écarté** : tronçons en pointillés — le flux ne donne l'entre-deux-stations que dans du texte libre ; et INFORMATION n'est pas peinte sur la carte. Le message HTML du flux est **réduit en texte brut côté serveur** et servi en `detail` : il porte souvent la seule information utile (titre « Information - Autre », sens entier dans le message). La fiche station porte les perturbations de **ses quais** (`DisruptionRow` partagé avec le sélecteur), placées avant les passages. Les perturbations de ligne entière ne sont PAS répétées à chaque station : elles vivent dans le sélecteur, les redire noierait une correspondance à 5 lignes |
+| PROD-1 | Perturbations (`disruptions_bulk`) | Le manque le plus criant : on voit des trains, jamais « interruption entre X et Y ». SIRI `general-message` écarté (vide pour le métro, un paramètre par ligne) | M | P1 | **fait** — backend (poller 5 min, `DisruptionSnapshot` indexé ligne + arrêt, `GET /disruptions` filtré sur l'instant, 13 tests). **Front fait** : gravité sur les pastilles (couleur + glyphe), liste dépliable (pastille de ligne + badge plein + cause), et **anneau par gravité sur les stations non desservies** (`/disruptions` résout les quais en stations parentes). **Écarté** : tronçons en pointillés — le flux ne donne l'entre-deux-stations que dans du texte libre ; et INFORMATION n'est pas peinte sur la carte. Le message HTML du flux est **réduit en texte brut côté serveur** et servi en `detail` : il porte souvent la seule information utile (titre « Information - Autre », sens entier dans le message). La fiche station porte les perturbations de **ses quais** (`DisruptionRow` partagé avec le sélecteur), placées avant les passages. Les perturbations de ligne entière ne sont PAS répétées à chaque station : elles vivent dans le sélecteur, les redire noierait une correspondance à 5 lignes |
 | PROD-2 | Étendre le périmètre : tram, puis RER/Transilien | L'archi est prête (`app.network.modes`), c'est le gain fonctionnel le moins cher. Le tram est à faible risque ; le RER apportera de vraies branches complexes et éprouvera `pickBranch` | M → L | P2 | à faire |
 | PROD-3 | Calendrier de service (`calendar.txt`) | Débloque « service terminé » vs « panne » et une notion d'horaire théorique daté, aujourd'hui absente | M | P2 | à faire |
 | PROD-4 | Fiabilité de placement | Ticket ouvert depuis le 2026-07-24 : les courses à un seul appel (~1/3 du flux) restent mal placées, signalées (`APPROXIMATE`) mais pas corrigées. Piste non temporelle : recouper deux polls consécutifs pour borner la progression réelle. **Jamais un seuil d'ETA** (décision produit ferme) | M | P2 | à faire |
@@ -100,8 +100,13 @@ porte d'un déploiement public, qui n'est pas d'actualité.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
 2. ~~**QUA-2**~~ (fait) — garde-fou interne journalisé plutôt qu'une pile de supervision.
-3. **À rouvrir avec toi** : la liste des repoussés n'a plus d'ordre arrêté — UX-2 (mobile) est le
-   candidat le plus probable si l'usage devient nomade, sinon PROD-2 (tram) pour le périmètre.
+3. **UX-2** (mobile) — seul P1 restant avec une valeur visible, et le seul chantier que
+   l'usage réel réclame : une carte de transport se consulte debout, sur un quai. Le front
+   vient d'accumuler trois panneaux flottants à largeur fixe et un sélecteur de 16 pastilles,
+   donc la dette grossit à chaque feature ajoutée avant lui.
+4. **QUA-3** (outillage front) juste après, pas avant : les fonctions pures testables
+   (`severityStyle`, `badgeText`, `withoutLinePrefix`, `statusKind`, `formatEta`, `toggleLine`)
+   ne bougeront pas pendant UX-2, qui est un chantier de mise en page.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
 **UX-2** (mobile — à remonter juste après PROD-1 si l'usage devient nomade), **UX-3b** (demande
