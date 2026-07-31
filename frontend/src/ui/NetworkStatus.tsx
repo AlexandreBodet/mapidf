@@ -34,9 +34,12 @@ export function NetworkStatus({ status }: Props) {
       style={{
         position: "absolute",
         top: 12,
-        left: "50%",
-        transform: "translateX(-50%)",
+        // `maxWidth` seul débordait sous 384 px : les bornes gauche/droite le rendent fluide,
+        // `margin: auto` le garde centré au-dessus du seuil.
+        left: 12,
+        right: 12,
         maxWidth: 360,
+        margin: "0 auto",
         padding: "10px 14px",
         background: "#fff",
         borderRadius: 8,

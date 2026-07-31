@@ -57,6 +57,7 @@ export function DisruptionRow({ item, leading }: Props) {
             style={{
               border: "none", background: "none", padding: 0, marginLeft: 6,
               font: "inherit", color: "#1d4ed8", cursor: "pointer", textAlign: "left",
+              minHeight: "var(--tap)",
             }}
           >
             {withoutLinePrefix(item.title)}{open ? " ▾" : " ▸"}
