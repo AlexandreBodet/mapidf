@@ -51,11 +51,15 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
 - Secrets : `PRIM_API_KEY` vit dans **`.env` (gitignoré) — à ne JAMAIS commiter.**
   `.env.example` documente les variables attendues.
 - **Licence des données : *Licence Mobilité*, pas ODbL.** La mention de source
-  (`customAttribution` + `compact: false` dans `MapView.tsx`) et le pied du `LinePicker`
-  (« position estimée » + heure du snapshot) ne sont pas cosmétiques : ce sont les obligations
-  des art. 5.4 et 5.7 — **ne pas les retirer ni les replier**. Ce qui reste à trancher avant un
-  déploiement public (partage à l'identique de la base dérivée, CGU PRIM, marques) est listé
-  dans la section « Données, sources et licences » du [README](README.md).
+  (`customAttribution` dans `map/attribution.ts`, posée par `MapView.tsx`) et le pied du
+  `LinePicker` (« position estimée » + heure du snapshot) ne sont pas cosmétiques : ce sont les
+  obligations des art. 5.4 et 5.7 — **ne pas les retirer**. Une seule exception, et elle est
+  bornée : **sous 720 px de large**, l'attribution passe en `compact` **et** en `top-right`. Les
+  recommandations OSM tolèrent le repli sur écran contraint (pas sur une carte plein écran), et
+  remonter le bouton est indispensable — replié en bas à droite, il serait sous la feuille, donc
+  inatteignable. Au-dessus du seuil, elle reste dépliée en bas à droite. Ce qui reste à trancher
+  avant un déploiement public (partage à l'identique de la base dérivée, CGU PRIM, marques) est
+  listé dans la section « Données, sources et licences » du [README](README.md).
 - **Front : jamais de `feature-state` sur la couche `vehicles`** (`VehicleLayer.ts`) — les deux
   anneaux (halo de sélection, surlignage) sont pilotés par `setFilter` sur la propriété
   `journeyRef`, pas par `feature-state` (pourtant l'approche idiomatique, essayée deux fois) :
