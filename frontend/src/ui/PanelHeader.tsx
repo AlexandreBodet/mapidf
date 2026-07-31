@@ -7,7 +7,9 @@ interface Props {
 export function PanelHeader({ title, onClose }: Props) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 0 8px" }}>
-      <h3 style={{ margin: 0, font: "600 15px sans-serif", flex: 1, minWidth: 0 }}>{title}</h3>
+      {/* Aucun style de police : le `<h3>` d'origine n'en avait pas non plus et héritait du
+          défaut du navigateur (gras, 1.17em). En fixer un rétrécirait le titre. */}
+      <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
       <button
         onClick={onClose}
         aria-label="Fermer"
