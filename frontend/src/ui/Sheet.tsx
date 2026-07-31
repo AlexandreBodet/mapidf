@@ -55,9 +55,9 @@ export function Sheet({
     bodyDeciding: false, bodyDeclined: false,
   });
   const height = dragged ?? settled;
-  // Replié, la feuille se dimensionne sur son contenu : au cran apercu, résumé et pied
-  // disparaissent (retour recette — voir les deux `display: peeking ? "none" : undefined`
-  // ci-dessous), donc seule la poignée reste.
+  // Replié, la feuille se dimensionne sur son contenu : au cran apercu, résumé, corps et pied
+  // disparaissent (voir les `display: peeking ? "none" : undefined` ci-dessous), donc il ne reste
+  // que la poignée — et l'alerte de gel, seule exemptée : une panne ne doit jamais être muette.
   const peeking = cran === "apercu" && dragged === null;
 
   useEffect(() => {
