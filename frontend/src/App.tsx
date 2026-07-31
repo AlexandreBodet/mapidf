@@ -366,7 +366,8 @@ export default function App() {
           cran={cran}
           onCranChange={setCran}
           viewportHeight={viewportHeight}
-          summary={ficheHeader ?? networkSummary}
+          header={ficheHeader}
+          summary={ficheHeader ? null : networkSummary}
           alert={<StaleWarning stale={stale} />}
           footer={<SheetFooter asOf={asOf} />}
           onPeekHeight={setPeekHeight}

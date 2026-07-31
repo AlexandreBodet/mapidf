@@ -10,7 +10,12 @@ interface Props {
   cran: Cran;
   onCranChange: (cran: Cran) => void;
   viewportHeight: number;
-  /** Toujours visible, même repliée : posé sous la poignée, hors de la zone qui défile. */
+  /**
+   * Échappe au repli, comme `alert` et l'en-tête de fiche : titre/fermeture d'une fiche ouverte,
+   * sinon `null`. Contrairement à `summary`, jamais masquée au cran `apercu`.
+   */
+  header: ReactNode;
+  /** Masqué au cran `apercu`, contrairement à `header` : résumé du réseau sans fiche ouverte. */
   summary: ReactNode;
   children: ReactNode;
   /** Posé sous la zone qui défile : visible à tous les crans, quel que soit le contenu. */
@@ -36,12 +41,16 @@ const MOVE_THRESHOLD = 6;
  * contenu, et `App` détient le cran (la carte en dérive son padding de caméra).
  */
 export function Sheet({
-  cran, onCranChange, viewportHeight, summary, children, footer, label, onPeekHeight, asOf, alert,
+  cran, onCranChange, viewportHeight, header, summary, children, footer, label, onPeekHeight, asOf, alert,
 }: Props) {
   const settled = cranHeight(cran, viewportHeight);
   // Non nul seulement pendant un glissement : sert aussi à couper la transition.
   const [dragged, setDragged] = useState<number | null>(null);
-  const section = useRef<HTMLElement>(null);
+  // Hauteur réelle du cran apercu (poignée + alerte de gel + en-tête de fiche), mesurée sur
+  // `peek` ci-dessous. Initialisée à la constante pour ne rien faire clignoter avant la première
+  // mesure (cf. `peek`, effet juste en dessous).
+  const [peekHeight, setPeekHeight] = useState(PEEK_HEIGHT);
+  const peek = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // Tout l'état du geste vit dans un ref, jamais dans `dragged` : les événements pointeur
   // arrivent plus vite que les rendus, et lire un état pas encore commité perdrait le premier
@@ -50,34 +59,40 @@ export function Sheet({
   // la décision (glisser la feuille ou défiler le contenu) n'est pas prise, on observe sans
   // intercepter ; une fois prise, elle vaut pour tout le reste du geste.
   const gesture = useRef({
-    active: false, startY: 0, startHeight: 0,
+    active: false, startY: 0, startHeight: 0, floor: 0,
     lastY: 0, lastT: 0, velocity: 0, height: 0, moved: false,
     bodyDeciding: false, bodyDeclined: false,
   });
   const height = dragged ?? settled;
-  // Replié, la feuille se dimensionne sur son contenu : au cran apercu, résumé, corps et pied
-  // disparaissent (voir les `display: peeking ? "none" : undefined` ci-dessous), donc il ne reste
-  // que la poignée — et l'alerte de gel, seule exemptée : une panne ne doit jamais être muette.
+  // Replié, la feuille se dimensionne sur la mesure de `peek` : au cran apercu, résumé, corps et
+  // pied disparaissent (voir les `display: peeking ? "none" : undefined` ci-dessous) — il ne
+  // reste que la poignée et les deux exemptions qui échappent au repli : l'alerte de gel (une
+  // panne ne doit jamais être muette) et l'en-tête de fiche (dit ce que contient la feuille).
   const peeking = cran === "apercu" && dragged === null;
 
   useEffect(() => {
-    const element = section.current;
-    if (!element || !peeking) {
+    const element = peek.current;
+    if (!element) {
       return;
     }
-    const observer = new ResizeObserver(() => onPeekHeight(element.getBoundingClientRect().height));
+    // Observe `peek`, pas la `<section>` : fixer la hauteur de la section d'après sa propre
+    // mesure boucherait (mesurer → fixer → mesurer). Actif en permanence, pas seulement au cran
+    // apercu : `applyMove` a besoin d'un plancher à jour même quand la feuille est ouverte.
+    const observer = new ResizeObserver(() => {
+      const measured = element.getBoundingClientRect().height;
+      setPeekHeight(measured);
+      onPeekHeight(measured);
+    });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [peeking, onPeekHeight]);
+  }, [onPeekHeight]);
 
   // Démarre (ou reprend) un glissement de la feuille : partagé par la poignée, qui l'amorce dès
   // le pointerdown, et le corps, qui ne l'amorce qu'une fois le geste décidé (cf. plus bas).
   const beginDrag = (startY: number, timeStamp: number) => {
-    const startHeight = peeking
-      ? (section.current?.getBoundingClientRect().height ?? settled)
-      : settled;
+    const startHeight = peeking ? peekHeight : settled;
     gesture.current = {
-      active: true, startY, startHeight,
+      active: true, startY, startHeight, floor: peekHeight,
       lastY: startY, lastT: timeStamp, velocity: 0, height: startHeight, moved: false,
       bodyDeciding: false, bodyDeclined: false,
     };
@@ -96,8 +111,11 @@ export function Sheet({
     if (Math.abs(clientY - g.startY) > MOVE_THRESHOLD) {
       g.moved = true;
     }
+    // Plancher = hauteur mesurée de l'aperçu (poignée + zone sûre exclue, ajoutée séparément),
+    // pas la constante `cranHeight("apercu", ...)` : sinon la feuille peut descendre sous sa
+    // hauteur de repos réelle sur un appareil avec zone sûre (résiduel B).
     g.height = Math.max(
-      cranHeight("apercu", viewportHeight),
+      g.floor,
       Math.min(cranHeight("plein", viewportHeight), g.startHeight + (g.startY - clientY)),
     );
     setDragged(g.height);
@@ -195,17 +213,17 @@ export function Sheet({
 
   return (
     <section
-      ref={section}
       aria-label={label}
       style={{
         position: "fixed",
         left: 0,
         right: 0,
         bottom: 0,
-        // La zone sûre s'ajoute à la hauteur du cran : sinon elle la rognerait et l'aperçu
-        // perdrait sa ligne de résumé sur les iPhone récents.
-        height: peeking ? "auto" : `calc(${height}px + env(safe-area-inset-bottom, 0px))`,
-        minHeight: peeking ? `calc(${PEEK_HEIGHT}px + env(safe-area-inset-bottom, 0px))` : undefined,
+        // Hauteur toujours numérique (mesurée au repli, dérivée du cran sinon) : une transition
+        // CSS n'anime jamais vers/depuis "auto", ce qui rendait le repli instantané (résiduel A).
+        // La zone sûre s'ajoute par-dessus, comme aux autres crans : sinon elle la rognerait et
+        // l'aperçu perdrait sa ligne de résumé sur les iPhone récents.
+        height: `calc(${peeking ? peekHeight : height}px + env(safe-area-inset-bottom, 0px))`,
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
         boxSizing: "border-box",
         display: "flex",
@@ -217,46 +235,55 @@ export function Sheet({
         transition: dragged === null ? "height 220ms ease-out" : "none",
       }}
     >
-      <button
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-        onPointerCancel={onHandlePointerUp}
-        onClick={onHandleClick}
-        aria-expanded={cran !== "apercu"}
-        aria-label="Changer la hauteur du panneau"
-        style={{
-          flex: "0 0 auto",
-          height: 44,
-          position: "relative",
-          border: "none",
-          background: "none",
-          padding: 0,
-          cursor: "grab",
-          // Sans ça, le navigateur traite le glissement vertical comme un défilement de page.
-          touchAction: "none",
-        }}
-      >
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: "#ccc", margin: "0 auto" }} />
-        {asOf && (
-          // Fraîcheur de la donnée (art. 5.7) : ne peut pas rejoindre le « ⓘ », MapLibre fige son
-          // texte à la construction du contrôle. Décoratif pour le lecteur d'écran : l'info vit
-          // aussi dans SheetFooter (crans ouverts) et dans le « ⓘ » (nature de la donnée).
-          <span
-            aria-hidden="true"
-            style={{
-              position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-              font: "10px sans-serif", color: "#999",
-            }}
-          >
-            estimé {new Date(asOf).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        )}
-      </button>
-      {/* Pas de `display: peeking ? "none" : undefined` ici, contrairement au résumé/pied
-          voisins : une alerte de gel doit rester visible même au cran apercu (retour recette,
-          correctif 1). */}
-      <div style={{ flex: "0 0 auto", padding: "0 12px" }}>{alert}</div>
+      {/* Regroupe tout ce qui échappe au repli, pour une mesure unique : observer la `<section>`
+          elle-même boucherait dès qu'on fixerait sa hauteur d'après sa propre mesure. Pas de
+          padding propre à ce div (juste `display: flex` pour reproduire l'empilement vertical
+          d'origine) : les paddings horizontaux restent portés par chaque zone, comme avant. */}
+      <div ref={peek} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column" }}>
+        <button
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={onHandlePointerUp}
+          onPointerCancel={onHandlePointerUp}
+          onClick={onHandleClick}
+          aria-expanded={cran !== "apercu"}
+          aria-label="Changer la hauteur du panneau"
+          style={{
+            flex: "0 0 auto",
+            height: 44,
+            position: "relative",
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "grab",
+            // Sans ça, le navigateur traite le glissement vertical comme un défilement de page.
+            touchAction: "none",
+          }}
+        >
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "#ccc", margin: "0 auto" }} />
+          {asOf && (
+            // Fraîcheur de la donnée (art. 5.7) : ne peut pas rejoindre le « ⓘ », MapLibre fige son
+            // texte à la construction du contrôle. Décoratif pour le lecteur d'écran : l'info vit
+            // aussi dans SheetFooter (crans ouverts) et dans le « ⓘ » (nature de la donnée).
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                font: "10px sans-serif", color: "#999",
+              }}
+            >
+              estimé {new Date(asOf).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+        </button>
+        {/* Pas de `display: peeking ? "none" : undefined` ici, contrairement au résumé/pied
+            voisins : une alerte de gel doit rester visible même au cran apercu (retour recette,
+            correctif 1). */}
+        <div style={{ flex: "0 0 auto", padding: "0 12px" }}>{alert}</div>
+        {/* Idem : sans lui, une fiche ouverte devient muette (plus de titre, plus de « ✕ ») une
+            fois la feuille repliée (résiduel C). */}
+        <div style={{ flex: "0 0 auto", padding: "0 12px" }}>{header}</div>
+      </div>
       <div style={{ flex: "0 0 auto", padding: "0 12px", display: peeking ? "none" : undefined }}>
         {summary}
       </div>
