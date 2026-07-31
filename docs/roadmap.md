@@ -50,7 +50,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 | ID | Chantier | Constat | Effort | Prio | Statut |
 |---|---|---|---|---|---|
 | UX-1 | États de chargement et d'erreur | `useNetwork` ne fetchait qu'une fois : au premier démarrage (109 Mo de GTFS), `/network` répond 200 vide → carte blanche définitive jusqu'à un rechargement manuel. Et un `/vehicles` en échec était avalé silencieusement | S | P1 | **fait** (bandeau `NetworkStatus` + retry 10 s tant que le réseau manque ; mention « rafraîchissement interrompu » dans le `LinePicker`). Limite assumée : le panneau station garde ses passages en silence, l'alerte globale du `LinePicker` couvrant la même panne |
-| UX-2 | Adaptation mobile | Les 3 panneaux flottent à largeur fixe (260–300 px) et les 16 pastilles occupent le bas de l'écran. Déjà documenté dans les limitations | M | P1 | à faire |
+| UX-2 | Adaptation mobile | Les 3 panneaux flottent à largeur fixe (260–300 px) et les 16 pastilles occupent le bas de l'écran. Déjà documenté dans les limitations | M | P1 | **fait** (feuille repliable unique à trois crans sous 720 px ; les panneaux ne se positionnent plus eux-mêmes — `Sheet` / `FloatingCard` ; `map.setPadding` par cran pour que les recentrages tombent au-dessus de la feuille ; cibles tactiles à 44 px via `--tap`). Vitest introduit au passage pour l'arithmétique des crans, avance sur QUA-3 |
 | UX-3a | Signaux non expliqués (front seul) | Constat initial **erroné**, tiré d'une note de revue périmée : le badge « retardé » existait depuis `8d5300c`, les libellés d'état depuis `bd4d288`, et la légende des trains atténués est dans le `LinePicker`. Le vrai trou était `CANCELLED` : un passage supprimé s'affichait comme un départ normal | S | P1 | **fait** (badge rouge + heure barrée, `statusKind` partagé entre les deux panneaux) |
 | UX-3b | « Service terminé » ≠ panne | Le poller s'arrête à 01h30 (`RealtimePoller.inServiceHours`), donc la nuit la carte se vide comme si le flux était tombé. Le front ne connaît pas les heures de service : demande un signal côté API (drapeau dans `/vehicles`), d'où sa séparation d'UX-3a | S | P2 | à faire |
 | UX-4 | Accessibilité | Aucun accès clavier (tout passe par des clics carte), panneaux en `div` sans rôles ni gestion du focus, information portée par la seule couleur (13/3bis et 6/7bis identiques), styles inline sans thème sombre | M | P2 | à faire |
@@ -96,19 +96,15 @@ groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des
 porte d'un déploiement public, qui n'est pas d'actualité.
 
 1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**, **PROD-1**,
-   **QUA-2**~~ — faits.
+   **QUA-2**, **UX-2**~~ — faits.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
 2. ~~**QUA-2**~~ (fait) — garde-fou interne journalisé plutôt qu'une pile de supervision.
-3. **UX-2** (mobile) — seul P1 restant avec une valeur visible, et le seul chantier que
-   l'usage réel réclame : une carte de transport se consulte debout, sur un quai. Le front
-   vient d'accumuler trois panneaux flottants à largeur fixe et un sélecteur de 16 pastilles,
-   donc la dette grossit à chaque feature ajoutée avant lui.
-4. **QUA-3** (outillage front) juste après, pas avant : les fonctions pures testables
-   (`severityStyle`, `badgeText`, `withoutLinePrefix`, `statusKind`, `formatEta`, `toggleLine`)
-   ne bougeront pas pendant UX-2, qui est un chantier de mise en page.
+3. **QUA-3** (outillage front) — les fonctions pures testables (`severityStyle`, `badgeText`,
+   `withoutLinePrefix`, `statusKind`, `formatEta`, `toggleLine`) n'ont pas bougé pendant UX-2, qui
+   était un chantier de mise en page ; Vitest est déjà en place, introduit au passage pour
+   l'arithmétique des crans de la feuille.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
-**UX-2** (mobile — à remonter juste après PROD-1 si l'usage devient nomade), **UX-3b** (demande
-un signal API), **PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5** (montées de
-version majeures : du bruit tant que rien ne casse).
+**UX-3b** (demande un signal API), **PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5**
+(montées de version majeures : du bruit tant que rien ne casse).

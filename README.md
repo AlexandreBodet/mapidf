@@ -67,6 +67,12 @@ affiché, sans jamais le vider complètement ; « tout afficher » revient à to
 pastilles de ligne affichées dans la fiche d'une station isolent elles aussi la ligne cliquée,
 quel que soit le sous-ensemble affiché auparavant.
 
+Sous 720 px de large, les panneaux flottants sont remplacés par une **feuille repliable** en bas
+d'écran : on la tire par sa poignée, ou on la touche pour passer au cran suivant (aperçu → moitié
+→ plein → aperçu). Elle porte le sélecteur de lignes par défaut ; ouvrir une station ou un train y
+affiche sa fiche, et la fermer ramène le sélecteur. Sur ces largeurs, la mention de source de la
+carte passe derrière un « ⓘ » en haut à droite.
+
 ## Données, sources et licences
 
 Le code de MapIDF est sous [licence MIT](LICENSE). Les **données ne le sont pas** : elles

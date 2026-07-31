@@ -162,6 +162,8 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   des arrêts par branche.
 - L'étiquette « prochain arrêt » peut sauter une station absente du flux SIRI : c'est
   cosmétique (trou de données), la position reste correcte.
-- **Pas d'adaptation mobile** : les trois panneaux flottent à largeur fixe (260 à 300 px) et
-  le sélecteur de 16 lignes occupe le bas de l'écran — encombrant sur un écran étroit.
-  Chantier volontairement laissé de côté avant ce merge.
+- **Feuille repliable sous 720 px** (largeur seule : un téléphone en paysage garde les cartes
+  flottantes, une feuille sur 390 px de haut serait pire que le mal). La feuille flotte au-dessus
+  d'une carte qui garde tout le viewport ; c'est `map.setPadding` qui décale les recentrages, pas
+  une mise en colonne — donc jamais de `map.resize()`. Le cran `moitié` laisse du blanc sous un
+  contenu court : prix assumé d'un repère stable.
