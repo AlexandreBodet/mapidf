@@ -95,14 +95,13 @@ Arrêté le 2026-07-30. Critère : valeur visible rapportée à l'effort, les pe
 groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des tâches mais la
 porte d'un déploiement public, qui n'est pas d'actualité.
 
-1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**~~ — faits.
+1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**, **PROD-1**
+   (sauf la fiche station), **QUA-2**~~ — faits.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
 2. **PROD-1** — les perturbations. Le vrai manque fonctionnel, à attaquer une fois les petits
    chantiers derrière ; UX-3a a déjà ouvert le chemin d'affichage des statuts.
-3. **QUA-2** — le registre Prometheus prend tout son sens juste après PROD-1, quand il y a de
-   nouveaux modes de panne à surveiller. Attention : la dépendance est triviale, mais la valeur
-   n'arrive qu'avec un collecteur et des alertes — c'est là qu'est le vrai coût.
+3. ~~**QUA-2**~~ (fait) — garde-fou interne journalisé plutôt qu'une pile de supervision.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
 **UX-2** (mobile — à remonter juste après PROD-1 si l'usage devient nomade), **UX-3b** (demande

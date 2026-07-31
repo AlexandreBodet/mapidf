@@ -4,7 +4,8 @@
 1. `cp .env.example .env`, puis renseigner `PRIM_API_KEY` et `POSTGRES_PASSWORD`
 2. `docker compose up --build`
 3. Front : http://localhost:8080 — API : http://localhost:8000/api/network
-4. Santé backend : http://localhost:9000/actuator/health
+4. Santé backend : http://localhost:9000/actuator/health — mesures brutes sur
+   `/actuator/metrics` et `/actuator/prometheus` (port publié sur la loopback seulement)
 
 Le `.env` (gitignoré) est la **seule** source des identifiants : aucun n'a de valeur par défaut
 dans le code, pour qu'aucun ne puisse suivre le projet jusqu'en production. Les trois chemins de

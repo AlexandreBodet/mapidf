@@ -82,6 +82,12 @@ compteurs tagués `line` : `mapidf.position.unplaced` (cf. limitations) et
 correspondant à la destination SIRI). Une ligne qui dégrade se voit dans ces métriques ; le
 remède est `app.network.exclude`, pas un seuil de tolérance.
 
+Ces mesures ne servaient à rien tant qu'il fallait penser à les lire : `LineCoverageGuard`
+journalise désormais un WARN quand une ligne suivie reste **15 min sans aucune course alors que
+le reste du réseau circule** (réseau entier à zéro = panne du flux, pas d'une ligne → aucun
+avertissement, le compteur d'échecs de poll le dit déjà). Et `/actuator/prometheus` expose toutes
+les mesures pour un collecteur, s'il y en a un jour.
+
 ## Données temps réel — pièges à connaître (IMPORTANT)
 
 La source est le endpoint SIRI-ET **`estimated-timetable`** de PRIM (en-tête `apikey`).
