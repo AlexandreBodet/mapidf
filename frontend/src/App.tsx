@@ -8,6 +8,10 @@ import { VehiclePanel } from "./ui/VehiclePanel";
 import { StopPanel } from "./ui/StopPanel";
 import { LinePicker } from "./ui/LinePicker";
 import { NetworkStatus } from "./ui/NetworkStatus";
+import { NetworkSummary } from "./ui/NetworkSummary";
+import { FloatingCard } from "./ui/FloatingCard";
+import { PanelHeader } from "./ui/PanelHeader";
+import { humanOrder } from "./ui/lineOrder";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -225,19 +229,52 @@ export default function App() {
     setFollow(true);
   };
 
-  return (
-    <>
-      <div ref={container} style={{ position: "absolute", inset: 0 }} />
-      <NetworkStatus status={status} />
-      <VehiclePanel
-        vehicle={selected}
-        following={follow}
-        onFollow={() => setFollow((f) => !f)}
-        onClose={clearSelection}
-      />
+  // Trié une fois ici : `App` a besoin de l'ordre pour dériver les lignes perturbées, et le
+  // sélecteur pour ses pastilles. Deux tris divergeraient.
+  const orderedLines = useMemo(
+    () => [...(network?.lines ?? [])].sort(humanOrder),
+    [network],
+  );
+  const disrupted = useMemo(
+    () => orderedLines.filter((line) => disruptions.byLine.has(line.id)),
+    [orderedLines, disruptions.byLine],
+  );
+  const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
+
+  const networkSummary = (
+    <NetworkSummary
+      total={total}
+      disruptedCount={disrupted.length}
+      disruptionsOpen={disruptionsOpen}
+      onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}
+      canShowAll={visibleLines !== null}
+      onShowAll={() => setVisibleLines(null)}
+      stale={stale}
+    />
+  );
+  const linePicker = (
+    <LinePicker
+      lines={orderedLines}
+      disrupted={disrupted}
+      counts={counts}
+      disruptions={disruptions.byLine}
+      disruptionsOpen={disruptionsOpen}
+      visible={visibleLines}
+      asOf={asOf}
+      onToggle={toggleLine}
+    />
+  );
+  // Une seule fiche existe à la fois : `App` vide la sélection train à l'ouverture d'une station
+  // et l'inverse. C'est ce qui permet à la feuille de la tâche 3 de n'avoir qu'un contenu.
+  const ficheHeader = station
+    ? <PanelHeader title={station.stationName} onClose={closeStation} />
+    : selected
+      ? <PanelHeader title={`→ ${selected.headsign}`} onClose={clearSelection} />
+      : null;
+  const ficheBody = station
+    ? (
       <StopPanel
         data={station}
-        onClose={closeStation}
         onSelectTrain={followTrainFromPanel}
         // Isolement inconditionnel : même intention qu'un clic dans LinePicker, quel que
         // soit visibleLines courant. La station reste affichée par construction : elle est
@@ -245,18 +282,34 @@ export default function App() {
         // (station.lineIds.some(id => visibleLines.has(id))) la garde visible.
         onSelectLine={(lineId) => setVisibleLines(new Set([lineId]))}
       />
-      <LinePicker
-        lines={network?.lines ?? []}
-        counts={counts}
-        disruptions={disruptions.byLine}
-        disruptionsOpen={disruptionsOpen}
-        onToggleDisruptions={() => setDisruptionsOpen((open) => !open)}
-        asOf={asOf}
-        stale={stale}
-        visible={visibleLines}
-        onToggle={toggleLine}
-        onShowAll={() => setVisibleLines(null)}
-      />
+    )
+    : selected
+      ? (
+        <VehiclePanel
+          vehicle={selected}
+          following={follow}
+          onFollow={() => setFollow((f) => !f)}
+        />
+      )
+      : null;
+
+  return (
+    <>
+      <div ref={container} style={{ position: "absolute", inset: 0 }} />
+      <NetworkStatus status={status} />
+      {ficheHeader && (
+        <FloatingCard anchor="top-right" style={{ width: 280, maxHeight: "70dvh", overflowY: "auto" }}>
+          {ficheHeader}
+          {ficheBody}
+        </FloatingCard>
+      )}
+      <FloatingCard
+        anchor="bottom-left"
+        style={{ padding: "10px 12px", font: "13px sans-serif", maxWidth: 300 }}
+      >
+        {networkSummary}
+        {linePicker}
+      </FloatingCard>
     </>
   );
 }

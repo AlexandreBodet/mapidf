@@ -4,8 +4,7 @@ import { statusKind, statusLabel } from "./status";
 import { DisruptionRow } from "./DisruptionRow";
 
 interface Props {
-  data: DeparturesResponse | null;
-  onClose: () => void;
+  data: DeparturesResponse;
   onSelectTrain?: (journeyRef: string) => void;
   onSelectLine?: (lineId: string) => void;
 }
@@ -37,10 +36,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props) {
-  if (!data) {
-    return null;
-  }
+export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
   // Le panneau peut vieillir entre deux rafraîchissements : on masque les passages déjà partis
   // et les groupes qui n'ont plus rien à venir.
   const now = Date.now();
@@ -57,29 +53,7 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
     .filter((line) => line.directions.length > 0);
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 12,
-        right: 12,
-        width: 280,
-        maxHeight: "70vh",
-        overflowY: "auto",
-        padding: 16,
-        background: "#fff",
-        borderRadius: 8,
-        boxShadow: "0 2px 12px rgba(0,0,0,.2)",
-        font: "14px sans-serif",
-      }}
-    >
-      <button
-        onClick={onClose}
-        style={{ float: "right", border: "none", background: "none", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}
-        aria-label="Fermer"
-      >
-        ✕
-      </button>
-      <h3 style={{ margin: "0 0 8px" }}>{data.stationName}</h3>
+    <>
       {/* Perturbations visant les quais de cette station : c'est ce que l'anneau sur la carte a
           promis d'expliquer. Placé avant les passages — savoir que l'arrêt n'est pas desservi
           change la lecture des horaires qui suivent. */}
@@ -105,7 +79,7 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
               style={{
                 width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
                 font: "bold 11px sans-serif", display: "flex", alignItems: "center", justifyContent: "center",
-                border: "none", padding: 0, cursor: "pointer",
+                border: "none", padding: 0, cursor: "pointer", minHeight: "var(--tap)",
               }}
             >
               {line.shortName}
@@ -127,6 +101,7 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
                       style={{
                         border: "none", background: "none", padding: "2px 0", cursor: "pointer",
                         font: "inherit", color: "#1d4ed8", textAlign: "left", width: "100%",
+                        minHeight: "var(--tap)",
                       }}
                       title="Suivre ce métro"
                     >
@@ -147,6 +122,6 @@ export function StopPanel({ data, onClose, onSelectTrain, onSelectLine }: Props)
           ))}
         </div>
       ))}
-    </div>
+    </>
   );
 }

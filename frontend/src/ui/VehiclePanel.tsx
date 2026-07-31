@@ -7,38 +7,14 @@ interface Props {
   // feature MapLibre cliquée ne porte plus headsign/nextStop/expectedTime/status depuis la
   // tâche 14 (allègement de la boucle de rendu), donc le panneau ne peut plus les lire
   // depuis les propriétés de la feature.
-  vehicle: Vehicle | null;
+  vehicle: Vehicle;
   following?: boolean;
   onFollow?: () => void;
-  onClose: () => void;
 }
 
-export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: Props) {
-  if (!vehicle) {
-    return null;
-  }
+export function VehiclePanel({ vehicle, following = false, onFollow }: Props) {
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 12,
-        right: 12,
-        width: 260,
-        padding: 16,
-        background: "#fff",
-        borderRadius: 8,
-        boxShadow: "0 2px 12px rgba(0,0,0,.2)",
-        font: "14px sans-serif",
-      }}
-    >
-      <button
-        onClick={onClose}
-        style={{ float: "right", border: "none", background: "none", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }}
-        aria-label="Fermer"
-      >
-        ✕
-      </button>
-      <h3 style={{ margin: "0 0 8px" }}>→ {vehicle.headsign}</h3>
+    <>
       <p style={{ margin: "4px 0" }}>
         Prochain arrêt : <b>{vehicle.nextStop}</b>
       </p>
@@ -70,10 +46,11 @@ export function VehiclePanel({ vehicle, following = false, onFollow, onClose }: 
           background: following ? "#1d4ed8" : "#fff",
           color: following ? "#fff" : "#1d4ed8",
           font: "13px sans-serif",
+          minHeight: "var(--tap)",
         }}
       >
         {following ? "◉ Suivi actif" : "◉ Suivre"}
       </button>
-    </div>
+    </>
   );
 }
