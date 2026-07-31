@@ -213,7 +213,7 @@ export function mapPadding(cran: Cran, viewportHeight: number): number {
 - [ ] **Step 5: Lancer les tests pour vérifier qu'ils passent**
 
 Run: `cd frontend && npm test`
-Expected: PASS — 8 tests.
+Expected: PASS — 9 tests.
 
 - [ ] **Step 6: Vérifier que le build reste vert**
 
@@ -312,7 +312,7 @@ export function humanOrder(a: NetworkLine, b: NetworkLine): number {
 Puis supprimer la fonction `humanOrder` de `frontend/src/ui/LinePicker.tsx` (lignes 23-27).
 
 Run: `cd frontend && npm test`
-Expected: PASS — 10 tests.
+Expected: PASS — 11 tests.
 
 - [ ] **Step 4: Créer `FloatingCard`**
 
@@ -758,7 +758,7 @@ interdisent. À déclarer avec les autres dérivées du step 10.2 :
 - [ ] **Step 11: Vérifier le build et les tests**
 
 Run: `cd frontend && npm test && npm run build`
-Expected: PASS (10 tests) puis build réussi.
+Expected: PASS (11 tests) puis build réussi.
 
 - [ ] **Step 12: Contrôle visuel desktop**
 
@@ -898,7 +898,12 @@ Trois points à ne pas simplifier, tous justifiés en commentaire dans le code :
   glissement avancerait aussi d'un cran.
 
 ```tsx
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  useRef, useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { cranHeight, nextCran, snap, type Cran } from "./sheetCrans";
 
 interface Props {
@@ -970,8 +975,10 @@ export function Sheet({ cran, onCranChange, viewportHeight, summary, children, l
   };
 
   // Un toucher sans déplacement, ou une touche Entrée/Espace sur la poignée : cran suivant.
-  const onClick = () => {
-    if (!gesture.current.moved) {
+  const onClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    // `detail === 0` = activation clavier, qui n'émet aucun événement pointeur : `moved` y
+    // porterait encore la trace du dernier glissement et bloquerait la touche pour de bon.
+    if (event.detail === 0 || !gesture.current.moved) {
       onCranChange(nextCran(cran));
     }
   };
@@ -1146,15 +1153,47 @@ Ajouter cet effet après les autres `useEffect` :
 
 - [ ] **Step 2: Remonter la feuille quand une fiche s'ouvre**
 
-Dans l'effet `[map]` qui pose les écouteurs de clic, ajouter la même ligne dans `onClick`
-(véhicules) et dans `onStationClick`, juste après le `setFollow` / `setSelectedStationId` :
+Le padding doit être posé **avant** le recentrage de l'appelant, et non par le seul effet du
+step 1 : celui-ci ne s'exécute qu'au rendu suivant, et `setPadding` n'anime pas. Sans cette
+précaution, le premier toucher d'une station produit un panoramique animé vers un centre calculé
+avec l'ancien padding, **puis un saut sec**.
+
+Avant l'effet `[map]`, déclarer un ref tenu à jour à chaque rendu et la fonction d'ouverture :
 
 ```tsx
-      // Sans ça, toucher une station feuille repliée semblerait ne rien produire. Mise à jour
-      // fonctionnelle : cet écouteur est posé une fois pour toutes et ne verrait pas un `cran`
-      // capturé au montage.
-      setCran((current) => (current === "apercu" ? "moitie" : current));
+  // Les écouteurs de clic sont posés une fois pour toutes (deps `[map]`) : ils ne peuvent pas
+  // lire ces trois valeurs directement, elles y seraient figées à leur valeur au montage.
+  const sheet = useRef({ isNarrow, viewportHeight, cran });
+  sheet.current = { isNarrow, viewportHeight, cran };
+
+  // Le padding est posé AVANT le recentrage de l'appelant : sinon `easeTo` animerait vers un
+  // centre calculé avec l'ancien padding, puis `setPadding` déplacerait la vue d'un coup sec.
+  const openSheet = (map: maplibregl.Map) => {
+    const { isNarrow, viewportHeight, cran } = sheet.current;
+    const target = cran === "apercu" ? "moitie" : cran;
+    sheet.current.cran = target;
+    setCran(target);
+    if (isNarrow) {
+      map.setPadding({ top: 0, right: 0, bottom: mapPadding(target, viewportHeight), left: 0 });
+    }
+  };
 ```
+
+Dans `onClick` (véhicules), appeler `openSheet(map)` après `setFollow(true)`. Dans
+`onStationClick`, l'appeler **avant** le recentrage :
+
+```tsx
+      map.setFilter("stops-selected", ["==", ["get", "id"], id]);
+      // Avant l'easeTo : il doit s'animer vers le centre définitif, padding compris.
+      openSheet(map);
+      if (coords) {
+        map.easeTo({ center: coords as [number, number] });
+      }
+      setSelectedStationId(id);
+```
+
+L'effet du step 1 reste nécessaire : il couvre les changements de cran issus du glissement de la
+poignée. Le double `setPadding` écrit la même valeur, sans conséquence.
 
 - [ ] **Step 3: Vérifier le build**
 
@@ -1385,7 +1424,7 @@ la page.
 - [ ] **Step 2: Vérification automatique complète**
 
 Run: `cd frontend && npm test && npm run build`
-Expected: PASS (10 tests) puis build réussi.
+Expected: PASS (11 tests) puis build réussi.
 
 - [ ] **Step 3: Passer UX-2 à `fait` dans la feuille de route**
 
