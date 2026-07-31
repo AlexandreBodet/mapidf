@@ -5,7 +5,7 @@ import { clampPadding, cranHeight, mapPadding, nextCran, PEEK_HEIGHT, snap } fro
 const IPHONE = 844;
 
 describe("cranHeight", () => {
-  it("réduit l'aperçu à la poignée et au résumé", () => {
+  it("réduit l'aperçu à la seule poignée", () => {
     expect(cranHeight("apercu", IPHONE)).toBe(PEEK_HEIGHT);
   });
 
@@ -15,8 +15,9 @@ describe("cranHeight", () => {
   });
 
   it("ne descend jamais sous l'aperçu, même sur un écran très court", () => {
-    // Sur 150 px de haut, 50 % vaudrait 75 px : la feuille rétrécirait en s'ouvrant.
-    expect(cranHeight("moitie", 150)).toBe(PEEK_HEIGHT);
+    // Sur 80 px de haut, 50 % vaudrait 40 px, sous le plancher de l'aperçu (44) : la feuille
+    // rétrécirait en s'ouvrant.
+    expect(cranHeight("moitie", 80)).toBe(PEEK_HEIGHT);
   });
 });
 

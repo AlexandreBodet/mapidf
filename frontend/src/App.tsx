@@ -361,6 +361,7 @@ export default function App() {
           footer={<SheetFooter stale={stale} asOf={asOf} />}
           onPeekHeight={setPeekHeight}
           label={station || selected ? "Détail" : "État du réseau"}
+          asOf={asOf}
         >
           {ficheBody ?? linePicker}
         </Sheet>

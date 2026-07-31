@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MlMap } from "maplibre-gl";
-import { SOURCE_ATTRIBUTION } from "./attribution";
+import { ESTIMATION_NOTICE, SOURCE_ATTRIBUTION } from "./attribution";
 import { useIsNarrow } from "../ui/useViewport";
 
 export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null {
@@ -74,9 +74,12 @@ export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null
     if (!map) {
       return;
     }
+    // Sous le seuil, la nature estimée (art. 5.7) rejoint la source (art. 5.4) derrière le
+    // « ⓘ » : c'est ce qui permet à SheetFooter de disparaître au cran apercu sans faire
+    // disparaître les deux obligations.
     const control = new maplibregl.AttributionControl({
       compact: isNarrow,
-      customAttribution: SOURCE_ATTRIBUTION,
+      customAttribution: isNarrow ? [SOURCE_ATTRIBUTION, ESTIMATION_NOTICE] : SOURCE_ATTRIBUTION,
     });
     map.addControl(control, isNarrow ? "top-right" : "bottom-right");
     return () => {

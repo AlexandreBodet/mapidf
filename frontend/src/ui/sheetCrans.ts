@@ -1,7 +1,7 @@
 export type Cran = "apercu" | "moitie" | "plein";
 
-/** Poignée (44 px, seuil tactile) + ligne de résumé (52 px) : ce qui reste visible replié. */
-export const PEEK_HEIGHT = 96;
+/** Poignée seule (44 px, seuil tactile) : résumé et pied masqués au cran apercu (retour recette). */
+export const PEEK_HEIGHT = 44;
 
 /** Du plus bas au plus haut : l'ordre porte la notion de « cran suivant ». */
 const ORDER: Cran[] = ["apercu", "moitie", "plein"];
