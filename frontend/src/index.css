@@ -1,0 +1,23 @@
+/* Premier CSS du projet : tout le reste est en style inline. N'accueille donc que ce que le
+   style inline ne sait pas exprimer — media query, env(), gestes tactiles. */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  /* Sans ça, tirer la feuille vers le bas déclenche le rechargement-par-traction de Chrome
+     Android au lieu de la replier. */
+  overscroll-behavior: none;
+}
+
+:root {
+  /* Hauteur minimale d'une cible tactile. 0 sur desktop : sans effet sur le rendu existant. */
+  --tap: 0px;
+}
+
+/* Doit rester synchronisé avec NARROW_MAX_WIDTH dans src/ui/useViewport.ts. */
+@media (max-width: 720px) {
+  :root {
+    --tap: 44px;
+  }
+}

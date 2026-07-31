@@ -11,7 +11,10 @@ import { NetworkStatus } from "./ui/NetworkStatus";
 import { NetworkSummary } from "./ui/NetworkSummary";
 import { FloatingCard } from "./ui/FloatingCard";
 import { PanelHeader } from "./ui/PanelHeader";
+import { Sheet } from "./ui/Sheet";
+import { useIsNarrow, useViewportHeight } from "./ui/useViewport";
 import { humanOrder } from "./ui/lineOrder";
+import type { Cran } from "./ui/sheetCrans";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -40,6 +43,11 @@ export default function App() {
   // Remonté ici parce que la carte en dépend : panneau ouvert = stations perturbées mises en
   // évidence par un halo.
   const [disruptionsOpen, setDisruptionsOpen] = useState(false);
+  const isNarrow = useIsNarrow();
+  const viewportHeight = useViewportHeight();
+  // Détenu ici, pas dans la feuille : la carte en dérive son padding de caméra (tâche 4), et
+  // ouvrir une station doit pouvoir remonter la feuille.
+  const [cran, setCran] = useState<Cran>("apercu");
   // Trains concernés par les passages de la station ouverte (surlignés sur la carte).
   // Une correspondance groupe plusieurs lignes (task 12) : on aplatit lignes puis directions.
   const highlightedJourneyRefs = useMemo(
@@ -300,19 +308,33 @@ export default function App() {
     <>
       <div ref={container} style={{ position: "absolute", inset: 0 }} />
       <NetworkStatus status={status} />
-      {ficheHeader && (
-        <FloatingCard anchor="top-right" style={{ width: ficheWidth, maxHeight: "70dvh", overflowY: "auto" }}>
-          {ficheHeader}
-          {ficheBody}
-        </FloatingCard>
+      {isNarrow ? (
+        <Sheet
+          cran={cran}
+          onCranChange={setCran}
+          viewportHeight={viewportHeight}
+          summary={ficheHeader ?? networkSummary}
+          label={station || selected ? "Détail" : "État du réseau"}
+        >
+          {ficheBody ?? linePicker}
+        </Sheet>
+      ) : (
+        <>
+          {ficheHeader && (
+            <FloatingCard anchor="top-right" style={{ width: ficheWidth, maxHeight: "70dvh", overflowY: "auto" }}>
+              {ficheHeader}
+              {ficheBody}
+            </FloatingCard>
+          )}
+          <FloatingCard
+            anchor="bottom-left"
+            style={{ padding: "10px 12px", font: "13px sans-serif", maxWidth: 300 }}
+          >
+            {networkSummary}
+            {linePicker}
+          </FloatingCard>
+        </>
       )}
-      <FloatingCard
-        anchor="bottom-left"
-        style={{ padding: "10px 12px", font: "13px sans-serif", maxWidth: 300 }}
-      >
-        {networkSummary}
-        {linePicker}
-      </FloatingCard>
     </>
   );
 }
