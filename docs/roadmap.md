@@ -109,6 +109,7 @@ porte d'un déploiement public, qui n'est pas d'actualité.
    déploiement, **SEC-6** (scan de dépendances) compris.
 
 **Volontairement repoussés** : **SEC-8** (risque réel faible, base locale sur loopback),
-**PERF-4/5/6** (prématurés à un seul utilisateur), **QUA-5** — mais plus pour la même raison :
-les montées de majeure sont désormais le seul remède aux 7 vulnérabilités de l'outillage front
-(cf. SEC-6), donc elles passent de « bruit » à « dette datée », à traiter juste après QUA-3.
+**PERF-4/5/6** (prématurés à un seul utilisateur). **QUA-5 ne l'est plus** : QUA-3 étant fait, sa
+place est au point 2 ci-dessus — les montées de majeure sont le seul remède aux 7 vulnérabilités de
+l'outillage front (cf. SEC-6), et le harnais existe maintenant pour constater qu'une majeure n'a
+rien cassé.
