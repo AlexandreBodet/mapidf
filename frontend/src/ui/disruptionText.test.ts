@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { disruptionTitle } from "./disruptionTitle";
+import { badgeText, disruptionTitle } from "./disruptionText";
 
 describe("disruptionTitle", () => {
   it("retire le préfixe de ligne quand une pastille le porte déjà", () => {
@@ -20,5 +20,20 @@ describe("disruptionTitle", () => {
 
   it("ne coupe pas un titre qui commence par le séparateur", () => {
     expect(disruptionTitle(" : Travaux", true)).toBe(" : Travaux");
+  });
+});
+
+describe("badgeText", () => {
+  it("garde le résumé du flux quand il dit quelque chose", () => {
+    expect(badgeText("Arrêt non desservi", "trafic bloqué")).toBe("Arrêt non desservi");
+  });
+
+  it("préfère le libellé de gravité au « Autre » du flux, qui ne dit rien", () => {
+    expect(badgeText("Autre", "information")).toBe("information");
+    expect(badgeText("autre", "information")).toBe("information");
+  });
+
+  it("préfère le libellé de gravité à un résumé vide", () => {
+    expect(badgeText("", "trafic perturbé")).toBe("trafic perturbé");
   });
 });

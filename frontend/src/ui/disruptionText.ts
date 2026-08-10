@@ -9,3 +9,12 @@ export function disruptionTitle(title: string, lineShown: boolean): string {
   const separator = title.indexOf(" : ");
   return lineShown && separator > 0 ? title.slice(separator + 3) : title;
 }
+
+/**
+ * Le flux met « Autre » en résumé quand il n'en a pas — mesuré sur « Métro 14 / 5 / 4 :
+ * Information - Autre », dont tout le sens était dans le message. Le libellé de gravité en dit
+ * alors davantage.
+ */
+export function badgeText(shortMessage: string, fallback: string): string {
+  return !shortMessage || shortMessage.toLowerCase() === "autre" ? fallback : shortMessage;
+}

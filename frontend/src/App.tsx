@@ -17,6 +17,7 @@ import { Sheet } from "./ui/Sheet";
 import { useIsNarrow, useViewportHeight } from "./ui/useViewport";
 import { humanOrder } from "./ui/lineOrder";
 import { clampPadding, mapPadding, PEEK_HEIGHT, type Cran } from "./ui/sheetCrans";
+import { toggleLine as toggleLineSubset } from "./ui/toggleLine";
 import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
@@ -90,30 +91,7 @@ export default function App() {
   }, highlightedJourneyRefs, visibleLines);
 
   const toggleLine = (lineId: string) => {
-    setVisibleLines((current) => {
-      // Premier clic depuis « toutes » (visibleLines === null) : on isole la ligne cliquée
-      // plutôt que de la retirer d'un ensemble complet — c'est l'intention la plus fréquente
-      // sur 16 lignes (voir une seule ligne), et retirer demanderait 15 clics sinon.
-      if (current === null) {
-        return new Set([lineId]);
-      }
-      const all = new Set(network?.lines.map((line) => line.id) ?? []);
-      const next = new Set(current);
-      if (next.has(lineId)) {
-        // Ne pas vider la carte d'un clic : si c'est la dernière ligne encore visible, on la
-        // garde (no-op). « tout afficher » reste l'échappatoire explicite, mais un clic isolé
-        // ne doit pas produire un état vide silencieux.
-        if (next.size === 1) {
-          // `current`, pas `next` : renvoyer un Set neuf pour un no-op déclenche un re-render et
-          // le refiltrage des 321 stations pour rien.
-          return current;
-        }
-        next.delete(lineId);
-      } else {
-        next.add(lineId);
-      }
-      return next.size === all.size ? null : next;
-    });
+    setVisibleLines((current) => toggleLineSubset(current, lineId, network?.lines.length ?? 0));
   };
 
   // Les écouteurs de clic sont posés une fois pour toutes (deps `[map]`) : ils ne peuvent pas

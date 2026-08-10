@@ -1,16 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { DisruptionItem } from "../api/types";
 import { severityStyle } from "./severity";
-import { disruptionTitle } from "./disruptionTitle";
-
-/**
- * Le flux met « Autre » en résumé quand il n'en a pas — mesuré sur « Métro 14 / 5 / 4 :
- * Information - Autre », dont tout le sens était dans le message. Le libellé de gravité en dit
- * alors davantage.
- */
-function badgeText(shortMessage: string, fallback: string): string {
-  return !shortMessage || shortMessage.toLowerCase() === "autre" ? fallback : shortMessage;
-}
+import { badgeText, disruptionTitle } from "./disruptionText";
 
 interface Props {
   item: DisruptionItem;
