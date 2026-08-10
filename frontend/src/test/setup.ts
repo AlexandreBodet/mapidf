@@ -2,7 +2,7 @@ import { beforeEach } from "vitest";
 
 /**
  * `Sheet` installe un ResizeObserver au montage, et jsdom n'en a pas : sans ce stub, le composant
- * lève. Il n'observe rien — c'est au test de dire quand la mesure tombe, via `triggerResize`.
+ * lève. Rien ne se mesure tout seul — c'est au test de dire quand, via `triggerResize`.
  */
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
@@ -49,6 +49,9 @@ beforeEach(() => {
 /**
  * Déclenche la mesure de tous les observers installés. Un test qui asserte sur le rendu (pas
  * sur un `vi.fn()` appelé dans le callback) doit l'envelopper dans `act(...)`.
+ *
+ * Ne rappelle que les observers dont un élément a **changé** de hauteur : deux appels de suite
+ * sans `stubHeight` entre les deux ne produisent qu'un seul rappel.
  */
 export function triggerResize() {
   for (const observer of ResizeObserverStub.instances) {
