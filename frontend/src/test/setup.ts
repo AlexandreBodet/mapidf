@@ -33,7 +33,10 @@ beforeEach(() => {
   ResizeObserverStub.instances.length = 0;
 });
 
-/** Déclenche la mesure de tous les observers installés. */
+/**
+ * Déclenche la mesure de tous les observers installés. Un test qui asserte sur le rendu (pas
+ * sur un `vi.fn()` appelé dans le callback) doit l'envelopper dans `act(...)`.
+ */
 export function triggerResize() {
   for (const observer of ResizeObserverStub.instances) {
     observer.fire();
