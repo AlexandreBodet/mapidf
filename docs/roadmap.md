@@ -73,7 +73,7 @@ publique). Le détail est dans la section « Données, sources et licences » du
 |---|---|---|---|---|---|
 | QUA-1 | CI | Pas de `.github/` : toute la discipline `./mvnw verify` + `npm run build` est manuelle | S | — | **écarté** (2026-07-30, décision produit : pas maintenant) |
 | QUA-2 | Métriques exploitables | Les jauges par ligne existent (`mapidf.rt.journeys`, `mapidf.position.*`) mais **aucun registre Prometheus** n'est dans le `pom.xml` : impossible d'alerter sur `journeys{line=X} == 0` ou sur `poll.failures`. Le garde-fou observable est aveugle | S | P1 | **fait** (registre Prometheus + `LineCoverageGuard` : WARN quand une ligne suivie reste 15 min à zéro alors que le réseau circule — réseau entier à zéro = panne de flux, donc silence). Le garde-fou n'attend plus qu'on pense à lire une métrique |
-| QUA-3 | Outillage front | **Vitest est en place** depuis UX-2 (25 tests sur `sheetCrans`, `lineOrder`, `disruptionTitle` et `formatEta`) — restent ESLint, Prettier, les autres fonctions pures (`color`, `statusKind`, `severityStyle`, `badgeText`, `toggleLine`, culling de `VehicleLayer`) et un harnais de composants, dont UX-2 a montré le besoin : ses défauts de geste et de caméra ne se voyaient qu'à l'œil | M | P1 | **entamé** (Vitest + 4 modules testés) |
+| QUA-3 | Outillage front | **Fait.** Vitest est arrivé avec UX-2 ; QUA-3 y a ajouté un harnais de composants (jsdom + Testing Library, environnement déclaré par fichier pour que les tests de fonctions pures restent en Node) et les fonctions pures qui restaient. La liste d'origine de ce chantier était partiellement fausse, cf. § 2 de la spec : `color` n'existait pas, `badgeText` était privée, `toggleLine` était une fermeture inline | M | P1 | **fait** — [spec](superpowers/specs/2026-08-10-qua-3-outillage-front-design.md). Trois régressions réellement livrées ont désormais un test qui rougit si on remet le bug (préfixe de ligne à République, « Service terminé », format `3 min`), et le défaut clavier-après-glissement d'UX-2 aussi. **Hors périmètre assumé** : `App.tsx` et la caméra (faux MapLibre complet pour un défaut déjà gardé par un test de `getPadding()`), le culling de `VehicleLayer`. **ESLint est parti avec QUA-5** et **Prettier avec QUA-8** — deux reformatages massifs coup sur coup se marcheraient dessus |
 | QUA-4 | Seuil de couverture | Jacoco produit un rapport, sans règle `check` : la couverture peut chuter sans que `verify` rougisse | S | P2 | à faire |
 | QUA-5 | Dépendances en retard | React 18, Vite 5, MapLibre 4, Node 20 dans l'image — des majeures existent pour les quatre. **A gagné un argument le 2026-08-10** : les 7 vulnérabilités relevées par `npm audit` (cf. SEC-6) exigent toutes une montée de majeure — `npm audit fix` seul ne corrige **rien**. Le motif de report (« du bruit tant que rien ne casse ») ne couvre donc plus tout. À faire **après QUA-3**, qui fournira le harnais permettant de constater qu'une majeure n'a rien cassé | M | P2 | à faire |
 | QUA-6 | Doublon de compose | Un `docker-compose.yml` à la racine (pile complète) **et** dans `backend/` (base seule, backend hors Docker). Les deux ont désormais un en-tête qui dit lequel sert à quoi ; reste à décider si un seul fichier suffirait | S | P3 | atténué |
@@ -97,13 +97,12 @@ groupés avant le gros. Les points **LEG** n'y figurent pas : ce ne sont pas des
 porte d'un déploiement public, qui n'est pas d'actualité.
 
 1. ~~**SEC-5**, **SEC-1**, **SEC-2**, **UX-1**, **UX-3a**, **SEC-7**, **PERF-1**, **PROD-1**,
-   **QUA-2**, **UX-2**, **UX-3b**, **SEC-4**~~ — faits.
+   **QUA-2**, **UX-2**, **UX-3b**, **SEC-4**, **QUA-3**~~ — faits.
    **SEC-8** et **SEC-9** sont tombés en même temps : réfutés, ils n'ont jamais existé (cf. leurs
    lignes).
-2. **QUA-3** (outillage front) — le suivant, et UX-2 a montré pourquoi : cinq de ses six défauts
-   n'ont été trouvés qu'en relisant le code ou à l'œil sur un téléphone, faute de harnais. Vitest
-   est déjà là ; restent ESLint, Prettier, les autres fonctions pures et de quoi tester un
-   composant. **QUA-8** (sortir du style inline) attend ce harnais, et **UX-4** attend QUA-8.
+2. **QUA-8** (sortir du style inline) puis **UX-4** — QUA-3 a livré le harnais qui manquait pour
+   convertir quinze composants sans régression muette. **QUA-5** peut se glisser avant QUA-8 : ses
+   montées de majeure éteignent les 7 vulnérabilités de l'outillage (cf. SEC-6) et amènent ESLint.
 3. **SEC-3** + **PERF-3** ensemble, le jour où une mise en ligne se précise : un cache serveur de
    ~1 s sur `/vehicles` (effort S) retire l'essentiel de la charge qu'un quota devrait ensuite
    borner. SEC-4 a fermé ce qui pouvait l'être sans hébergeur ; le reste attend une décision de

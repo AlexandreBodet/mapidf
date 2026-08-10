@@ -27,7 +27,8 @@ des horaires temps réel SIRI (prochain arrêt + heure estimée), pas mesurées.
 
 # Frontend (depuis frontend/)
 npm run dev            # Vite, proxy /api → :8100
-npm run build          # build de prod — sert de vérif (pas de tests unitaires front)
+npm run build          # build de prod — sert aussi de vérif de typage
+npm test               # Vitest : fonctions pures en Node, composants en jsdom
 
 # Tout en Docker (depuis la racine)
 docker compose up --build   # front :8080, api :8100, actuator :9100
@@ -86,6 +87,16 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   seulement dans un navigateur sur la pile Docker.
 - **`proxy_pass http://backend:8100;` sans slash final est volontaire** : il transmet l'URI
   complète, `/api` étant le context-path du backend. Le « corriger » casse tous les appels.
+- **Tests front : l'environnement est déclaré par fichier**, pas globalement — un
+  `// @vitest-environment jsdom` en première ligne des tests de composants, rien pour les
+  fonctions pures, qui restent en Node et rapides. `src/test/setup.ts` porte les trois stubs que
+  jsdom impose (pas de `ResizeObserver`, `setPointerCapture` qui **lève**, toute mesure à 0) ; son
+  garde `typeof Element !== "undefined"` est indispensable, ce fichier étant chargé aussi pour les
+  tests qui tournent en Node. La **vitesse d'un geste est testable**, mais pas via
+  `fireEvent.pointerDown` : jsdom 26 n'a pas de `PointerEvent` global, et l'`Event` nu de repli
+  perd `clientY` en silence. `Sheet.test.tsx` construit donc l'événement à la main (`firePointer`,
+  un `MouseEvent` typé) en maîtrisant `timeStamp` — **piège : `0` ne marche pas**, React calculant
+  `event.timeStamp || Date.now()`.
 
 ## Configuration du réseau suivi
 
