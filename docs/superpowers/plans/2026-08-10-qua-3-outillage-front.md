@@ -780,7 +780,7 @@ git commit -m "test(qua-3): panneaux — dont le préfixe de ligne et le format 
 
 **Contexte pour l'implémenteur.** `Sheet` reçoit `viewportHeight` en **prop** : les hauteurs de cran ne dépendent donc pas d'une mise en page que jsdom n'a pas. Les crans pour `viewportHeight = 844` valent 44 (`apercu`), 422 (`moitie`) et 760 (`plein`). Le glissement calcule `hauteur = startHeight + (startY - clientY)`, borné entre la hauteur d'aperçu mesurée et 760, puis `snap` retient le cran **le plus proche**.
 
-**La vitesse n'est pas testable ici**, et ce n'est pas un manque : `fireEvent` ne permet pas de fixer le `timeStamp` d'un événement, or c'est lui qui donne la vitesse. Le chemin « coup sec » (`flick`) est déjà couvert par les tests unitaires de `snap` dans `sheetCrans.test.ts`. Les tests ci-dessous s'appuient donc uniquement sur le cran le plus proche.
+**La vitesse est testable**, à condition de construire l'événement soi-même. jsdom 26 n'a pas de constructeur global `PointerEvent` : `fireEvent.pointerDown/Move/Up` retombe alors sur `Event` nu (cf. `@testing-library/dom`, `window[EventType] || window.Event`) et perd `clientY`/`pointerId` en route — mesuré : le geste atteint bien le gestionnaire, mais avec des coordonnées `undefined`, donc des hauteurs en `NaN`. Un `MouseEvent` construit à la main (lui bien supporté), avec `pointerId` posé en propriété brute et un `timeStamp` **non nul** en paramètre (React calcule `event.timeStamp || Date.now()`, donc `0` serait ignoré), rend `elapsed` — et donc la vitesse dans `applyMove`/`endDrag` — entièrement déterministe. C'est ce que fait `firePointer` au Step 1 : un `timeStamp` identique sur tout un geste annule la vitesse pour les tests qui n'en ont pas besoin ; un `timeStamp` qui varie la rend testable pour les coups secs. Le chemin « coup sec » (`flick`) est couvert à la fois par les tests unitaires de `snap` dans `sheetCrans.test.ts` (la fonction pure, isolée) et par les tests de vitesse de `Sheet.test.tsx` (l'acheminement réel depuis `applyMove`/`endDrag` jusqu'à `snap`, dont le signe — rien d'autre ne le couvre).
 
 La poignée est un `<button aria-label="Changer la hauteur du panneau">`. Le corps qui défile est le parent de `children`.
 
@@ -801,8 +801,45 @@ afterEach(cleanup);
 
 const VIEWPORT = 844; // iPhone 12/13 en portrait, la cible du chantier UX-2.
 
-function renderSheet(cran: Cran, onCranChange = vi.fn(), onPeekHeight = vi.fn()) {
-  const view = render(
+/**
+ * jsdom 26 n'expose pas de constructeur global `PointerEvent` : `fireEvent.pointerDown/Move/Up`
+ * retombe alors sur `Event` nu (cf. `@testing-library/dom`, `createEvent`, qui utilise
+ * `window[EventType] || window.Event`) et perd `clientY`/`pointerId` en route — le geste atteint
+ * bien le gestionnaire de `Sheet`, mais avec des coordonnées `undefined`, donc des hauteurs
+ * calculées en `NaN`. On construit donc l'événement à la main sur `MouseEvent`, lui correctement
+ * supporté par jsdom, et on pose `pointerId` en propriété brute — elle ne sert qu'à
+ * `setPointerCapture`, stubbé en no-op par `src/test/setup.ts`, donc sa valeur est inerte ici.
+ * `timeStamp` est un paramètre (et non une constante) : React calcule
+ * `event.timeStamp || Date.now()` (cf. `react-dom`), donc `0` serait ignoré et remplacé par
+ * l'heure réelle — mais une valeur non nulle, choisie par l'appelant, rend `elapsed` (et donc la
+ * vitesse dans `applyMove`/`endDrag`) entièrement déterministe. La vitesse **est** donc testable
+ * ici : la valeur par défaut (identique sur tout un geste) l'annule pour les tests qui n'en ont
+ * pas besoin ; les tests de coup sec ci-dessous l'écartent volontairement.
+ */
+function firePointer(
+  element: Element,
+  type: "pointerdown" | "pointermove" | "pointerup",
+  clientY: number,
+  timeStamp = 1,
+) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
+  Object.defineProperty(event, "pointerId", { value: 1 });
+  Object.defineProperty(event, "timeStamp", { value: timeStamp });
+  fireEvent(element, event);
+}
+
+// `timeStamp` identique (défaut) sur les trois événements : `elapsed` reste à 0 dans `applyMove`,
+// donc la vitesse aussi — un glissement « lent », sans coup sec possible.
+function drag(element: Element, fromY: number, toY: number) {
+  firePointer(element, "pointerdown", fromY);
+  firePointer(element, "pointermove", toY);
+  firePointer(element, "pointerup", toY);
+}
+
+function renderSheet(cran: Cran) {
+  const onCranChange = vi.fn();
+  const onPeekHeight = vi.fn();
+  render(
     <Sheet
       cran={cran}
       onCranChange={onCranChange}
@@ -819,16 +856,14 @@ function renderSheet(cran: Cran, onCranChange = vi.fn(), onPeekHeight = vi.fn())
     </Sheet>,
   );
   const handle = screen.getByRole("button", { name: "Changer la hauteur du panneau" });
-  return { view, onCranChange, onPeekHeight, handle, body: screen.getByText("corps").parentElement! };
+  return { onCranChange, onPeekHeight, handle, body: screen.getByText("corps").parentElement! };
 }
 
 describe("Sheet — poignée", () => {
   it("change de cran quand on la tire vers le haut", () => {
     const { onCranChange, handle } = renderSheet("moitie");
 
-    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 });
-    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 100 });
-    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 100 });
+    drag(handle, 400, 100);
 
     // 422 + 300 = 722, plus proche de 760 (plein) que de 422 (moitié).
     expect(onCranChange).toHaveBeenCalledWith("plein");
@@ -839,9 +874,7 @@ describe("Sheet — poignée", () => {
     // inerte au clavier dès le premier glissement. La correction lit `event.detail === 0`.
     const { onCranChange, handle } = renderSheet("apercu");
 
-    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 });
-    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 300 });
-    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 300 });
+    drag(handle, 400, 300);
     onCranChange.mockClear();
 
     // `detail: 0` = activation clavier (Entrée/Espace), qui n'émet aucun événement pointeur.
@@ -851,28 +884,114 @@ describe("Sheet — poignée", () => {
   });
 });
 
+describe("Sheet — poignée : vitesse d'un coup sec", () => {
+  it("un coup sec vers le haut avance d'un cran de plus que le plus proche", () => {
+    const { onCranChange, handle } = renderSheet("apercu");
+
+    firePointer(handle, "pointerdown", 400, 100);
+    firePointer(handle, "pointermove", 390, 105);
+    firePointer(handle, "pointerup", 390, 106);
+
+    // 44 + (400-390) = 54, plus proche de l'aperçu (44) que de moitié (422) : sans vitesse, le
+    // cran resterait "apercu". Mais (400-390)/(105-100) = 2 px/ms, bien au-delà de FLICK (0.5,
+    // cf. sheetCrans.ts) : le coup sec avance d'un cran de plus que le plus proche.
+    expect(onCranChange).toHaveBeenCalledWith("moitie");
+  });
+
+  it("un coup sec vers le bas recule d'un cran de plus que le plus proche", () => {
+    const { onCranChange, handle } = renderSheet("plein");
+
+    firePointer(handle, "pointerdown", 100, 100);
+    firePointer(handle, "pointermove", 110, 105);
+    firePointer(handle, "pointerup", 110, 106);
+
+    // 760 + (100-110) = 750, plus proche du plein (760) que de moitié (422) : sans vitesse, le
+    // cran resterait "plein". Mais (100-110)/(105-100) = -2 px/ms, sous -FLICK (-0.5) : le coup
+    // sec recule d'un cran de plus que le plus proche.
+    expect(onCranChange).toHaveBeenCalledWith("moitie");
+  });
+
+  it("un dernier mouvement suivi d'une pause de plus de 60 ms retombe sur le cran le plus proche", () => {
+    const { onCranChange, handle } = renderSheet("plein");
+
+    firePointer(handle, "pointerdown", 100, 100);
+    firePointer(handle, "pointermove", 200, 105);
+    firePointer(handle, "pointerup", 200, 181);
+
+    // 760 + (100-200) = 660, plus proche du plein (760, distance 100) que de moitié (422,
+    // distance 238). Sans le lâcher retardé, (100-200)/(105-100) = -20 px/ms aurait déclenché un
+    // coup sec vers le bas (recul à "moitie"). Mais le lâcher arrive 76 ms après le dernier
+    // mouvement (> 60 ms) : la garde de Sheet.tsx remet la vitesse à 0, et c'est le cran le plus
+    // proche, "plein", qui l'emporte.
+    expect(onCranChange).toHaveBeenCalledWith("plein");
+  });
+});
+
+describe("Sheet — poignée : clic du navigateur après un geste", () => {
+  it("un tap immobile puis le clic natif du navigateur avancent d'un cran", () => {
+    const { onCranChange, handle } = renderSheet("apercu");
+
+    firePointer(handle, "pointerdown", 400);
+    firePointer(handle, "pointerup", 400);
+    onCranChange.mockClear();
+
+    // `detail: 1` = clic natif (souris/tactile), qui suit tout pointerup côté navigateur réel —
+    // aucun test précédent ne l'envoyait. Sans déplacement, `moved` est resté `false` : la
+    // clause `!gesture.current.moved` de Sheet.tsx doit laisser passer.
+    fireEvent.click(handle, { detail: 1 });
+
+    expect(onCranChange).toHaveBeenCalledWith("moitie"); // nextCran("apercu")
+  });
+
+  it("le clic natif après un glissement n'avance pas d'un cran supplémentaire", () => {
+    const { onCranChange, handle } = renderSheet("moitie");
+
+    drag(handle, 400, 100); // atterrit sur "plein", comme le premier test de ce fichier.
+    onCranChange.mockClear();
+
+    // Même clic natif que ci-dessus, mais après un glissement réel : `moved` vaut `true`, donc
+    // Sheet.tsx doit l'ignorer — sinon chaque glissement avancerait d'un cran de trop.
+    fireEvent.click(handle, { detail: 1 });
+
+    expect(onCranChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("Sheet — corps", () => {
   it("laisse le défilement gagner quand le contenu n'est pas remonté en haut", () => {
     const { onCranChange, body } = renderSheet("plein");
     Object.defineProperty(body, "scrollTop", { value: 50, configurable: true });
 
-    fireEvent.pointerDown(body, { pointerId: 1, clientY: 100 });
-    fireEvent.pointerMove(body, { pointerId: 1, clientY: 500 });
-    fireEvent.pointerUp(body, { pointerId: 1, clientY: 500 });
+    drag(body, 100, 500);
 
     expect(onCranChange).not.toHaveBeenCalled();
   });
 
-  it("replie la feuille quand le contenu est déjà en haut", () => {
+  it("replie la feuille jusqu'au cran le plus proche pour un glissement lent (sans vitesse)", () => {
     const { onCranChange, body } = renderSheet("plein");
     Object.defineProperty(body, "scrollTop", { value: 0, configurable: true });
 
-    fireEvent.pointerDown(body, { pointerId: 1, clientY: 100 });
-    fireEvent.pointerMove(body, { pointerId: 1, clientY: 500 });
-    fireEvent.pointerUp(body, { pointerId: 1, clientY: 500 });
+    // `drag` pose le même `timeStamp` sur les trois événements : `elapsed` reste à 0, la
+    // vitesse aussi. Sans ça, un glissement de cette amplitude est un coup sec (cf. test
+    // suivant) et retombe un cran plus loin.
+    drag(body, 100, 500);
 
     // 760 - 400 = 360, plus proche de 422 (moitié) que de 44 (aperçu).
     expect(onCranChange).toHaveBeenCalledWith("moitie");
+  });
+
+  it("un coup sec vers le bas depuis un contenu déjà en haut replie jusqu'à l'aperçu", () => {
+    const { onCranChange, body } = renderSheet("plein");
+    Object.defineProperty(body, "scrollTop", { value: 0, configurable: true });
+
+    firePointer(body, "pointerdown", 100, 10);
+    firePointer(body, "pointermove", 500, 15);
+    firePointer(body, "pointerup", 500, 16);
+
+    // Même amplitude que le glissement lent ci-dessus (760 - 400 = 360, plus proche de 422 que
+    // 44), mais (100-500)/(15-10) = -80 px/ms, bien sous -FLICK (-0.5) : le coup sec pousse un
+    // cran plus loin que le plus proche, jusqu'à l'aperçu.
+    expect(onCranChange).toHaveBeenCalledWith("apercu");
   });
 });
 
@@ -891,7 +1010,7 @@ describe("Sheet — mesure de l'aperçu", () => {
 - [ ] **Step 2 : lancer les tests**
 
 Run: `cd frontend && npx vitest run src/ui/Sheet.test.tsx`
-Expected: PASS, 5 tests.
+Expected: PASS, 11 tests.
 
 Deux pannes plausibles, et leur remède :
 - `setPointerCapture is not a function` → le stub du Step 2 de la tâche 1 n'est pas chargé ; vérifier `setupFiles` dans `vite.config.ts`.

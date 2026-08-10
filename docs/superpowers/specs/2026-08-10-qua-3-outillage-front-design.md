@@ -131,16 +131,29 @@ Quatre autres couvrent des règles déjà présentes mais non gardées : un pass
 filtré ; une ligne dont toutes les directions se vident disparaît ; un passage supprimé est barré et
 porte son badge ; un clic sur un horaire appelle `onSelectTrain` avec le bon `journeyRef`.
 
-**Les gestes de la feuille** — le seul volet qui aurait attrapé les défauts d'UX-2. Trois
-comportements :
+**Les gestes de la feuille** — le seul volet qui aurait attrapé les défauts d'UX-2.
 
 1. Tirer la poignée vers le haut change de cran.
 2. **L'activation clavier fonctionne encore après un glissement.** C'est le défaut exact qui a
    survécu à une revue et à une recette : le drapeau `moved` n'était jamais remis à zéro, et la
    poignée devenait inerte au clavier après le premier glissement. La correction repose sur
    `event.detail === 0` ; ce test la garde.
-3. Un glissement vers le bas depuis le **corps** ne replie la feuille que si ce corps est déjà
-   remonté en haut (`scrollTop <= 0`) — sinon le défilement l'emporte.
+3. **La vitesse d'un coup sec est testable, et testée** — un coup sec vers le haut ou vers le bas
+   atterrit un cran plus loin que le cran le plus proche, et un dernier mouvement suivi d'une pause
+   de plus de 60 ms voit sa vitesse neutralisée. `fireEvent.pointerDown/Move/Up` ne suffit pas :
+   jsdom 26 n'a pas de `PointerEvent` global (repli sur `Event` nu, `clientY`/`pointerId` perdus),
+   et un `timeStamp` construit à la main doit rester non nul (React calcule
+   `event.timeStamp || Date.now()`). Un `MouseEvent` construit à la main, avec `pointerId` posé en
+   propriété brute et un `timeStamp` maîtrisé, lève les deux limites — c'est ce que fait
+   `Sheet.test.tsx`. Sans ce test, le signe de la vitesse (`applyMove`/`endDrag` jusqu'à `snap`)
+   n'est couvert nulle part : `sheetCrans.test.ts` ne teste que `snap` isolément, jamais son
+   acheminement depuis le geste réel.
+4. **Le clic natif que le navigateur envoie après tout geste pointeur est simulé**, pas seulement
+   le clic clavier (`detail: 0`) du point 2 : un tap immobile suivi de ce clic doit changer de
+   cran, et le même clic après un glissement réel ne doit pas en ajouter un second.
+5. Un glissement vers le bas depuis le **corps** ne replie la feuille que si ce corps est déjà
+   remonté en haut (`scrollTop <= 0`) — sinon le défilement l'emporte ; et là aussi, un coup sec
+   pousse un cran plus loin qu'un glissement lent de même amplitude.
 
 ## 6. Hors périmètre, et pourquoi
 
