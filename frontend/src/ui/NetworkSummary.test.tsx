@@ -31,4 +31,29 @@ describe("NetworkSummary", () => {
     expect(screen.queryByText("Reprise au premier métro.")).not.toBeNull();
     expect(screen.queryByText(/trains en circulation/)).toBeNull();
   });
+
+  it("compte les trains quand le service est ouvert", () => {
+    renderSummary({ total: 12 });
+
+    expect(screen.queryByText("12 trains en circulation")).not.toBeNull();
+    expect(screen.queryByText("Service terminé")).toBeNull();
+  });
+
+  it("accorde le nombre de lignes perturbées", () => {
+    const seule = renderSummary({ disruptedCount: 1 });
+    expect(screen.queryByText(/^1 ligne perturbée/)).not.toBeNull();
+    seule.unmount();
+
+    renderSummary({ disruptedCount: 3 });
+    expect(screen.queryByText(/^3 lignes perturbées/)).not.toBeNull();
+  });
+
+  it("n'offre « tout afficher » que si un sous-ensemble est isolé", () => {
+    const tout = renderSummary({ canShowAll: false });
+    expect(screen.queryByText("tout afficher")).toBeNull();
+    tout.unmount();
+
+    renderSummary({ canShowAll: true });
+    expect(screen.queryByText("tout afficher")).not.toBeNull();
+  });
 });
