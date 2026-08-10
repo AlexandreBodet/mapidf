@@ -6,17 +6,30 @@ import { beforeEach } from "vitest";
  */
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
+  // Hauteur connue par élément observé, prise à l'observation puis à chaque tir : un observer
+  // sans élément restant (jamais observé, débranché, ou observant un élément dont la hauteur
+  // n'a pas bougé) ne doit rien rappeler — sinon un `render` + `unmount` + `render` rappellerait
+  // le callback du composant démonté, ou observer le mauvais élément passerait pour correct.
+  private readonly heights = new Map<Element, number>();
 
   constructor(private readonly callback: ResizeObserverCallback) {
     ResizeObserverStub.instances.push(this);
   }
 
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  observe(element: Element) { this.heights.set(element, element.getBoundingClientRect().height); }
+  unobserve(element: Element) { this.heights.delete(element); }
+  disconnect() { this.heights.clear(); }
 
   fire() {
-    this.callback([], this as unknown as ResizeObserver);
+    const changed = [...this.heights.keys()]
+      .filter((el) => el.getBoundingClientRect().height !== this.heights.get(el));
+    if (changed.length === 0) {
+      return;
+    }
+    for (const el of changed) {
+      this.heights.set(el, el.getBoundingClientRect().height);
+    }
+    this.callback(changed.map((target) => ({ target }) as ResizeObserverEntry), this as unknown as ResizeObserver);
   }
 }
 

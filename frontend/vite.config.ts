@@ -1,4 +1,6 @@
-// `defineConfig` vient de vitest/config, sans quoi `tsc -b` rejette la clé `test` inconnue.
+// `defineConfig` vient de vitest/config : la clé `test` n'existe que sur ce type. `tsc -b` ne
+// nous alerterait pas (tsconfig.json a `include: ["src"]`, ce fichier n'est jamais compilé), mais
+// un IDE la signalerait comme inconnue avec l'import `vite` — et c'est la voie documentée par Vitest.
 import { defineConfig } from "vitest/config";
 import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react";

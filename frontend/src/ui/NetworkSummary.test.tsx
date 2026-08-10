@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NetworkSummary } from "./NetworkSummary";
 
@@ -37,6 +37,10 @@ describe("NetworkSummary", () => {
 
     expect(screen.queryByText("12 trains en circulation")).not.toBeNull();
     expect(screen.queryByText("Service terminé")).toBeNull();
+    // Régression : « Reprise au premier métro. » ne doit apparaître que hors service.
+    expect(screen.queryByText("Reprise au premier métro.")).toBeNull();
+    // Régression : disruptedCount vaut 0 par défaut ici — aucune mention de ligne perturbée.
+    expect(screen.queryByText(/lignes? perturbée/)).toBeNull();
   });
 
   it("accorde le nombre de lignes perturbées", () => {
@@ -55,5 +59,27 @@ describe("NetworkSummary", () => {
 
     renderSummary({ canShowAll: true });
     expect(screen.queryByText("tout afficher")).not.toBeNull();
+  });
+
+  it("le bouton « tout afficher » appelle onShowAll, pas onToggleDisruptions", () => {
+    const onShowAll = vi.fn();
+    const onToggleDisruptions = vi.fn();
+    renderSummary({ canShowAll: true, onShowAll, onToggleDisruptions });
+
+    fireEvent.click(screen.getByText("tout afficher"));
+
+    expect(onShowAll).toHaveBeenCalledOnce();
+    expect(onToggleDisruptions).not.toHaveBeenCalled();
+  });
+
+  it("le bouton des lignes perturbées appelle onToggleDisruptions, pas onShowAll", () => {
+    const onShowAll = vi.fn();
+    const onToggleDisruptions = vi.fn();
+    renderSummary({ disruptedCount: 2, onShowAll, onToggleDisruptions });
+
+    fireEvent.click(screen.getByText(/^2 lignes perturbées/));
+
+    expect(onToggleDisruptions).toHaveBeenCalledOnce();
+    expect(onShowAll).not.toHaveBeenCalled();
   });
 });

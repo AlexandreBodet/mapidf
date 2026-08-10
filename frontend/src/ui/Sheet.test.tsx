@@ -53,10 +53,10 @@ function renderSheet(cran: Cran) {
       cran={cran}
       onCranChange={onCranChange}
       viewportHeight={VIEWPORT}
-      header={null}
+      header={<p>titre fiche</p>}
       summary={<p>résumé</p>}
       footer={<p>pied</p>}
-      alert={null}
+      alert={<p>alerte gel</p>}
       label="État du réseau"
       onPeekHeight={onPeekHeight}
       asOf={null}
@@ -66,6 +66,19 @@ function renderSheet(cran: Cran) {
   );
   const handle = screen.getByRole("button", { name: "Changer la hauteur du panneau" });
   return { onCranChange, onPeekHeight, handle, body: screen.getByText("corps").parentElement! };
+}
+
+// `getByText` ne voit que la présence dans le DOM, pas `display: none` posé sur un ancêtre : on
+// remonte la chaîne jusqu'au `body` pour savoir si l'élément est réellement masqué.
+function isHidden(element: Element): boolean {
+  let el: Element | null = element;
+  while (el && el !== document.body) {
+    if (el instanceof HTMLElement && el.style.display === "none") {
+      return true;
+    }
+    el = el.parentElement;
+  }
+  return false;
 }
 
 describe("Sheet — poignée", () => {
@@ -201,6 +214,19 @@ describe("Sheet — corps", () => {
     // 44), mais (100-500)/(15-10) = -80 px/ms, bien sous -FLICK (-0.5) : le coup sec pousse un
     // cran plus loin que le plus proche, jusqu'à l'aperçu.
     expect(onCranChange).toHaveBeenCalledWith("apercu");
+  });
+});
+
+describe("Sheet — repli au cran apercu", () => {
+  it("garde l'alerte de gel et l'en-tête de fiche visibles, masque le résumé et le corps", () => {
+    // Les deux exemptions au repli (retour recette) : sans elles, une panne de rafraîchissement
+    // ou une fiche ouverte deviendraient muettes une fois la feuille repliée à l'aperçu.
+    renderSheet("apercu");
+
+    expect(isHidden(screen.getByText("alerte gel"))).toBe(false);
+    expect(isHidden(screen.getByText("titre fiche"))).toBe(false);
+    expect(isHidden(screen.getByText("résumé"))).toBe(true);
+    expect(isHidden(screen.getByText("corps"))).toBe(true);
   });
 });
 

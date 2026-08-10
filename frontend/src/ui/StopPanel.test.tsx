@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeparturesResponse } from "../api/types";
 import { StopPanel } from "./StopPanel";
@@ -68,8 +68,16 @@ describe("StopPanel", () => {
       }],
     })} />);
 
-    expect(screen.queryByText("Gallieni")).toBeNull();
+    // Le texte normalisé est « → Gallieni » (cf. `<p>→ {dir.destination}</p>`) : un matcher exact
+    // sur "Gallieni" seul ne correspond jamais, quelle que soit l'implémentation.
+    expect(screen.queryByText(/Gallieni/)).toBeNull();
     expect(screen.queryByText("Aucun passage annoncé.")).not.toBeNull();
+  });
+
+  it("affiche la destination quand il reste au moins un passage à venir", () => {
+    render(<StopPanel data={departures()} />);
+
+    expect(screen.queryByText(/Gallieni/)).not.toBeNull();
   });
 
   it("barre un passage supprimé et le dit, au lieu d'une heure en bleu comme les autres", () => {
@@ -92,7 +100,7 @@ describe("StopPanel", () => {
     const onSelectTrain = vi.fn();
     render(<StopPanel data={departures()} onSelectTrain={onSelectTrain} />);
 
-    screen.getByText("7 min").click();
+    fireEvent.click(screen.getByText("7 min"));
 
     expect(onSelectTrain).toHaveBeenCalledWith("J-2");
   });

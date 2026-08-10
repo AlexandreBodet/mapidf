@@ -19,8 +19,12 @@ describe("severityStyle", () => {
     const styles = severities.map(severityStyle);
     const colors = styles.map((s) => s.color);
     const glyphs = styles.map((s) => s.glyph);
+    const labels = styles.map((s) => s.label);
     expect(new Set(colors)).toHaveLength(4);
     expect(new Set(glyphs)).toHaveLength(4);
+    // Sans ce troisième axe, INFORMATION pourrait hériter du libellé de BLOQUANTE : `badgeText`
+    // retombe sur ce libellé, un badge annoncerait « trafic bloqué » sur une simple information.
+    expect(new Set(labels)).toHaveLength(4);
   });
 
   it("retombe sur INCONNUE pour une gravité que le flux aurait inventée", () => {
