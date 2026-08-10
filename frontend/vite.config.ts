@@ -1,4 +1,6 @@
-import { defineConfig, loadEnv } from "vite";
+// `defineConfig` vient de vitest/config, sans quoi `tsc -b` rejette la clé `test` inconnue.
+import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
@@ -8,6 +10,9 @@ export default defineConfig(({ mode }) => {
   const { SERVER_PORT } = { ...loadEnv(mode, "..", ""), ...process.env };
   return {
     plugins: [react()],
+    // Environnement Node par défaut : seuls les fichiers montant un composant demandent jsdom,
+    // par un `// @vitest-environment jsdom` en tête de fichier.
+    test: { setupFiles: ["./src/test/setup.ts"] },
     server: { proxy: { "/api": `http://localhost:${SERVER_PORT ?? "8100"}` } },
     build: {
       rollupOptions: {
