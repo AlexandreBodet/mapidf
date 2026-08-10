@@ -14,8 +14,13 @@ describe("severityStyle", () => {
   });
 
   it("distingue les gravités entre elles", () => {
-    expect(severityStyle("BLOQUANTE").glyph).not.toBe(severityStyle("PERTURBEE").glyph);
-    expect(severityStyle("BLOQUANTE").color).not.toBe(severityStyle("PERTURBEE").color);
+    // Vérifier que les quatre gravités ont des couleurs et glyphes distincts.
+    const severities = ["BLOQUANTE", "PERTURBEE", "INFORMATION", "INCONNUE"] as const;
+    const styles = severities.map(severityStyle);
+    const colors = styles.map((s) => s.color);
+    const glyphs = styles.map((s) => s.glyph);
+    expect(new Set(colors)).toHaveLength(4);
+    expect(new Set(glyphs)).toHaveLength(4);
   });
 
   it("retombe sur INCONNUE pour une gravité que le flux aurait inventée", () => {

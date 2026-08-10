@@ -256,6 +256,7 @@ describe("statusKind", () => {
 
   it("admet les variantes d'orthographe du flux SIRI", () => {
     expect(statusKind("ONTIME")).toBe("onTime");
+    expect(statusKind("EARLY")).toBe("early");
     expect(statusKind("CANCELED")).toBe("cancelled");
     expect(statusKind("CANCELLED")).toBe("cancelled");
   });
@@ -274,7 +275,9 @@ describe("statusKind", () => {
 
 describe("statusLabel", () => {
   it("traduit les états connus", () => {
+    expect(statusLabel("ON_TIME")).toBe("à l'heure");
     expect(statusLabel("DELAYED")).toBe("retardé");
+    expect(statusLabel("EARLY")).toBe("en avance");
     expect(statusLabel("CANCELLED")).toBe("supprimé");
   });
 
@@ -305,8 +308,13 @@ describe("severityStyle", () => {
   });
 
   it("distingue les gravités entre elles", () => {
-    expect(severityStyle("BLOQUANTE").glyph).not.toBe(severityStyle("PERTURBEE").glyph);
-    expect(severityStyle("BLOQUANTE").color).not.toBe(severityStyle("PERTURBEE").color);
+    // Vérifier que les quatre gravités ont des couleurs et glyphes distincts.
+    const severities = ["BLOQUANTE", "PERTURBEE", "INFORMATION", "INCONNUE"] as const;
+    const styles = severities.map(severityStyle);
+    const colors = styles.map((s) => s.color);
+    const glyphs = styles.map((s) => s.glyph);
+    expect(new Set(colors)).toHaveLength(4);
+    expect(new Set(glyphs)).toHaveLength(4);
   });
 
   it("retombe sur INCONNUE pour une gravité que le flux aurait inventée", () => {

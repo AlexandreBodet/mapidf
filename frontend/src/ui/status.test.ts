@@ -9,6 +9,7 @@ describe("statusKind", () => {
 
   it("admet les variantes d'orthographe du flux SIRI", () => {
     expect(statusKind("ONTIME")).toBe("onTime");
+    expect(statusKind("EARLY")).toBe("early");
     expect(statusKind("CANCELED")).toBe("cancelled");
     expect(statusKind("CANCELLED")).toBe("cancelled");
   });
@@ -27,7 +28,9 @@ describe("statusKind", () => {
 
 describe("statusLabel", () => {
   it("traduit les états connus", () => {
+    expect(statusLabel("ON_TIME")).toBe("à l'heure");
     expect(statusLabel("DELAYED")).toBe("retardé");
+    expect(statusLabel("EARLY")).toBe("en avance");
     expect(statusLabel("CANCELLED")).toBe("supprimé");
   });
 
