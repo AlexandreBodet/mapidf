@@ -69,6 +69,9 @@ export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap
       ref.current.pending = window.setTimeout(() => {
         instance?.remove();
         ref.current.instance = null;
+        // Faux positif : ce timer n'atteint jamais ce point si un nouveau setup l'a annulé
+        // (clearTimeout ligne 31, synchrone) — c'est justement le mécanisme StrictMode ci-dessus.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         ref.current.pending = 0;
         setMap(null);
       }, 0);

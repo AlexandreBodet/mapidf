@@ -38,7 +38,10 @@ function StatusBadge({ status }: { status: string }) {
 
 export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
   // Le panneau peut vieillir entre deux rafraîchissements : on masque les passages déjà partis
-  // et les groupes qui n'ont plus rien à venir.
+  // et les groupes qui n'ont plus rien à venir. Un déplacement vers un effet/état changerait le
+  // rythme de rafraîchissement (ce composant n'est pas concurrent/Suspense) pour corriger une
+  // règle pensée pour React Compiler ; hors périmètre de ce passage de lint (QUA-5).
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const lines = data.lines
     .map((line) => ({

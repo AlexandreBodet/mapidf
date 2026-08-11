@@ -14,6 +14,7 @@ export function useIsNarrow(): boolean {
     const onChange = (event: MediaQueryListEvent) => setNarrow(event.matches);
     query.addEventListener("change", onChange);
     // Relu ici : la largeur peut avoir changé entre le premier rendu et cet effet.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNarrow(query.matches);
     return () => query.removeEventListener("change", onChange);
   }, []);
