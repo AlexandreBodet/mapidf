@@ -37,7 +37,8 @@ class ResizeObserverStub {
 // Node : sans ce garde, `Element` n'existe pas et tous ces tests casseraient.
 if (typeof Element !== "undefined") {
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
-  // jsdom LÈVE sur ces deux méthodes : le premier geste de chaque test échouerait.
+  // jsdom 27 ne définit pas ces deux méthodes du tout (jsdom 26 les avait, mais elles levaient) :
+  // dans les deux cas, le premier geste de chaque test échouerait.
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.releasePointerCapture = () => {};
 }

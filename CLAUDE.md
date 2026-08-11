@@ -72,17 +72,14 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   `journeyRef`, pas par `feature-state` (pourtant l'approche idiomatique, essayée deux fois) :
   à ~15 `setData`/s sur ~705 features, `initializeTileState` finissait par lever « feature index
   out of bounds » en boucle. Détail complet dans le commentaire d'en-tête de `journeyRefFilter`.
-- **MapLibre 6 n'émet plus son worker tout seul.** Il en dérive l'URL (same-origin) depuis
-  `import.meta.url`, ce que le bundling casse. Sans le `setWorkerUrl` de `MapView.tsx` (import
-  `?worker&url`), **le build est vert, sans le moindre avertissement, et `dist/` ne contient aucun
-  worker** : carte blanche en prod sur un 404 `/assets/maplibre-gl-worker-*.js`. Ni `npm run build`
-  ni `npm test` ne peuvent voir ce défaut — aucun test ne monte MapLibre ; le seul contrôle est un
-  navigateur, ou un `ls dist/assets/maplibre-gl-worker-*.js`. Conséquence CSP : `worker-src` et
-  `child-src` sont passés de `blob:` à `'self'`, et `frame-src 'none'` est apparu avec eux, parce
-  que `child-src 'self'` rouvre le cadrage same-origin que `blob:` fermait de fait et que
-  `frame-ancestors` ne protège que contre *être* cadré, pas contre cadrer. **La chaîne CSP est
-  dupliquée** dans `frontend/security-headers.conf` et `scripts/check-headers.sh` : modifier l'une
-  sans l'autre fait échouer le script sur une divergence de texte, pas sur un vrai défaut.
+- **MapLibre 6 n'émet plus son worker tout seul** : il en dérive l'URL depuis `import.meta.url`, ce
+  que le bundling casse. Sans le `setWorkerUrl` de `MapView.tsx` (import `?worker&url`), **le build
+  est vert, sans un avertissement, et `dist/` ne contient aucun worker** — carte blanche en prod sur
+  un 404 `/assets/maplibre-gl-worker.mjs`. Aucun test ne monte MapLibre : le seul contrôle est un
+  navigateur, ou un `ls dist/assets/maplibre-gl-worker-*.js`. Conséquence CSP détaillée dans
+  l'en-tête de `security-headers.conf` ; ce qui ne s'y lit pas : **la chaîne CSP y est dupliquée avec
+  `scripts/check-headers.sh`**, et n'en toucher qu'une fait rougir le script sur un écart de texte,
+  pas sur un défaut.
 - **nginx : `add_header` n'est PAS hérité** dès qu'un bloc `location` en pose un lui-même. C'est
   pourquoi les en-têtes de sécurité vivent dans `frontend/security-headers.conf`, **inclus par
   chaque `location`** : les poser une seule fois au niveau `server` les ferait disparaître des
@@ -101,23 +98,19 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
 - **Tests front : l'environnement est déclaré par fichier**, pas globalement — un
   `// @vitest-environment jsdom` en première ligne des tests de composants, rien pour les
   fonctions pures, qui restent en Node et rapides. `src/test/setup.ts` porte les trois stubs que
-  jsdom impose, **tous encore nécessaires en jsdom 27** (pas de `ResizeObserver`,
-  `setPointerCapture` qui n'existe carrément plus — TypeError, et non plus une erreur DOM —, toute
-  mesure à 0) ; son garde `typeof Element !== "undefined"` est indispensable, ce fichier étant
-  chargé aussi pour les tests qui tournent en Node. La **vitesse d'un geste est testable**, mais
-  pas via `fireEvent.pointerDown` **sous jsdom 26** : pas de `PointerEvent` global, et l'`Event` nu
-  de repli perd `clientY` en silence. `Sheet.test.tsx` construit donc l'événement à la main
-  (`firePointer`, un `MouseEvent` typé) en maîtrisant `timeStamp` — **piège : `0` ne marche pas**,
-  React calculant `event.timeStamp || Date.now()` (vrai quelle que soit la version). **jsdom 27
-  fournit `PointerEvent`** : ce contournement-là est peut-être devenu inutile, mais rien n'a été
-  retiré — c'est un angle pour QUA-8, pas une évidence.
-- **Les deux outils qui disent le retard des dépendances le sous-déclarent.** Mesuré :
-  `npm outdated` plafonnait `vite` à 6.4.3 quand son dist-tag `latest` était **8.2.1**, et omettait
-  **entièrement** `@vitejs/plugin-react` (4.7.0 installé, 6.0.5 publié) — `--prefer-online` n'y
-  change rien ; le contrôle fiable est `npm view <paquet> dist-tags`. Côté Maven, le
-  versions-plugin masque une montée derrière un artefact daté : `commons-csv` s'annonçait
-  `1.11.0 -> 20110211` (un jar de 2011, lexicalement supérieur à toute la série 1.x) en cachant
-  1.14.1 — croiser avec le `maven-metadata.xml` de Maven Central.
+  jsdom impose encore en 27 (pas de `ResizeObserver`, pas de `setPointerCapture`, toute mesure à
+  0) ; son garde `typeof Element !== "undefined"` est indispensable, ce fichier étant chargé aussi
+  pour les tests qui tournent en Node. La **vitesse d'un geste est testable** : `Sheet.test.tsx`
+  construit l'événement à la main (`firePointer`, un `MouseEvent` typé) pour maîtriser son
+  `timeStamp` — hérité de jsdom 26 sans `PointerEvent` global, gardé bien que jsdom 27 en fournisse
+  un (cf. QUA-8). **Piège toujours vrai : `timeStamp: 0` ne marche pas**, React calculant
+  `event.timeStamp || Date.now()`.
+- **`npm outdated` sous-déclare le retard** (mesuré le 2026-08-11) : `vite` plafonné à 6.4.3 quand
+  son dist-tag `latest` était **8.2.1**, `@vitejs/plugin-react` omis **entièrement** (4.7.0 contre
+  6.0.5) — `--prefer-online` n'y change rien ; le contrôle fiable est `npm view <paquet> dist-tags`.
+  Côté Maven, rien de tel : le versions-plugin agrège fidèlement tous les dépôts configurés — mais un
+  dépôt **interne** peut y republier un artefact ancien et se déclarer `<latest>` (`commons-csv
+  20110211`, un jar de 2011), d'où le croisement avec le `maven-metadata.xml` de Central.
 
 ## Configuration du réseau suivi
 

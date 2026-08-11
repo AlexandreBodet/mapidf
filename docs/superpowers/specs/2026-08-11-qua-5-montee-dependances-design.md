@@ -46,6 +46,17 @@ supérieur à toute la série 1.x, qui cache 1.12, 1.13 et 1.14. La vraie cible,
 Même forme des deux côtés : l'outil chargé de dire le retard le sous-estime, sans erreur ni
 avertissement. Les deux partent dans CLAUDE.md.
 
+> **Note du 2026-08-11 — la moitié Maven de ce § est mal attribuée.** Mesure faite après coup :
+> Maven Central ne publie **aucun** `20110211` pour `commons-csv` (`maven-metadata-central.xml` en
+> cache annonce `<latest>1.14.1</latest>`). L'artefact vient d'un **dépôt d'entreprise privé**
+> déclaré dans le `~/.m2/settings.xml` du poste (`cardiweb-interne`), dont le
+> `maven-metadata-cardiweb-interne.xml` porte `<latest>20110211</latest>` ; `backend/pom.xml` ne
+> déclare aucun `<repository>`, donc **sur un clone frais, en CI ou chez un autre développeur, le
+> phénomène n'existe pas**. Le versions-plugin ne masque donc rien : il agrège fidèlement les
+> métadonnées de tous les dépôts configurés. Le fait à retenir, et le seul retenu dans CLAUDE.md :
+> un dépôt interne peut republier un artefact ancien et se déclarer `<latest>`, d'où le croisement
+> avec Central. Le constat `npm outdated` ci-dessus, lui, tient.
+
 ### 2.2 Front — huit lignes, dont sept paquets à sauter une majeure ou plus
 
 | Paquet | Actuel | Cible | Majeures |

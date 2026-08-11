@@ -21,7 +21,10 @@ lancement le lisent — `docker compose` nativement, IntelliJ via sa configurati
 - Base seule (backend hors Docker) : `cd backend && docker compose up -d`
 - Front : `cd frontend && npm run dev` (proxy /api → :8100) — **Node 24 LTS** (épinglé par Volta
   dans `frontend/package.json`, et c'est la base de l'image Docker). Vite 8 exige
-  `^20.19.0 || >=22.12.0` : sur une version plus ancienne, `npm install` s'arrête en `EBADENGINE`.
+  `^20.19.0 || >=22.12.0`, mais **rien ne l'impose à l'installation** : sur un Node plus ancien,
+  `npm install` se contente d'un `npm warn EBADENGINE` et **réussit** — la panne arrive plus tard,
+  au premier `npm run dev` ou `npm run build`, sous forme d'erreur de syntaxe ou d'API manquante
+  dans vite. Si un `npm run build` casse sans raison sur un poste, `node -v` est le premier réflexe.
   Node 26 est délibérément écartée tant qu'elle n'est pas LTS (cf. QUA-9 dans la
   [feuille de route](docs/roadmap.md))
 - Tests : `cd backend && ./mvnw test` (tests unitaires seuls, rapide) — mais la vérification de

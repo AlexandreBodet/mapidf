@@ -38,7 +38,7 @@ d'erreur).
 | Ni `eval(` ni `new Function(` dans `index-*.js` **ni** dans `maplibre-*.js` | `script-src 'self'` suffit — pas d'`unsafe-eval`, la concession la plus coûteuse |
 | `dist/index.html` ne contient **aucun** script ni style inline (Vite sort tout en fichiers avec `crossorigin`) | Pas besoin de nonce ni de hash pour le HTML |
 | MapLibre n'appelle jamais `createElement("style")`, `insertRule` ni `styleSheet` — son CSS est empaqueté dans `index-*.css` par le `import` de `main.tsx` | L'`unsafe-inline` peut être confiné aux **attributs** `style`, un `<style>` injecté reste bloqué |
-| `createObjectURL` × 2 dans MapLibre | Il faut `worker-src blob:` |
+| `createObjectURL` × 2 dans MapLibre | Il faut `worker-src blob:` — **plus vrai depuis MapLibre 6, cf. note du § 3** |
 | Le style `liberty` ne tire qu'un hôte : `tiles.openfreemap.org` (vecteur `/planet`, raster `/natural_earth`, sprites `/sprites`, glyphes `/fonts/*.pbf`) | Une seule origine externe à autoriser |
 | `index-*.css` n'a **aucun** `@font-face`, et ses seuls `url()` sont des `data:image/svg+xml` (les icônes des contrôles MapLibre) | Pas de `font-src` à écrire ; `img-src data:` suffit à ces icônes |
 | `eclipse-temurin:25-jre` n'a **ni curl ni wget**, mais a `/bin/bash` | Un `HEALTHCHECK` réel est possible sans ajouter de paquet |
