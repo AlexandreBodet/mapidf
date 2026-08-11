@@ -104,4 +104,15 @@ describe("StopPanel", () => {
 
     expect(onSelectTrain).toHaveBeenCalledWith("J-2");
   });
+
+  it("isole la ligne dont on clique la pastille", () => {
+    // Isolement inconditionnel, comme un clic dans le sélecteur du bas : quel que soit le filtre
+    // courant, ce clic ne laisse que cette ligne (décision produit).
+    const onSelectLine = vi.fn();
+    render(<StopPanel data={departures()} onSelectLine={onSelectLine} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "N'afficher que la ligne 3" }));
+
+    expect(onSelectLine).toHaveBeenCalledExactlyOnceWith("3");
+  });
 });
