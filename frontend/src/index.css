@@ -10,6 +10,13 @@ body {
   overscroll-behavior: none;
 }
 
+/* Posée ici, la famille se diffuse par héritage : l'attribut `style` obligeait chaque bloc à la
+   répéter. Ne couvre PAS les boutons, qui gardent la police du widget tant qu'ils ne posent pas
+   `font: inherit` ou `font-family` eux-mêmes. */
+body {
+  font-family: var(--font);
+}
+
 :root {
   /* Hauteur minimale d'une cible tactile. 0 sur desktop : sans effet sur le rendu existant. */
   --tap: 0px;
@@ -18,7 +25,52 @@ body {
      intestable. La forcer depuis les outils de développement (`--safe-bottom: 34px` sur
      `:root`) rejoue ce cas sans appareil Apple. */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --font: sans-serif;
+
+  /* Surfaces, texte, filets. Les nuances proches sont volontairement distinctes : les fusionner
+     changerait le rendu, ce qu'interdit QUA-8. Aucune couleur de texte principale n'est définie —
+     le projet n'en posait pas, tout hérite du défaut du navigateur (UX-4 en ajoutera une). */
+  --surface: #fff;
+  --surface-off: #f3f3f3;      /* fond d'une pastille de ligne masquée */
+  --text-muted: #666;
+  --text-detail: #444;         /* corps du bandeau d'état, titre sans détail */
+  --text-detail-open: #555;    /* détail déplié d'une perturbation */
+  --text-faint: #999;          /* heure sur la poignée de la feuille */
+  --separator: #bbb;           /* point entre deux horaires */
+  --handle: #ccc;              /* barre de la poignée */
+  --border: #ddd;              /* contour d'une pastille sans perturbation */
+  --border-subtle: #eee;       /* filet entre deux perturbations */
+
+  --accent: #1d4ed8;
+  --warn: #b45309;
+  --amber-bg-strong: #fde68a;  /* badge « retardé » */
+  --amber-bg-soft: #fef3c7;    /* encart « position approximative » */
+  --amber-text: #92400e;
+  --red-bg: #fecaca;           /* badge « supprimé » */
+  --red-text: #991b1b;
+
+  --sev-bloquante: #b91c1c;
+  --sev-perturbee: var(--warn);
+  --sev-information: var(--accent);
+  --sev-inconnue: #6b7280;
+
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, .2);
+  --shadow-sheet: 0 -2px 16px rgba(0, 0, 0, .2);
 }
+
+/* Gravité d'une perturbation : l'élément porteur déclare `data-severity`, la couleur descend par
+   `--sev`. Global plutôt que dupliqué dans chaque module — les quatre valeurs sont les mêmes
+   partout (sélecteur de lignes, fiche station), et `severity.ts` ne garde que glyphe et libellé.
+   Le défaut couvre le repli d'une gravité que le flux aurait inventée. */
+[data-severity] { --sev: var(--sev-inconnue); }
+[data-severity="BLOQUANTE"] { --sev: var(--sev-bloquante); }
+[data-severity="PERTURBEE"] { --sev: var(--sev-perturbee); }
+[data-severity="INFORMATION"] { --sev: var(--sev-information); }
+
+/* `[hidden]` n'appartient qu'à la feuille de l'UA, d'origine plus faible que la nôtre : mesuré,
+   un `display: flex` posé par une classe l'écrase et déplierait la feuille en silence. */
+[hidden] { display: none !important; }
 
 /* Doit rester synchronisé avec NARROW_MAX_WIDTH dans src/ui/useViewport.ts. */
 @media (max-width: 720px) {

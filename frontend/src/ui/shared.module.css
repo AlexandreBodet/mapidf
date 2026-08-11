@@ -1,0 +1,31 @@
+/* Noyau commun aux cinq boutons qui se donnent l'apparence d'un lien (StopPanel, DisruptionRow,
+   NetworkSummary × 2, et le chevron de repli). Volontairement sans `padding`, `color` ni
+   `text-align` : ils diffèrent d'un site à l'autre — « tout afficher » garde le padding par
+   défaut du bouton, l'horaire de StopPanel a le sien — et les aligner changerait le rendu.
+   `font: inherit` est indispensable : un bouton n'hérite pas de la police du document. */
+.linkButton {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--tap);
+}
+
+/* Pastille ronde d'une ligne. La teinte arrive par `--line-color` (16 couleurs GTFS, ensemble non
+   borné, donc impossible à figer en classes) ; la taille par `data-size`, dans ses deux seules
+   valeurs en usage. `flex: 0 0 auto` est nécessaire quand la pastille sert de `leading` à une
+   perturbation, et inerte dans les deux autres emplois (elle n'y a rien qui la comprime). */
+.lineBadge {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--line-color);
+  color: var(--surface);
+  font-family: var(--font);
+  font-weight: bold;
+}
+
+.lineBadge[data-size="s"] { width: 16px; height: 16px; font-size: 10px; }
+.lineBadge[data-size="m"] { width: 18px; height: 18px; font-size: 11px; }
