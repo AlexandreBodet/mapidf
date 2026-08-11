@@ -1,4 +1,5 @@
 import type { NetworkStatus as Status } from "../map/useNetwork";
+import styles from "./NetworkStatus.module.css";
 
 interface Props {
   status: Status;
@@ -30,29 +31,9 @@ export function NetworkStatus({ status }: Props) {
     },
   }[status];
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 12,
-        // `maxWidth` seul débordait sous 384 px : les bornes gauche/droite le rendent fluide,
-        // `margin: auto` le garde centré au-dessus du seuil.
-        left: 12,
-        right: 12,
-        maxWidth: 360,
-        margin: "0 auto",
-        padding: "10px 14px",
-        background: "#fff",
-        borderRadius: 8,
-        borderLeft: `4px solid ${status === "error" ? "#b45309" : "#1d4ed8"}`,
-        boxShadow: "0 2px 12px rgba(0,0,0,.2)",
-        font: "13px sans-serif",
-        // La carte reste manipulable sous le bandeau (pas de bouton dedans).
-        pointerEvents: "none",
-      }}
-      role="status"
-    >
+    <div className={styles.banner} data-status={status} role="status">
       <b>{message.title}</b>
-      {message.body && <div style={{ color: "#444", marginTop: 4 }}>{message.body}</div>}
+      {message.body && <div className={styles.body}>{message.body}</div>}
     </div>
   );
 }

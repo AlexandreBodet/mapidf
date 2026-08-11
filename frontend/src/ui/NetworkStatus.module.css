@@ -1,0 +1,28 @@
+.banner {
+  position: absolute;
+  top: 12px;
+  /* `max-width` seul débordait sous 384 px : les bornes gauche/droite le rendent fluide,
+     `margin: auto` le garde centré au-dessus du seuil. */
+  left: 12px;
+  right: 12px;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: 8px;
+  border-left: 4px solid var(--accent);
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+  /* La carte reste manipulable sous le bandeau (pas de bouton dedans). */
+  pointer-events: none;
+}
+
+/* Seul l'échec change de liseré : chargement et base vide sont des états d'attente. */
+.banner[data-status="error"] {
+  border-left-color: var(--warn);
+}
+
+.body {
+  color: var(--text-detail);
+  margin-top: 4px;
+}
