@@ -1,0 +1,28 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+/* Aucun style de police sur le titre : le `<h3>` n'en avait pas non plus et héritait du défaut du
+   navigateur (gras, 1.17em). En fixer un le rétrécirait. */
+.title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Pas de `font-family` ici : le bouton ne portait déjà que `font-size`, donc il gardait la police
+   du widget. En poser une changerait le rendu du « ✕ ». */
+.close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px;
+  min-width: var(--tap);
+  min-height: var(--tap);
+}

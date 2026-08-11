@@ -1,3 +1,5 @@
+import styles from "./StaleWarning.module.css";
+
 interface Props {
   /** Dernier poll `/vehicles` en échec : ce qui est affiché ne bouge plus. */
   stale: boolean;
@@ -13,7 +15,7 @@ export function StaleWarning({ stale }: Props) {
     return null;
   }
   return (
-    <div style={{ color: "#b45309", marginTop: 6 }} role="status">
+    <div className={styles.warning} role="status">
       ⚠ Positions plus mises à jour — la connexion au service est interrompue.
     </div>
   );
