@@ -23,6 +23,11 @@ Boot 4.1 / Java 25.
 - **Node ≥ 20.19.0 ou ≥ 22.12.0** est exigé par vite 8 et `@vitejs/plugin-react` 6. Cible retenue :
   **Node 24 LTS**, sur le poste **et** dans l'image. Le poste mesuré est en `v20.17.0` : sous le
   plancher.
+- **Node 26 écartée sciemment.** La `v26.7.0` est sortie le 2026-08-05 et aucun paquet de la pile
+  ne la refuse, mais elle reste sur la ligne **Current** : elle ne devient LTS qu'en octobre 2026.
+  On ne prend pas la ligne que l'outillage ne cible pas encore pendant un chantier qui empile cinq
+  majeures. À rouvrir en octobre — le geste se résume alors à une ligne de Dockerfile et un
+  `volta pin`.
 - **`@vitejs/plugin-react` 6 exige `vite: ^8`** — les deux montent dans le **même** commit.
 - **Un commit par étape**, et tout revert doit emporter `package-lock.json`.
 - **`./mvnw verify` exige `JAVA_HOME=~/.jdks/temurin-25.0.4`** — le `java` du shell est en 21.
@@ -807,13 +812,19 @@ Si le relevé de la tâche 3 step 3 montre que jsdom 27 fournit désormais `Poin
 puce « Tests front »), en précisant que les stubs et le `firePointer` de `Sheet.test.tsx` **n'ont
 pas été retirés** et que c'est un angle pour QUA-8. Si rien n'a changé, ne rien écrire.
 
-- [ ] **Step 6 : `README.md` — prérequis Node**
+- [ ] **Step 6 : `docs/roadmap.md` — ouvrir la reprise de Node 26**
+
+Ajouter une ligne pour la montée Node 24 → 26, effort S, statut `à faire`, avec sa date
+d'ouverture : **octobre 2026**, quand la ligne 26 passe LTS. Sans cette trace, la question se
+reposera de zéro et la raison de l'avoir écartée sera perdue.
+
+- [ ] **Step 7 : `README.md` — prérequis Node**
 
 Indiquer **Node 24 LTS** comme prérequis du développement front, en donnant la raison (le plancher
 `^20.19.0 || >=22.12.0` de vite 8), pour qu'un `npm install` qui échoue en `EBADENGINE` soit
 diagnostiqué en dix secondes.
 
-- [ ] **Step 7 : Recette de contrôle finale**
+- [ ] **Step 8 : Recette de contrôle finale**
 
 Après la tâche 9, la pile a changé une dernière fois. Reconstruire et redérouler la check-list de
 la tâche 6 step 6, en version courte : carte, trains animés, sélection, feuille sous 720 px,
@@ -823,7 +834,7 @@ console sans violation CSP. Puis :
 scripts/check-headers.sh
 ```
 
-- [ ] **Step 8 : Vérification d'ensemble**
+- [ ] **Step 9 : Vérification d'ensemble**
 
 ```bash
 cd frontend && npm audit && npm test && npm run build && npm run lint
@@ -833,7 +844,7 @@ cd ../backend && JAVA_HOME=~/.jdks/temurin-25.0.4 ./mvnw verify
 Attendu : `found 0 vulnerabilities`, `69 passed (69)`, un `dist/assets/maplibre-*.js`, lint vert,
 `BUILD SUCCESS`.
 
-- [ ] **Step 9 : Commit**
+- [ ] **Step 10 : Commit**
 
 ```bash
 git add docs/roadmap.md CLAUDE.md README.md
