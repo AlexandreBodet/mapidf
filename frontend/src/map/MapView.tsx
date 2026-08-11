@@ -3,7 +3,7 @@ import maplibregl, { Map as MlMap } from "maplibre-gl";
 import { ESTIMATION_NOTICE, SOURCE_ATTRIBUTION } from "./attribution";
 import { useIsNarrow } from "../ui/useViewport";
 
-export function useMap(container: React.RefObject<HTMLDivElement>): MlMap | null {
+export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap | null {
   const [map, setMap] = useState<MlMap | null>(null);
   // On garde l'instance et un éventuel timer de destruction hors du cycle de rendu.
   const ref = useRef<{ instance: MlMap | null; pending: number }>({ instance: null, pending: 0 });
