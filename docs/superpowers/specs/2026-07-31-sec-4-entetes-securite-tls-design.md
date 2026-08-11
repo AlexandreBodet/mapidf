@@ -65,6 +65,17 @@ form-action 'none';
 object-src 'none';
 ```
 
+> **Note du 2026-08-11 — trois directives de ce § ne sont plus celles qui sont servies.** La montée
+> MapLibre 4 → 6 de [QUA-5](../../roadmap.md) a invalidé la mesure qui les justifiait : la v6 est
+> ESM-only et charge son worker **par une URL same-origin** (`setWorkerUrl` dans `MapView.tsx`),
+> jamais par `blob:`. `worker-src` et `child-src` sont donc passés à `'self'`, et `frame-src 'none'`
+> a été ajouté — `child-src 'self'` rouvrait le cadrage que `blob:` fermait de fait, et
+> `frame-ancestors` ne protège que contre *être* cadré. Le reste du raisonnement ci-dessous
+> (repli `child-src` pour les moteurs sans `worker-src`, triple `style-src`, `img-src`,
+> `connect-src`) reste valable. La CSP servie fait foi :
+> [frontend/security-headers.conf](../../../frontend/security-headers.conf), dont le commentaire
+> d'en-tête porte le détail de la mesure refaite.
+
 - `default-src 'none'` : tout est refusé, chaque ouverture est justifiée ci-dessous. C'est ce qui
   rend l'oubli d'une directive **visible** plutôt que silencieux.
 - `style-src` triple : les navigateurs qui connaissent `style-src-elem`/`-attr` (Chrome, Edge,

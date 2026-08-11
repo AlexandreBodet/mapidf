@@ -19,7 +19,11 @@ lancement le lisent — `docker compose` nativement, IntelliJ via sa configurati
 ## Développement
 - Backend : `cd backend && ./mvnw spring-boot:run` (API :8100, Actuator :9100)
 - Base seule (backend hors Docker) : `cd backend && docker compose up -d`
-- Front : `cd frontend && npm run dev` (proxy /api → :8100)
+- Front : `cd frontend && npm run dev` (proxy /api → :8100) — **Node 24 LTS** (épinglé par Volta
+  dans `frontend/package.json`, et c'est la base de l'image Docker). Vite 8 exige
+  `^20.19.0 || >=22.12.0` : sur une version plus ancienne, `npm install` s'arrête en `EBADENGINE`.
+  Node 26 est délibérément écartée tant qu'elle n'est pas LTS (cf. QUA-9 dans la
+  [feuille de route](docs/roadmap.md))
 - Tests : `cd backend && ./mvnw test` (tests unitaires seuls, rapide) — mais la vérification de
   référence du projet est `cd backend && ./mvnw verify` (build complet + tests d'intégration
   Testcontainers ; nécessite Docker).
