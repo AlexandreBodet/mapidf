@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import type { Map as MlMap, MapLayerMouseEvent } from "maplibre-gl";
 import { useMap } from "./map/MapView";
 import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
@@ -101,7 +101,7 @@ export default function App() {
 
   // Le padding est posé AVANT le recentrage de l'appelant : sinon `easeTo` animerait vers un
   // centre calculé avec l'ancien padding, puis `setPadding` déplacerait la vue d'un coup sec.
-  const openSheet = (map: maplibregl.Map) => {
+  const openSheet = (map: MlMap) => {
     const { isNarrow, viewportHeight, cran } = sheet.current;
     // Hors mode étroit il n'y a pas de feuille : monter le cran ferait retourner l'effet de
     // padding, dont le `setPadding` tuerait l'`easeTo` que l'appelant lance juste après.
@@ -118,7 +118,7 @@ export default function App() {
     if (!map) {
       return;
     }
-    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+    const onClick = (e: MapLayerMouseEvent) => {
       const props = e.features?.[0]?.properties as VehicleFeatureProperties | undefined;
       if (!props) {
         return;
@@ -134,7 +134,7 @@ export default function App() {
       openSheet(map);
     };
     map.on("click", "vehicles", onClick);
-    const onStationClick = async (e: maplibregl.MapLayerMouseEvent) => {
+    const onStationClick = async (e: MapLayerMouseEvent) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
       const coords = (e.features?.[0]?.geometry as GeoJSON.Point | undefined)?.coordinates;
       if (!id) {

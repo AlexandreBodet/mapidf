@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { Map as MlMap } from "maplibre-gl";
+import { Map as MlMap, NavigationControl, AttributionControl, setWorkerUrl } from "maplibre-gl";
+// MapLibre 6 est distribué en ESM pur et repère son propre fichier de worker via `import.meta.url`
+// — un mécanisme qui ne survit pas au passage dans un bundler (Vite l'inline dans un chunk qui n'a
+// plus le nom ni l'URL attendus). Sans ce setWorkerUrl explicite, aucun fichier worker ne se
+// retrouve dans `dist/`, silencieusement : carte blanche, sans la moindre erreur de build ni de
+// typage. `?worker&url` (et non `?url` seul) est requis : le worker importe un module frère
+// (maplibre-gl-shared.mjs) que `?url` seul n'embarque pas. Cf. guide de migration officiel v5→v6.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { ESTIMATION_NOTICE, SOURCE_ATTRIBUTION } from "./attribution";
 import { useIsNarrow } from "../ui/useViewport";
+
+setWorkerUrl(workerUrl);
 
 export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap | null {
   const [map, setMap] = useState<MlMap | null>(null);
@@ -23,7 +32,7 @@ export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap
       ref.current.pending = 0;
     }
     if (!ref.current.instance) {
-      ref.current.instance = new maplibregl.Map({
+      ref.current.instance = new MlMap({
         container: container.current,
         // Fond de rues OpenFreeMap (gratuit, sans clé) — pour se repérer dans Paris.
         // demotiles n'affiche que les frontières (aucune rue).
@@ -50,7 +59,7 @@ export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap
         map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
       });
       ref.current.instance.addControl(
-        new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
+        new NavigationControl({ showCompass: true, visualizePitch: true }),
         "top-left",
       );
     }
@@ -77,7 +86,7 @@ export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap
     // Sous le seuil, la nature estimée (art. 5.7) rejoint la source (art. 5.4) derrière le
     // « ⓘ » : c'est ce qui permet à SheetFooter de disparaître au cran apercu sans faire
     // disparaître les deux obligations.
-    const control = new maplibregl.AttributionControl({
+    const control = new AttributionControl({
       compact: isNarrow,
       customAttribution: isNarrow ? [SOURCE_ATTRIBUTION, ESTIMATION_NOTICE] : SOURCE_ATTRIBUTION,
     });
