@@ -112,6 +112,13 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   Côté Maven, rien de tel : le versions-plugin agrège fidèlement tous les dépôts configurés — mais un
   dépôt **interne** peut y republier un artefact ancien et se déclarer `<latest>` (`commons-csv
   20110211`, un jar de 2011), d'où le croisement avec le `maven-metadata.xml` de Central.
+- **TypeScript est en 6.0.3 délibérément, ne pas « monter » en 7.** `typescript-eslint` porte un
+  garde `if (versionMajor >= 7) throw` : en TS 7, `npm run lint` ne rougit pas, il **s'interrompt**.
+  Or `latest` pointe la 7, donc `npm outdated` proposera cette montée en boucle — c'est un piège,
+  pas un retard (suivi amont dans QUA-10). Corollaire de TS 6 : les `@types/*` non importés ne sont
+  plus inclus automatiquement, d'où les imports explicites depuis `"geojson"` dans `VehicleLayer.ts`
+  et `App.tsx` — et surtout **pas** de `"types": [...]` en tsconfig, qui masquerait en silence tout
+  futur `@types/x`.
 
 ## Configuration du réseau suivi
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MlMap, MapLayerMouseEvent } from "maplibre-gl";
+import type { Point } from "geojson";
 import { useMap } from "./map/MapView";
 import { useNetwork } from "./map/useNetwork";
 import { useVehicles } from "./map/useVehicles";
@@ -136,7 +137,7 @@ export default function App() {
     map.on("click", "vehicles", onClick);
     const onStationClick = async (e: MapLayerMouseEvent) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
-      const coords = (e.features?.[0]?.geometry as GeoJSON.Point | undefined)?.coordinates;
+      const coords = (e.features?.[0]?.geometry as Point | undefined)?.coordinates;
       if (!id) {
         return;
       }

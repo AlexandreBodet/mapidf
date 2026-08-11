@@ -1,4 +1,8 @@
 import type { Map as MlMap, GeoJSONSource, FilterSpecification } from "maplibre-gl";
+// Import explicite plutôt que le namespace global `GeoJSON` : TypeScript 6 n'inclut plus
+// automatiquement les `@types/*` non importés, et le repli `"types": ["geojson"]` en tsconfig
+// aurait fait taire l'inclusion de tout futur `@types/x` — en silence.
+import type { Feature, FeatureCollection, Point } from "geojson";
 import type { VehiclesResponse } from "../api/types";
 import { whenStyleReady } from "./mapReady";
 
@@ -91,7 +95,7 @@ interface Anim {
   start: number;
   vehicle: V;
   /** Feature réutilisée d'une frame à l'autre : on ne mute que ses coordonnées. */
-  feature: GeoJSON.Feature<GeoJSON.Point>;
+  feature: Feature<Point>;
 }
 
 export class VehicleLayer {
@@ -105,7 +109,7 @@ export class VehicleLayer {
   private moveHandler: (() => void) | null = null;
   // Tableau réutilisé : à 705 véhicules et 15 fps, réallouer une liste et 705 objets par
   // frame génère une pression GC inutile.
-  private rendered: GeoJSON.Feature[] = [];
+  private rendered: Feature[] = [];
   private visibleLines: Set<string> | null = null;
   // Images `vehicle-arrow-*` créées à la volée (une par couleur de ligne distincte), pour
   // pouvoir toutes les nettoyer au démontage.
@@ -322,7 +326,7 @@ export class VehicleLayer {
     this.cancelReady = whenStyleReady(this.map, add);
   }
 
-  private featureCollection(features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
+  private featureCollection(features: Feature[]): FeatureCollection {
     return { type: "FeatureCollection", features };
   }
 
@@ -352,7 +356,7 @@ export class VehicleLayer {
         prev.feature.properties!.icon = icon;
         prev.feature.properties!.approximate = approximate;
       } else {
-        const feature: GeoJSON.Feature<GeoJSON.Point> = {
+        const feature: Feature<Point> = {
           type: "Feature",
           // Seules les propriétés qui servent au RENDU. headsign, nextStop, expectedTime,
           // status et recordedAt ne servent qu'au clic : useVehicles les garde dans une Map,
