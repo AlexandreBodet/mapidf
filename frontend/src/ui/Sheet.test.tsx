@@ -45,7 +45,7 @@ function drag(element: Element, fromY: number, toY: number) {
   firePointer(element, "pointerup", toY);
 }
 
-function renderSheet(cran: Cran) {
+function renderSheet(cran: Cran, asOf: string | null = null) {
   const onCranChange = vi.fn();
   const onPeekHeight = vi.fn();
   render(
@@ -59,7 +59,7 @@ function renderSheet(cran: Cran) {
       alert={<p>alerte gel</p>}
       label="État du réseau"
       onPeekHeight={onPeekHeight}
-      asOf={null}
+      asOf={asOf}
     >
       <p>corps</p>
     </Sheet>,
@@ -238,5 +238,62 @@ describe("Sheet — mesure de l'aperçu", () => {
     triggerResize();
 
     expect(onPeekHeight).toHaveBeenCalledWith(96);
+  });
+});
+
+describe("Sheet — fraîcheur sur la poignée", () => {
+  it("affiche l'heure de l'instantané, décorative pour le lecteur d'écran", () => {
+    // Sous 720 px, la feuille se replie jusqu'à sa poignée : c'est le seul endroit où la date de
+    // la donnée reste lisible (art. 5.7). Le texte de l'attribution MapLibre ne peut pas la
+    // porter — il se fige à la construction du contrôle.
+    const { handle } = renderSheet("apercu", "2026-08-11T14:32:10Z");
+
+    const heure = handle.querySelector('[aria-hidden="true"]');
+    expect(heure).not.toBeNull();
+    expect(heure!.textContent).toMatch(/^estimé \d{2}:\d{2}$/);
+  });
+
+  it("n'affiche rien avant le premier poll", () => {
+    const { handle } = renderSheet("apercu", null);
+
+    expect(handle.textContent).toBe("");
+  });
+});
+
+describe("Sheet — fin de geste", () => {
+  it("termine le glissement sur un pointercancel, comme sur un pointerup", () => {
+    // Le système peut confisquer le pointeur (appel entrant, geste système) : sans ce
+    // gestionnaire, la feuille resterait collée au doigt disparu.
+    const { onCranChange, handle } = renderSheet("moitie");
+
+    firePointer(handle, "pointerdown", 400);
+    firePointer(handle, "pointermove", 100);
+    fireEvent(handle, new MouseEvent("pointercancel", { bubbles: true, cancelable: true }));
+
+    // 422 + 300 = 722, plus proche de 760 (plein) que de 422 (moitié) — même issue qu'un lâcher.
+    expect(onCranChange).toHaveBeenCalledWith("plein");
+  });
+
+  it("garde un toucher de moins de 7 px pour un clic, et glisse au-delà", () => {
+    // MOVE_THRESHOLD = 6 : un toucher sans déplacement réel doit rester un clic, sinon la
+    // poignée devient inerte au moindre tremblement de doigt.
+    const court = renderSheet("apercu");
+    firePointer(court.handle, "pointerdown", 400);
+    firePointer(court.handle, "pointermove", 394); // 6 px : encore ambigu
+    firePointer(court.handle, "pointerup", 394);
+    court.onCranChange.mockClear();
+    fireEvent.click(court.handle, { detail: 1 });
+    // `moved` est resté faux : le clic natif avance d'un cran.
+    expect(court.onCranChange).toHaveBeenCalledWith("moitie");
+    cleanup();
+
+    const long = renderSheet("apercu");
+    firePointer(long.handle, "pointerdown", 400);
+    firePointer(long.handle, "pointermove", 393); // 7 px : c'est un glissement
+    firePointer(long.handle, "pointerup", 393);
+    long.onCranChange.mockClear();
+    fireEvent.click(long.handle, { detail: 1 });
+    // `moved` est vrai : le clic natif qui suit le geste ne doit pas avancer d'un cran de plus.
+    expect(long.onCranChange).not.toHaveBeenCalled();
   });
 });
