@@ -29,14 +29,14 @@ class ResizeObserverStub {
     for (const el of changed) {
       this.heights.set(el, el.getBoundingClientRect().height);
     }
-    this.callback(changed.map((target) => ({ target }) as ResizeObserverEntry), this as unknown as ResizeObserver);
+    this.callback(changed.map((target) => ({ target }) as ResizeObserverEntry), this);
   }
 }
 
 // Ce fichier est chargé AUSSI pour les tests de fonctions pures, qui tournent en environnement
 // Node : sans ce garde, `Element` n'existe pas et tous ces tests casseraient.
 if (typeof Element !== "undefined") {
-  globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+  globalThis.ResizeObserver = ResizeObserverStub;
   // jsdom 27 ne définit pas ces deux méthodes du tout (jsdom 26 les avait, mais elles levaient) :
   // dans les deux cas, le premier geste de chaque test échouerait.
   Element.prototype.setPointerCapture = () => {};

@@ -135,7 +135,7 @@ export default function App() {
       openSheet(map);
     };
     map.on("click", "vehicles", onClick);
-    const onStationClick = async (e: MapLayerMouseEvent) => {
+    const handleStationClick = async (e: MapLayerMouseEvent) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
       const coords = (e.features?.[0]?.geometry as Point | undefined)?.coordinates;
       if (!id) {
@@ -165,6 +165,12 @@ export default function App() {
           setStation(null);
         }
       }
+    };
+    // MapLibre ignore la promesse rendue par un handler `async`. On l'écarte donc ici, dans un
+    // enrobage **synchrone et unique** : `on` et `off` doivent recevoir la MÊME référence, sinon
+    // le nettoyage de l'effet ne retire rien et les écouteurs s'empilent à chaque montage.
+    const onStationClick = (e: MapLayerMouseEvent) => {
+      void handleStationClick(e);
     };
     map.on("click", "stops", onStationClick);
     map.on("click", "stops-labels", onStationClick);

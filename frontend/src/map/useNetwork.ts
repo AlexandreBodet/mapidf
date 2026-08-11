@@ -242,7 +242,8 @@ export function useNetwork(
       };
       cancelReady = whenStyleReady(map, draw);
     }, failed);
-    load();
+    // Tir-et-oublie assumé : `load` gère ses propres échecs (`failed`, qui allume le bandeau).
+    void load();
 
     return () => {
       cancelled = true;
@@ -265,7 +266,9 @@ export function useNetwork(
       : null);
     const stations = network.stations.filter(
       (station) => !visibleLines || station.lineIds.some((id) => visibleLines.has(id)));
-    (map.getSource("stops") as GeoJSONSource).setData({
+    // `setData` rend une Promise depuis MapLibre 6 (elle rendait `this` en 4) : on l'écarte
+    // explicitement, l'application des données n'a pas à bloquer le rendu.
+    void map.getSource<GeoJSONSource>("stops")!.setData({
       type: "FeatureCollection",
       features: stations.map((station) => ({
         type: "Feature",

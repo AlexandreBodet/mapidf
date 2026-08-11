@@ -88,7 +88,8 @@ export function useVehicles(
       }
       timer = window.setTimeout(tick, VEHICLE_POLL_MS);
     };
-    tick();
+    // Tir-et-oublie assumé : `tick` avale ses échecs et les signale par `failing: true`.
+    void tick();
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

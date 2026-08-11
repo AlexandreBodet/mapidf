@@ -1,6 +1,13 @@
-// Configuration délibérément minimale (QUA-5). Le premier passage porte sur 3 665 lignes jamais
-// lintées : une règle qui produirait un flot de corrections mécaniques se désactive ici plutôt que
-// de mêler un reformatage massif à une migration de dépendances. Le formatage viendra avec QUA-8.
+// Configuration en deux étages (QUA-5 puis QUA-12).
+//
+// Les règles **typées** (`recommendedTypeChecked`) ne s'appliquent qu'à `src/**` : elles exigent
+// que le fichier appartienne au programme TypeScript, et `tsconfig.json` n'inclut que `src`.
+// `vite.config.ts` et `eslint.config.js` en sont donc exclus explicitement — sans ça, ESLint
+// échoue sur « file not found in project » au lieu de les linter sans types.
+//
+// Ce qu'elles apportent ici, mesuré : c'est le seul outil qui ait vu que `GeoJSONSource.setData`
+// est passé de `this` à `Promise<void>` en MapLibre 6. Ni `tsc` (on ignore la valeur de retour),
+// ni les tests (aucun ne monte MapLibre), ni la recette navigateur (le tir-et-oublie fonctionne).
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
@@ -9,6 +16,14 @@ export default tseslint.config(
   { ignores: ["dist/", "node_modules/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  { files: ["*.ts", "*.js"], ...tseslint.configs.disableTypeChecked },
   {
     files: ["**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },

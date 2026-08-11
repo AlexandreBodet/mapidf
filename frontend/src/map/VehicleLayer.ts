@@ -406,7 +406,9 @@ export class VehicleLayer {
   }
 
   private render(now: number) {
-    const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
+    // `getSource` est génériqué depuis MapLibre 6 : passer le type en paramètre plutôt que
+    // l'affirmer par un `as` — le garde `!source` ci-dessous conserve le `| undefined`.
+    const source = this.map.getSource<GeoJSONSource>("vehicles");
     if (!source) {
       return;
     }
@@ -462,7 +464,10 @@ export class VehicleLayer {
       anim.feature.geometry.coordinates[1] = lat;
       this.rendered.push(anim.feature);
     }
-    source.setData({ type: "FeatureCollection", features: this.rendered });
+    // `setData` rend une Promise depuis MapLibre 6 (elle rendait `this` en 4). On l'écarte
+    // volontairement : ce chemin tourne ~15 fois par seconde, attendre l'application des données
+    // sérialiserait le rendu sur le pire poll.
+    void source.setData({ type: "FeatureCollection", features: this.rendered });
     // Aucun travail d'état ici : les filtres des deux anneaux ne bougent qu'au changement de
     // sélection ou de surlignage (setSelected / setHighlighted), jamais par frame. Le suivi
     // caméra, lui, est géré tout en haut de render() — pas ici.

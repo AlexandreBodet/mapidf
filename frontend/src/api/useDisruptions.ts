@@ -39,7 +39,8 @@ export function useDisruptions(): Disruptions {
         timer = window.setTimeout(tick, POLL_MS);
       }
     };
-    tick();
+    // Tir-et-oublie assumé : `tick` avale et signale ses propres échecs.
+    void tick();
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

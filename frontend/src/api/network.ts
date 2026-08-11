@@ -6,7 +6,11 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!response.ok) {
     throw new Error(`${path} ${response.status}`);
   }
-  return response.json();
+  // `response.json()` rend `any`. L'assertion est écrite plutôt que subie : c'est **le** point où
+  // la forme de l'API est affirmée sans être vérifiée, donc où un champ renommé côté serveur
+  // deviendra un `undefined` trois couches plus loin au lieu d'une erreur ici. Validation à
+  // l'exécution : cf. QUA-13.
+  return (await response.json()) as T;
 }
 
 /** Tout le réseau statique en un appel (37 polylignes, 321 stations), cacheable 10 min. */
