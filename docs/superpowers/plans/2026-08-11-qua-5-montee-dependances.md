@@ -114,6 +114,8 @@ encore bougé.
 
 **Files:**
 - Modify: `frontend/Dockerfile:1`
+- Modify: `frontend/package.json` — le champ `volta` y est **déjà présent** dans l'arbre de travail,
+  posé par la tâche 0 (`volta pin node@24`), mais pas encore commité. Il part dans ce commit.
 
 **Interfaces:**
 - Consumes: rien.
@@ -149,12 +151,16 @@ compatibilité de Node 24 avec l'arbre actuel.
 - [ ] **Step 3 : Commit**
 
 ```bash
-git add frontend/Dockerfile
-git commit -m "build(qua-5): image front sur Node 24 LTS
+git add frontend/Dockerfile frontend/package.json
+git commit -m "build(qua-5): Node 24 LTS dans l'image et épinglé pour Volta
 
 Plancher exigé par vite 8 et @vitejs/plugin-react 6 (^20.19.0 || >=22.12.0),
 posé avant la montée elle-même pour que l'image et le poste soient sur la
-même version."
+même version. Le champ volta rend le plancher automatique là où le README ne
+fait que le documenter.
+
+Node 26.7.0 existe et aucun paquet ne la refuse, mais elle reste Current
+jusqu'en octobre : cf. les contraintes globales du plan."
 ```
 
 ---
