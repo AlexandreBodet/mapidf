@@ -23,9 +23,15 @@ Ces contraintes valent pour **toutes** les tâches. Elles sont mesurées, pas su
   l'identique. **Les nuances proches ne sont pas fusionnées** : `#444` et `#555` restent deux
   tokens, `#fde68a` et `#fef3c7` deux fonds.
 - **Un `<button>` n'hérite pas de la police du document.** Les contrôles de formulaire ont la police
-  du widget (Arial-ish selon l'UA). Tout module qui stylise un bouton **doit** poser `font: inherit`
-  (fourni par `composes: linkButton`) ou `font-family: var(--font)` : un `font-size` seul changerait
-  la fonte, là où le raccourci `font: "13px sans-serif"` posait la famille explicitement.
+  du widget (Arial-ish selon l'UA). Règle exacte, à appliquer bouton par bouton : **si l'attribut
+  remplacé posait une famille** — raccourci `font: "…px sans-serif"` ou `font: "inherit"` — le module
+  **doit** la reposer (`font-family: var(--font)`, ou `font: inherit` via `composes: linkButton`), un
+  `font-size` seul changeant la fonte. **S'il ne posait que `fontSize`** — cas du « ✕ » de
+  `PanelHeader` — le bouton avait déjà la police du widget : ne pas en ajouter, ce serait un
+  changement de rendu.
+- **Le raccourci `font:` réinitialise aussi `font-weight` et `line-height`** à `normal` : le remplacer
+  par un `font-size` seul n'est fidèle que si aucun ancêtre ne pose l'une des deux. Vérifié en tâche 8 :
+  aucune règle du projet ne le fait.
 - **Une variable CSS dans un `style` React exige une assertion.** Mesuré :
   `style={{ "--sheet-height": "44px" }}` échoue en `TS2353`. La forme qui compile est
   `style={{ "--sheet-height": `${h}px` } as CSSProperties}`.
@@ -1040,15 +1046,18 @@ git commit -m "style(qua-8): bandeau d'état en CSS Modules, liseré par data-st
    ses passages, d'où 20 px de plus qu'un train. Deux classes plutôt qu'un `data-kind` :
    `FloatingCard` ne relaie pas d'attributs arbitraires, et lui en ajouter un pour deux largeurs
    serait un contrat de trop. */
-.ficheStation {
+.fiche {
   max-height: 70dvh;
   overflow-y: auto;
+}
+
+.ficheStation {
+  composes: fiche;
   width: 280px;
 }
 
 .ficheTrain {
-  max-height: 70dvh;
-  overflow-y: auto;
+  composes: fiche;
   width: 260px;
 }
 
