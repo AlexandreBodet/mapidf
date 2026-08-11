@@ -45,6 +45,14 @@ d'erreur).
 | L'image backend n'a pas d'`USER` → elle tourne en **root** | Une évasion de processus démarre root dans le conteneur |
 | `backend/Dockerfile` fait `COPY . .` avant tout `mvnw` | Chaque `--build` refait la résolution Maven : aucune couche cachée |
 
+> **Note du 2026-08-11 — la ligne « ni `eval(` ni `new Function(` » reste vraie pour
+> `index-*.js` et `maplibre-*.js`, mais QUA-5 a fait apparaître un **troisième** asset qu'elle ne
+> couvrait pas encore : `maplibre-gl-worker-*.js`. Il contient **une** occurrence de
+> `globalThis.eval(n)` — un polyfill d'`importScripts` pour worker module, atteignable seulement
+> via `setRTLTextPlugin`/`addSourceType`, ni l'un ni l'autre utilisés ici. `script-src 'self'`
+> sans `unsafe-eval` reste donc correct ; ce n'est qu'une précision, pas une invalidation de la
+> mesure d'origine.
+
 ## 3. La CSP, directive par directive
 
 Un seul en-tête, sur toutes les réponses :

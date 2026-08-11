@@ -29,6 +29,7 @@ des horaires temps réel SIRI (prochain arrêt + heure estimée), pas mesurées.
 npm run dev            # Vite, proxy /api → :8100
 npm run build          # build de prod — sert aussi de vérif de typage
 npm test               # Vitest : fonctions pures en Node, composants en jsdom
+npm run lint           # ESLint (config minimale, cf. QUA-3) — muet attendu, base de QUA-8
 
 # Tout en Docker (depuis la racine)
 docker compose up --build   # front :8080, api :8100, actuator :9100

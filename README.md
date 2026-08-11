@@ -30,6 +30,8 @@ lancement le lisent — `docker compose` nativement, IntelliJ via sa configurati
 - Tests : `cd backend && ./mvnw test` (tests unitaires seuls, rapide) — mais la vérification de
   référence du projet est `cd backend && ./mvnw verify` (build complet + tests d'intégration
   Testcontainers ; nécessite Docker).
+- Lint front : `cd frontend && npm run lint` (ESLint, muet attendu) — base du chantier QUA-8
+  (cf. [feuille de route](docs/roadmap.md)).
 
 ### Ports : rien à configurer
 

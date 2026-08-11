@@ -49,8 +49,11 @@ export function useMap(container: React.RefObject<HTMLDivElement | null>): MlMap
       // Le style de fond (OpenFreeMap Liberty) référence des icônes de POI absentes de son
       // sprite (equestrian, ferry_terminal, office…), ce qui spamme la console d'erreurs
       // « Image X could not be loaded ». On fournit un pixel transparent à la demande : même
-      // rendu (ces POI n'apparaissaient déjà pas), console propre. Nos propres images (ex.
-      // vehicle-arrow) sont ajoutées explicitement avant leur couche et ne passent pas ici.
+      // rendu (ces POI n'apparaissaient déjà pas) — mais plus la console propre qu'on avait
+      // avant MapLibre 6 : la v6 a perdu le recheck synchrone sur `styleimagemissing` et émet
+      // désormais un WARN par identifiant de sprite manquant, malgré ce handler (cf. QUA-11).
+      // Nos propres images (ex. vehicle-arrow) sont ajoutées explicitement avant leur couche
+      // et ne passent pas ici.
       ref.current.instance.on("styleimagemissing", (e) => {
         const map = ref.current.instance;
         if (!map || map.hasImage(e.id)) {
