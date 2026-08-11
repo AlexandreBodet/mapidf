@@ -1,0 +1,31 @@
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+/* Fiche du rendu large. La largeur dépend de ce qu'elle montre : une station cite ses lignes et
+   ses passages, d'où 20 px de plus qu'un train. Deux classes plutôt qu'un `data-kind` :
+   `FloatingCard` ne relaie pas d'attributs arbitraires, et lui en ajouter un pour deux largeurs
+   serait un contrat de trop. Les deux composent `.fiche` plutôt que de dupliquer ses deux
+   déclarations communes. */
+.fiche {
+  max-height: 70dvh;
+  overflow-y: auto;
+}
+
+.ficheStation {
+  composes: fiche;
+  width: 280px;
+}
+
+.ficheTrain {
+  composes: fiche;
+  width: 260px;
+}
+
+/* Panneau du réseau : plus dense que la fiche (padding et police réduits). */
+.reseau {
+  padding: 10px 12px;
+  font-size: 13px;
+  max-width: 300px;
+}

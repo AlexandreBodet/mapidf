@@ -1,0 +1,12 @@
+.card {
+  position: absolute;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+  font-size: 14px;
+}
+
+/* L'ancrage remplace la table `ANCHORS` : deux positions, connues à l'avance. */
+.card[data-anchor="top-right"] { top: 12px; right: 12px; }
+.card[data-anchor="bottom-left"] { bottom: 12px; left: 12px; }

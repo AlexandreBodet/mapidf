@@ -13,6 +13,7 @@ import { NetworkSummary } from "./ui/NetworkSummary";
 import { SheetFooter } from "./ui/SheetFooter";
 import { StaleWarning } from "./ui/StaleWarning";
 import { FloatingCard } from "./ui/FloatingCard";
+import styles from "./App.module.css";
 import { PanelHeader } from "./ui/PanelHeader";
 import { Sheet } from "./ui/Sheet";
 import { useIsNarrow, useViewportHeight } from "./ui/useViewport";
@@ -315,9 +316,6 @@ export default function App() {
       onToggle={toggleLine}
     />
   );
-  // Les deux fiches n'ont jamais eu la même largeur : 280 px pour une station, 260 pour un
-  // train. Les unifier serait une régression visible sur desktop.
-  const ficheWidth = station ? 280 : 260;
   // Une seule fiche existe à la fois : `App` vide la sélection train à l'ouverture d'une station
   // et l'inverse. C'est ce qui permet à la feuille de la tâche 3 de n'avoir qu'un contenu.
   const ficheHeader = station
@@ -349,7 +347,7 @@ export default function App() {
 
   return (
     <>
-      <div ref={container} style={{ position: "absolute", inset: 0 }} />
+      <div ref={container} className={styles.map} />
       <NetworkStatus status={status} />
       {isNarrow ? (
         <Sheet
@@ -369,15 +367,12 @@ export default function App() {
       ) : (
         <>
           {ficheHeader && (
-            <FloatingCard anchor="top-right" style={{ width: ficheWidth, maxHeight: "70dvh", overflowY: "auto" }}>
+            <FloatingCard anchor="top-right" className={station ? styles.ficheStation : styles.ficheTrain}>
               {ficheHeader}
               {ficheBody}
             </FloatingCard>
           )}
-          <FloatingCard
-            anchor="bottom-left"
-            style={{ padding: "10px 12px", font: "13px sans-serif", maxWidth: 300 }}
-          >
+          <FloatingCard anchor="bottom-left" className={styles.reseau}>
             {networkSummary}
             {pickerExpanded && linePicker}
             <StaleWarning stale={stale} />
