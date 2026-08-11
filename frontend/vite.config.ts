@@ -20,7 +20,12 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         // MapLibre pèse l'essentiel du bundle et bouge rarement : chunk séparé →
         // mieux caché entre deux déploiements et chunk applicatif plus léger.
-        output: { manualChunks: { maplibre: ["maplibre-gl"] } },
+        // Vite 8 a remplacé rollup par rolldown : la forme objet de `manualChunks` (celle du
+        // dessus, chère à rollup) fait échouer le build ("manualChunks is not a function") —
+        // rolldown ne garde que la forme fonction, et la documente comme dépréciée au profit de
+        // `output.codeSplitting.groups`, utilisé ici avec un `test` par regex plutôt qu'une
+        // liste de modules.
+        output: { codeSplitting: { groups: [{ name: "maplibre", test: /maplibre-gl/ }] } },
       },
     },
   };
