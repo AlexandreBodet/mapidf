@@ -533,15 +533,17 @@ describe("LinePicker", () => {
     renderPicker();
 
     // Deux boutons, un par ligne suivie ; le shortName vit dans la pastille.
+    // `getByTitle` et non `getByRole(…, { name })` : ce bouton n'a pas d'`aria-label`, donc son nom
+    // accessible est son contenu textuel (« 912 »), pas son infobulle.
     expect(screen.getAllByRole("button")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /ligne 9/ }).textContent).toBe("912");
-    expect(screen.getByRole("button", { name: /ligne 8/ }).textContent).toBe("87");
+    expect(screen.getByTitle(/ligne 9/).textContent).toBe("912");
+    expect(screen.getByTitle(/ligne 8/).textContent).toBe("87");
   });
 
   it("bascule la ligne cliquée, et elle seule", () => {
     const { onToggle } = renderPicker();
 
-    fireEvent.click(screen.getByRole("button", { name: /ligne 8/ }));
+    fireEvent.click(screen.getByTitle(/ligne 8/));
 
     expect(onToggle).toHaveBeenCalledExactlyOnceWith(LIGNE_8.id);
   });
@@ -552,11 +554,11 @@ describe("LinePicker", () => {
       disruptions: new Map([[LIGNE_8.id, perturbation("BLOQUANTE", "Métro 8 : Trafic interrompu")]]),
     });
 
-    const pastille = screen.getByRole("button", { name: /trafic bloqué/ });
+    const pastille = screen.getByTitle(/trafic bloqué/);
     expect(pastille.getAttribute("title")).toContain("Métro 8 : Trafic interrompu");
     expect(pastille.textContent).toContain("✕");
     // La ligne 9 n'a rien : son infobulle reste le compteur de trains.
-    expect(screen.getByRole("button", { name: /12 train\(s\)/ })).not.toBeNull();
+    expect(screen.getByTitle(/12 train\(s\)/)).not.toBeNull();
   });
 
   it("ne déplie la liste des perturbations que sur demande", () => {
