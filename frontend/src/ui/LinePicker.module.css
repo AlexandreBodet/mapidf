@@ -1,0 +1,40 @@
+.list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* `font-family` explicite : un bouton n'hérite pas de la police du document, et l'attribut
+   remplacé posait `font: 12px sans-serif`. La bordure prend la teinte de gravité quand il y en a
+   une (`--sev`, posé par `[data-severity]`), et retombe sinon sur le gris de contour. */
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--sev, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  min-height: var(--tap);
+}
+
+/* Ligne exclue du filtre courant : atténuée, jamais retirée — on doit pouvoir la rallumer. */
+.pill[data-shown="false"] {
+  background: var(--surface-off);
+  opacity: .45;
+}
+
+.glyph {
+  color: var(--sev);
+  font-weight: 700;
+}

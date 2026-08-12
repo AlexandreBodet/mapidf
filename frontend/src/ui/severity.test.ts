@@ -2,29 +2,24 @@ import { describe, expect, it } from "vitest";
 import { severityStyle } from "./severity";
 
 describe("severityStyle", () => {
-  it("donne une couleur ET un glyphe à chaque gravité", () => {
+  it("donne un glyphe ET un libellé à chaque gravité", () => {
     // Règle d'accessibilité du projet : jamais d'information portée par la seule couleur —
-    // 13/3bis et 6/7bis partagent déjà leur teinte sur la carte.
+    // 13/3bis et 6/7bis partagent déjà leur teinte sur la carte. La couleur elle-même a rejoint
+    // `index.css` avec QUA-8 (variable `--sev`), et n'est plus vérifiable ici.
     for (const severity of ["BLOQUANTE", "PERTURBEE", "INFORMATION", "INCONNUE"] as const) {
       const style = severityStyle(severity);
-      expect(style.color).toMatch(/^#[0-9a-f]{6}$/);
       expect(style.glyph).not.toBe("");
       expect(style.label).not.toBe("");
     }
   });
 
   it("distingue les gravités entre elles", () => {
-    // Vérifier que les quatre gravités ont des couleurs et glyphes distincts.
     const severities = ["BLOQUANTE", "PERTURBEE", "INFORMATION", "INCONNUE"] as const;
     const styles = severities.map(severityStyle);
-    const colors = styles.map((s) => s.color);
-    const glyphs = styles.map((s) => s.glyph);
-    const labels = styles.map((s) => s.label);
-    expect(new Set(colors)).toHaveLength(4);
-    expect(new Set(glyphs)).toHaveLength(4);
-    // Sans ce troisième axe, INFORMATION pourrait hériter du libellé de BLOQUANTE : `badgeText`
+    expect(new Set(styles.map((s) => s.glyph))).toHaveLength(4);
+    // Sans ce second axe, INFORMATION pourrait hériter du libellé de BLOQUANTE : `badgeText`
     // retombe sur ce libellé, un badge annoncerait « trafic bloqué » sur une simple information.
-    expect(new Set(labels)).toHaveLength(4);
+    expect(new Set(styles.map((s) => s.label))).toHaveLength(4);
   });
 
   it("retombe sur INCONNUE pour une gravité que le flux aurait inventée", () => {

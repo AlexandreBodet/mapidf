@@ -1,15 +1,16 @@
 import type { Severity } from "../api/types";
 
 /**
- * Couleur ET glyphe par gravité. Les deux, pas seulement la couleur : deux lignes de métro
- * partagent déjà la même teinte (13/3bis, 6/7bis), et une information portée par la seule
- * couleur est illisible pour qui ne la distingue pas.
+ * Glyphe ET libellé par gravité. Les deux, pas seulement l'un : deux lignes de métro partagent
+ * déjà la même teinte (13/3bis, 6/7bis), et une information portée par la seule couleur est
+ * illisible pour qui ne la distingue pas. La couleur, elle, vit dans `index.css` depuis QUA-8 :
+ * `[data-severity]` la descend par la variable `--sev`.
  */
-const STYLES: Record<Severity, { color: string; glyph: string; label: string }> = {
-  BLOQUANTE: { color: "#b91c1c", glyph: "✕", label: "trafic bloqué" },
-  PERTURBEE: { color: "#b45309", glyph: "!", label: "trafic perturbé" },
-  INFORMATION: { color: "#1d4ed8", glyph: "i", label: "information" },
-  INCONNUE: { color: "#6b7280", glyph: "?", label: "perturbation" },
+const STYLES: Record<Severity, { glyph: string; label: string }> = {
+  BLOQUANTE: { glyph: "✕", label: "trafic bloqué" },
+  PERTURBEE: { glyph: "!", label: "trafic perturbé" },
+  INFORMATION: { glyph: "i", label: "information" },
+  INCONNUE: { glyph: "?", label: "perturbation" },
 };
 
 export function severityStyle(severity: Severity) {
