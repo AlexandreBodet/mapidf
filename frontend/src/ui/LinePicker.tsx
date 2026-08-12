@@ -1,5 +1,5 @@
 import type { LineDisruptions, NetworkLine } from "../api/types";
-import { severityStyle } from "./severity";
+import { severityMeta } from "./severity";
 import { DisruptionRow } from "./DisruptionRow";
 import { LineBadge } from "./LineBadge";
 import styles from "./LinePicker.module.css";
@@ -41,7 +41,7 @@ export function LinePicker({
         {lines.map((line) => {
           const shown = !visible || visible.has(line.id);
           const disruption = disruptions.get(line.id);
-          const severity = disruption ? severityStyle(disruption.severity) : null;
+          const severity = disruption ? severityMeta(disruption.severity) : null;
           return (
             <button
               key={line.id}

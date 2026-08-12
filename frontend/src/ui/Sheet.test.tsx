@@ -11,19 +11,16 @@ afterEach(cleanup);
 const VIEWPORT = 844; // iPhone 12/13 en portrait, la cible du chantier UX-2.
 
 /**
- * jsdom 26 n'expose pas de constructeur global `PointerEvent` : `fireEvent.pointerDown/Move/Up`
- * retombe alors sur `Event` nu (cf. `@testing-library/dom`, `createEvent`, qui utilise
- * `window[EventType] || window.Event`) et perd `clientY`/`pointerId` en route — le geste atteint
- * bien le gestionnaire de `Sheet`, mais avec des coordonnées `undefined`, donc des hauteurs
- * calculées en `NaN`. On construit donc l'événement à la main sur `MouseEvent`, lui correctement
- * supporté par jsdom, et on pose `pointerId` en propriété brute — elle ne sert qu'à
- * `setPointerCapture`, stubbé en no-op par `src/test/setup.ts`, donc sa valeur est inerte ici.
- * `timeStamp` est un paramètre (et non une constante) : React calcule
- * `event.timeStamp || Date.now()` (cf. `react-dom`), donc `0` serait ignoré et remplacé par
- * l'heure réelle — mais une valeur non nulle, choisie par l'appelant, rend `elapsed` (et donc la
- * vitesse dans `applyMove`/`endDrag`) entièrement déterministe. La vitesse **est** donc testable
- * ici : la valeur par défaut (identique sur tout un geste) l'annule pour les tests qui n'en ont
- * pas besoin ; les tests de coup sec ci-dessous l'écartent volontairement.
+ * Événement construit à la main, sur `MouseEvent`, pour une seule raison : maîtriser son `timeStamp`.
+ * Pour les seules coordonnées, `fireEvent.pointerDown` conviendrait — mesuré par QUA-8, jsdom 27
+ * fournit un `PointerEvent` global et transmet bien `clientY`, ce qui n'était pas le cas en jsdom 26,
+ * d'où l'origine de ce contournement. Mais son `init` ne permet pas de fixer `timeStamp`, et React
+ * calcule `event.timeStamp || Date.now()` (cf. `react-dom`), donc `0` serait remplacé par l'heure
+ * réelle. Une valeur non nulle, choisie par l'appelant, rend `elapsed` — et donc la vitesse dans
+ * `applyMove`/`endDrag` — entièrement déterministe : la vitesse **est** testable ici. La valeur par
+ * défaut, identique sur tout un geste, l'annule pour les tests qui n'en ont pas besoin ; les tests de
+ * coup sec l'écartent volontairement. `pointerId` est posé en propriété brute : il ne sert qu'à
+ * `setPointerCapture`, stubbé en no-op par `src/test/setup.ts`, donc sa valeur est inerte.
  */
 function firePointer(
   element: Element,

@@ -13,6 +13,6 @@ const STYLES: Record<Severity, { glyph: string; label: string }> = {
   INCONNUE: { glyph: "?", label: "perturbation" },
 };
 
-export function severityStyle(severity: Severity) {
+export function severityMeta(severity: Severity) {
   return STYLES[severity] ?? STYLES.INCONNUE;
 }

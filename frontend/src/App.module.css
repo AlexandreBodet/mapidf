@@ -23,8 +23,13 @@
   width: 260px;
 }
 
-/* Panneau du réseau : plus dense que la fiche (padding et police réduits). */
-.reseau {
+/* Panneau du réseau : plus dense que la fiche (padding et police réduits). Le sélecteur porte
+   `[data-anchor]` — que `FloatingCard` pose sur toute carte flottante — pour battre `.card` par
+   spécificité (0,2,0 contre 0,1,0). À spécificité égale, le gagnant dépendrait de l'ordre d'émission
+   des modules dans la feuille finale, que rien ne garantit : `composes` n'impose même pas que la base
+   sorte avant sa consommatrice (mesuré). Aucun module ne surcharge la déclaration d'un autre à
+   spécificité égale. */
+.reseau[data-anchor] {
   padding: 10px 12px;
   font-size: 13px;
   max-width: 300px;

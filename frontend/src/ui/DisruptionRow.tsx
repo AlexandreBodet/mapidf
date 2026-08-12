@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { DisruptionItem } from "../api/types";
-import { severityStyle } from "./severity";
+import { severityMeta } from "./severity";
 import { badgeText, disruptionTitle } from "./disruptionText";
 import styles from "./DisruptionRow.module.css";
 
@@ -14,7 +14,7 @@ interface Props {
 export function DisruptionRow({ item, leading }: Props) {
   // Chaque ligne possède son état : le parent n'a pas à tenir un registre des détails ouverts.
   const [open, setOpen] = useState(false);
-  const severity = severityStyle(item.severity);
+  const severity = severityMeta(item.severity);
   // `leading` n'est jamais autre chose que la pastille de ligne : sa présence EST la condition.
   const title = disruptionTitle(item.title, leading != null);
   return (
