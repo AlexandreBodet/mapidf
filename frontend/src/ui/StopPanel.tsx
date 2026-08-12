@@ -2,6 +2,8 @@ import type { DeparturesResponse } from "../api/types";
 import { formatEta } from "./formatEta";
 import { statusKind, statusLabel } from "./status";
 import { DisruptionRow } from "./DisruptionRow";
+import { LineBadge } from "./LineBadge";
+import styles from "./StopPanel.module.css";
 
 interface Props {
   data: DeparturesResponse;
@@ -19,18 +21,8 @@ function StatusBadge({ status }: { status: string }) {
   if (kind !== "delayed" && kind !== "cancelled") {
     return null;
   }
-  const cancelled = kind === "cancelled";
   return (
-    <span
-      style={{
-        marginLeft: 6,
-        padding: "0 5px",
-        borderRadius: 8,
-        background: cancelled ? "#fecaca" : "#fde68a",
-        color: cancelled ? "#991b1b" : "#92400e",
-        font: "bold 11px sans-serif",
-      }}
-    >
+    <span className={styles.statusBadge} data-kind={kind}>
       {statusLabel(status)}
     </span>
   );
@@ -61,41 +53,27 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
           promis d'expliquer. Placé avant les passages — savoir que l'arrêt n'est pas desservi
           change la lecture des horaires qui suivent. */}
       {data.disruptions.length > 0 && (
-        <ul style={{ margin: "0 0 4px", padding: 0, listStyle: "none" }}>
+        <ul className={styles.disruptions}>
           {data.disruptions.map((item, index) => (
             <DisruptionRow key={index} item={item} />
           ))}
         </ul>
       )}
       {lines.length === 0 && (
-        <p style={{ margin: "4px 0", color: "#666" }}>Aucun passage annoncé.</p>
+        <p className={styles.empty}>Aucun passage annoncé.</p>
       )}
       {lines.map((line) => (
-        <div key={line.lineId} style={{ margin: "10px 0 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div key={line.lineId} className={styles.line}>
+          <div className={styles.lineHead}>
             <button
               onClick={() => onSelectLine?.(line.lineId)}
               // Isolement inconditionnel, comme un clic dans le sélecteur du bas : quel que
               // soit le filtre courant, ce clic ne laisse que cette ligne (décision produit).
               title={`N'afficher que la ligne ${line.shortName}`}
               aria-label={`N'afficher que la ligne ${line.shortName}`}
-              // La cible tactile est le bouton, transparent ; la pastille reste ronde dans son
-              // span. Porter `minHeight` sur le carré de 18 px en faisait une ellipse verticale.
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                border: "none", background: "none", padding: 0, cursor: "pointer",
-                minHeight: "var(--tap)",
-              }}
+              className={styles.isolate}
             >
-              <span
-                style={{
-                  width: 18, height: 18, borderRadius: "50%", background: line.color, color: "#fff",
-                  font: "bold 11px sans-serif", display: "flex", alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {line.shortName}
-              </span>
+              <LineBadge color={line.color} shortName={line.shortName} size="m" />
             </button>
           </div>
           {line.directions.map((dir) => (
@@ -104,41 +82,26 @@ export function StopPanel({ data, onSelectTrain, onSelectLine }: Props) {
             // par construction au sein d'un LineDepartures — y compris sur une ligne à
             // embranchement. Y adjoindre l'index rendrait la clé instable dès qu'une destination
             // apparaît ou disparaît entre deux polls, et remonterait les sous-arbres pour rien.
-            <div key={dir.destination} style={{ margin: "4px 0 0 4px" }}>
-              <p style={{ margin: "0 0 2px", fontWeight: 600 }}>→ {dir.destination}</p>
-              {/* Rangée plutôt qu'empilement : à 44 px par cible tactile, trois passages
-                  empilés prenaient 132 px par direction (retour recette). Le séparateur suit
-                  l'horaire qu'il termine, jamais celui qu'il précède : sinon un repli le laissait
-                  orphelin en début de ligne. */}
-              <ul
-                style={{
-                  margin: "0 0 0 16px", padding: 0, listStyle: "none",
-                  display: "flex", flexWrap: "wrap", alignItems: "center",
-                }}
-              >
+            <div key={dir.destination} className={styles.direction}>
+              <p className={styles.destination}>→ {dir.destination}</p>
+              <ul className={styles.passages}>
                 {dir.passages.map((p, index) => (
-                  <li key={p.journeyRef} style={{ display: "flex", alignItems: "center" }}>
+                  <li key={p.journeyRef} className={styles.passage}>
                     <button
                       onClick={() => onSelectTrain?.(p.journeyRef)}
-                      style={{
-                        border: "none", background: "none", padding: "2px 4px", cursor: "pointer",
-                        font: "inherit", color: "#1d4ed8", textAlign: "left",
-                        minHeight: "var(--tap)",
-                      }}
+                      className={styles.time}
                       title="Suivre ce métro"
                     >
                       <span
-                        style={{
-                          textDecoration:
-                            statusKind(p.status) === "cancelled" ? "line-through" : undefined,
-                        }}
+                        className={styles.eta}
+                        data-cancelled={statusKind(p.status) === "cancelled"}
                       >
                         {formatEta(p.expectedTime)}
                       </span>
                       <StatusBadge status={p.status} />
                     </button>
                     {index < dir.passages.length - 1 && (
-                      <span aria-hidden="true" style={{ color: "#bbb" }}>·</span>
+                      <span aria-hidden="true" className={styles.separator}>·</span>
                     )}
                   </li>
                 ))}

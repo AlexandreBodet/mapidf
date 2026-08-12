@@ -1,0 +1,93 @@
+.disruptions {
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.empty {
+  margin: 4px 0;
+  color: var(--text-muted);
+}
+
+.line {
+  margin: 10px 0 0;
+}
+
+.lineHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* La cible tactile est le bouton, transparent ; la pastille reste ronde dans son span. Porter
+   `min-height` sur le carré de 18 px en faisait une ellipse verticale. Pas de `font: inherit` :
+   ce bouton n'a aucun texte propre. */
+.isolate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  min-height: var(--tap);
+}
+
+.direction {
+  margin: 4px 0 0 4px;
+}
+
+.destination {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+/* Rangée plutôt qu'empilement : à 44 px par cible tactile, trois passages empilés prenaient
+   132 px par direction (retour recette). */
+.passages {
+  margin: 0 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.passage {
+  display: flex;
+  align-items: center;
+}
+
+.time {
+  composes: linkButton from "./shared.module.css";
+  padding: 2px 4px;
+  color: var(--accent);
+  text-align: left;
+}
+
+/* Un passage supprimé affichait une heure indiscernable d'un train qui vient — le pire cas au
+   regard de l'art. 5.7 (ne pas induire en erreur sur le contenu). */
+.eta[data-cancelled="true"] {
+  text-decoration: line-through;
+}
+
+/* Le séparateur suit l'horaire qu'il termine, jamais celui qu'il précède : sinon un repli le
+   laissait orphelin en début de ligne. */
+.separator {
+  color: var(--separator);
+}
+
+.statusBadge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--amber-bg-strong);
+  color: var(--amber-text);
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.statusBadge[data-kind="cancelled"] {
+  background: var(--red-bg);
+  color: var(--red-text);
+}

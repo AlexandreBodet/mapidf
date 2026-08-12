@@ -93,7 +93,10 @@ describe("StopPanel", () => {
 
     expect(screen.queryByText("supprimé")).not.toBeNull();
     const heure = screen.getByText("4 min");
-    expect(heure.style.textDecoration).toBe("line-through");
+    // Ce test lisait le style inline, que QUA-8 a supprimé ; l'état est désormais porté par
+    // `data-cancelled`, un contrat que le CSS lit et que le test peut affirmer sans connaître
+    // la règle.
+    expect(heure.getAttribute("data-cancelled")).toBe("true");
   });
 
   it("remonte le journeyRef du passage cliqué", () => {
