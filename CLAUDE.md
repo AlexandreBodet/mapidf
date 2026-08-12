@@ -78,14 +78,19 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   Les tokens de rôle, la garde `[hidden]` et le mapping `[data-severity]` (qui descend la teinte par
   `--sev`) vivent dans `index.css` ; les deux motifs partagés — bouton-lien, pastille de ligne — dans
   `ui/shared.module.css` : le premier consommé par `composes` (vérifié jusque dans le build
-  rolldown), la seconde appliquée en `className` par le composant `LineBadge`, qui n'a pas de
-  module propre. Ne subsistent que **deux** `style` inline, réduits à une variable CSS chacun :
+  rolldown), la seconde appliquée en `className` par le composant `LineBadge`, qui n'a pas de module
+  propre. **Aucun module n'en surcharge un autre à spécificité égale** : l'ordre des règles dans la
+  feuille émise vient du graphe d'imports, et `composes` ne garantit même pas que la base sorte avant
+  sa consommatrice (mesuré) — d'où le `[data-anchor]` de `.reseau` dans `App.module.css`. Ne
+  subsistent que **deux** `style` inline, réduits à une variable CSS chacun :
   `--line-color` (`LineBadge`) et `--sheet-height` (`Sheet`) — une valeur venue de la donnée ou d'une
   mesure, jamais une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une variable CSS sans
   elle (TS2353).
-  Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** (tout module qui en
-  stylise un doit poser `font: inherit` — ce qu'apporte `composes: linkButton` — ou `font-family`,
-  sinon la fonte du widget revient) ; **tout masquage passe par l'attribut `hidden`**, jamais par
+  Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** — un module qui en
+  stylise un doit reposer `font: inherit` (ce qu'apporte `composes: linkButton`) ou `font-family`,
+  **mais seulement si l'attribut remplacé posait une famille** ; s'il ne posait qu'une taille, en
+  ajouter une changerait le rendu, d'où `.close`, `.isolate` et `.handle` qui n'en ont volontairement
+  pas ; **tout masquage passe par l'attribut `hidden`**, jamais par
   `display: none`, et la garde `[hidden] { display: none !important }` d'`index.css` est
   indispensable, la feuille de l'UA étant écrasée par n'importe quelle règle auteur ; et **aucun test
   ne voit une règle CSS** (Vitest n'applique pas les feuilles), donc le rendu ne se vérifie qu'en

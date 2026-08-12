@@ -143,7 +143,10 @@ sortir :
 - **`FloatingCard`** : sa prop `style?: CSSProperties` devient `className?: string`, traduction
   littérale de son contrat actuel (« ce que ce panneau-là fait différemment »). `App` gagne
   `App.module.css` avec `.fiche` et `.reseau`, et le `ficheWidth` 280/260 devient
-  `data-kind="station|train"` — ensemble fini de deux valeurs.
+  `data-kind="station|train"` — ensemble fini de deux valeurs. Le `data-kind="station|train"`
+  qu'annonçait cette spec a cédé la place, en relecture du plan, à deux classes composant une base
+  commune (`.ficheStation` / `.ficheTrain` dans `App.module.css`) : `FloatingCard` ne relaie pas
+  d'attributs arbitraires, et lui en ajouter un pour deux largeurs aurait été un contrat de trop.
 
 ## 4. Ce qui reste dans l'attribut `style`
 
@@ -241,7 +244,7 @@ n'arrête les apps depuis l'IA.
 
 **Au-dessus de 720 px** : panneau réseau en bas à gauche (padding et police inchangés) ; fiche
 station en haut à droite (largeur 280) et fiche train (largeur 260), défilement au-delà de 70 % de
-la hauteur ; pastilles de ligne rondes, aux trois tailles ; une ligne masquée est atténuée et grisée ;
+la hauteur ; pastilles de ligne rondes, à leurs deux tailles (16 px dans le sélecteur, 18 px ailleurs) sur trois emplois ; une ligne masquée est atténuée et grisée ;
 liste de perturbations dépliée — badge plein coloré par gravité, glyphe, détail dépliable borné à
 140 px ; passage supprimé barré, badge « supprimé » / « retardé » ; bouton « Suivre » en négatif
 quand le suivi est actif ; bandeau d'état avec son liseré (bleu au chargement, ambre en erreur) ;
