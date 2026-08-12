@@ -1,0 +1,38 @@
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Sans `padding: 0` : ce bouton gardait le padding par défaut de l'UA, contrairement aux deux
+   suivants. L'aligner changerait sa boîte. */
+.showAll {
+  composes: linkButton from "./shared.module.css";
+  color: var(--accent);
+}
+
+.chevron {
+  composes: linkButton from "./shared.module.css";
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.resume {
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.disrupted {
+  composes: linkButton from "./shared.module.css";
+  color: var(--warn);
+  padding: 0;
+  margin-top: 6px;
+  text-align: left;
+}

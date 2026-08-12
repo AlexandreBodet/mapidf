@@ -1,3 +1,5 @@
+import styles from "./NetworkSummary.module.css";
+
 interface Props {
   total: number;
   /** Hors des heures de service, une carte sans train est normale : le compteur mentirait. */
@@ -24,17 +26,11 @@ export function NetworkSummary({
 }: Props) {
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+      <div className={styles.head}>
         <b>{inService ? `${total} trains en circulation` : "Service terminé"}</b>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div className={styles.actions}>
           {canShowAll && (
-            <button
-              onClick={onShowAll}
-              style={{
-                border: "none", background: "none", color: "#1d4ed8", cursor: "pointer",
-                font: "inherit", minHeight: "var(--tap)",
-              }}
-            >
+            <button onClick={onShowAll} className={styles.showAll}>
               tout afficher
             </button>
           )}
@@ -43,10 +39,7 @@ export function NetworkSummary({
               onClick={onToggleExpanded}
               aria-expanded={expanded}
               aria-label={expanded ? "Replier le sélecteur de lignes" : "Déplier le sélecteur de lignes"}
-              style={{
-                border: "none", background: "none", color: "#666", cursor: "pointer",
-                font: "inherit", minHeight: "var(--tap)", padding: 0,
-              }}
+              className={styles.chevron}
             >
               {expanded ? "▾" : "▸"}
             </button>
@@ -57,15 +50,12 @@ export function NetworkSummary({
           silence de l'appli et son échec se ressemblent. Aucune heure citée : le premier métro
           dépend de la ligne, et la fenêtre de service vit côté serveur. */}
       {!inService && (
-        <div style={{ color: "#666", marginTop: 2 }}>Reprise au premier métro.</div>
+        <div className={styles.resume}>Reprise au premier métro.</div>
       )}
       {disruptedCount > 0 && (
         <button
           onClick={onToggleDisruptions}
-          style={{
-            marginTop: 6, padding: 0, border: "none", background: "none", cursor: "pointer",
-            font: "inherit", color: "#b45309", textAlign: "left", minHeight: "var(--tap)",
-          }}
+          className={styles.disrupted}
           aria-expanded={disruptionsOpen}
         >
           {disruptedCount === 1 ? "1 ligne perturbée" : `${disruptedCount} lignes perturbées`}
