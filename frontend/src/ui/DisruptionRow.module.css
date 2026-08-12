@@ -1,0 +1,46 @@
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.text {
+  min-width: 0;
+}
+
+/* La teinte descend de `[data-severity]`, posé sur la rangée (cf. index.css) : quatre valeurs,
+   une seule source, et le défaut couvre une gravité que le flux aurait inventée. */
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--sev);
+  color: var(--surface);
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.toggle {
+  composes: linkButton from "./shared.module.css";
+  padding: 0;
+  margin-left: 6px;
+  color: var(--accent);
+  text-align: left;
+}
+
+.title {
+  color: var(--text-detail);
+  margin-left: 6px;
+}
+
+/* `pre-line` : le texte brut du serveur garde ses sauts de ligne. Hauteur bornée, certains
+   messages font un paragraphe entier. */
+.detail {
+  color: var(--text-detail-open);
+  margin-top: 4px;
+  white-space: pre-line;
+  max-height: 140px;
+  overflow-y: auto;
+}
