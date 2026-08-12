@@ -77,10 +77,12 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   `style` ne peut exprimer ni `:hover`, ni `:focus-visible`, ni `@media`, ni `prefers-color-scheme`.
   Les tokens de rôle, la garde `[hidden]` et le mapping `[data-severity]` (qui descend la teinte par
   `--sev`) vivent dans `index.css` ; les deux motifs partagés — bouton-lien, pastille de ligne — dans
-  `ui/shared.module.css`, consommés par `composes` (vérifié jusque dans le build rolldown). Ne
-  subsistent que **deux** `style` inline, réduits à une variable CSS chacun : `--line-color`
-  (`LineBadge`) et `--sheet-height` (`Sheet`) — une valeur venue de la donnée ou d'une mesure, jamais
-  une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une variable CSS sans elle (TS2353).
+  `ui/shared.module.css` : le premier consommé par `composes` (vérifié jusque dans le build
+  rolldown), la seconde appliquée en `className` par le composant `LineBadge`, qui n'a pas de
+  module propre. Ne subsistent que **deux** `style` inline, réduits à une variable CSS chacun :
+  `--line-color` (`LineBadge`) et `--sheet-height` (`Sheet`) — une valeur venue de la donnée ou d'une
+  mesure, jamais une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une variable CSS sans
+  elle (TS2353).
   Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** (tout module qui en
   stylise un doit poser `font: inherit` — ce qu'apporte `composes: linkButton` — ou `font-family`,
   sinon la fonte du widget revient) ; **tout masquage passe par l'attribut `hidden`**, jamais par
