@@ -1,0 +1,84 @@
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Hauteur toujours numérique (mesurée au repli, dérivée du cran sinon) : une transition CSS
+     n'anime jamais vers/depuis `auto`, ce qui rendait le repli instantané (résiduel A). La zone
+     sûre s'ajoute par-dessus, comme aux autres crans : sinon elle la rognerait et l'aperçu
+     perdrait sa ligne de résumé sur les iPhone récents. */
+  height: calc(var(--sheet-height) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 14px 14px 0 0;
+  box-shadow: var(--shadow-sheet);
+  font-size: 13px;
+  transition: height 220ms ease-out;
+}
+
+/* Pendant un glissement, la hauteur suit le doigt : une transition la ferait courir après lui. */
+.sheet[data-dragging="true"] {
+  transition: none;
+}
+
+/* Regroupe tout ce qui échappe au repli, pour une mesure unique : observer la `<section>`
+   elle-même boucherait dès qu'on fixerait sa hauteur d'après sa propre mesure. */
+.peek {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.handle {
+  flex: 0 0 auto;
+  height: 44px;
+  position: relative;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: grab;
+  /* Sans ça, le navigateur traite le glissement vertical comme un défilement de page. */
+  touch-action: none;
+}
+
+.grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--handle);
+  margin: 0 auto;
+}
+
+/* `font-family` explicite : ce texte vit dans un `<button>`, qui n'hérite pas de la police du
+   document. L'attribut remplacé posait `font: 10px sans-serif`. */
+.asOf {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* Les trois bandes à padding horizontal : alerte, en-tête de fiche, résumé. Pas de padding sur
+   `.peek` lui-même — les paddings horizontaux restent portés par chaque zone, comme avant. */
+.zone {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+
+.body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 12px 12px;
+}
+
+.footer {
+  flex: 0 0 auto;
+  padding: 0 12px 12px;
+}

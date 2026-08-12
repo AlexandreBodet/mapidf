@@ -68,12 +68,14 @@ function renderSheet(cran: Cran, asOf: string | null = null) {
   return { onCranChange, onPeekHeight, handle, body: screen.getByText("corps").parentElement! };
 }
 
-// `getByText` ne voit que la présence dans le DOM, pas `display: none` posé sur un ancêtre : on
-// remonte la chaîne jusqu'au `body` pour savoir si l'élément est réellement masqué.
+// `getByText` ne voit que la présence dans le DOM, pas un repli posé sur un ancêtre : on remonte
+// la chaîne jusqu'au `body`. Lit `hidden`, propriété du DOM, et non plus `style.display` : le
+// repli n'est plus exprimé par du style inline depuis QUA-8, et un helper qui lisait le style
+// devenait un faux vert (mesuré : masquer l'alerte par `hidden` laissait ces tests verts).
 function isHidden(element: Element): boolean {
   let el: Element | null = element;
   while (el && el !== document.body) {
-    if (el instanceof HTMLElement && el.style.display === "none") {
+    if (el instanceof HTMLElement && el.hidden) {
       return true;
     }
     el = el.parentElement;
