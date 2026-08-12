@@ -51,6 +51,7 @@ describe("VehiclePanel", () => {
     const onFollow = vi.fn();
     const inactif = render(<VehiclePanel vehicle={vehicle()} onFollow={onFollow} />);
     expect(screen.getByRole("button").textContent).toBe("◉ Suivre");
+    expect(screen.getByRole("button").getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(screen.getByRole("button"));
     expect(onFollow).toHaveBeenCalledOnce();
@@ -58,5 +59,6 @@ describe("VehiclePanel", () => {
 
     render(<VehiclePanel vehicle={vehicle()} following onFollow={onFollow} />);
     expect(screen.getByRole("button").textContent).toBe("◉ Suivi actif");
+    expect(screen.getByRole("button").getAttribute("aria-pressed")).toBe("true");
   });
 });
