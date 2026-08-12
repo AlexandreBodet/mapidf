@@ -19,8 +19,8 @@ nombre de requêtes, sans jamais retarder l'affichage d'une donnée fraîche.
 
 Est réussi si, tout appliqué :
 
-1. Le recalcul **et la sérialisation** d'une réponse ont lieu au plus une fois par seconde et par
-   clé, quel que soit le nombre de clients.
+1. Le recalcul d'une réponse a lieu au plus une fois par seconde et par clé, quel que soit le
+   nombre de clients. Sur `/vehicles`, **la sérialisation aussi** (§ 2.5).
 2. Un poll qui publie un instantané neuf est visible **immédiatement**, pas à la seconde suivante.
    C'est la propriété que les IT existants exigent déjà (§ 2.2).
 3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11).
@@ -84,35 +84,78 @@ refresh GTFS (un par jour). Il entre dans la clé, sinon un rechargement du rés
 invisible jusqu'à la seconde suivante — anodin en soi, mais c'est le genre d'exception qui se paie
 plus tard, et l'inclure ne coûte qu'une référence de plus dans la liste.
 
+### 2.5 La sérialisation vaut d'être cachée sur `/vehicles`, et seulement là
+
+**Estimations, pas mesures** — le backend n'était pas joignable au moment du cadrage. Elles sont
+assez tranchées pour décider, et le § 8 dit comment les confirmer sans que le design en dépende.
+
+Le calcul, par véhicule : trois `extractPoint` (position et cap) plus des `indexOf` qui sont de
+simples recherches dans une map préconstruite
+([PositionEngine.java:124](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L124),
+[:182-183](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L182-L183)).
+`extractPoint` parcourt les segments de la branche, soit ~220 points en moyenne (8 110 points pour
+37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains**.
+
+La sérialisation : 705 DTO de 11 champs dont **trois `Instant` chacun**, soit ~2 100 formatages
+ISO-8601, qui en sont le gros → **~1 à 3 ms**.
+
+Le même ordre de grandeur, donc — et non deux ordres d'écart comme l'intuition le suggère. Or les
+deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
+sérialisation **une fois par requête**. En notant `C` le premier et `S` le second :
+
+| Charge | Cache de l'objet (`C/s + N·S`) | Cache des octets (`C/s + S/s`) |
+|---|---|---|
+| 1 client (0,25 req/s) | ~5 ms/s | ~5 ms/s |
+| 40 clients (10 req/s) | ~25 ms/s | ~7 ms/s |
+| 400 clients (100 req/s) | ~205 ms/s | ~7 ms/s |
+
+La bascule est là où `N·S` dépasse `C`, vers **une dizaine de clients simultanés**. C'est
+l'argument des octets : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
+rend **plat**.
+
+**Ce raisonnement ne vaut que pour `/vehicles`.** `/disruptions` sert une poignée d'éléments,
+`/stations/{id}/departures` quelques dizaines de passages — deux ordres de grandeur sous les 705
+véhicules. Leur sérialisation est en microsecondes, et y payer le `byte[]` (perte de la forme de la
+réponse dans la signature, friction QUA-7 du § 9) n'achèterait rien. D'où la répartition du § 3.
+
 ## 3. Architecture retenue
 
 Un composant unique, dans `com.mapidf.controllers.support` — utilisé par les seuls contrôleurs, et
 le nom du paquet le dit :
 
 ```java
-public final class ResponseCache<K> {
+public final class ResponseCache<K, V> {
 
     public ResponseCache(Clock clock, String name, MeterRegistry meters) { … }
 
     /** Entrée unique — pour un endpoint sans paramètre. */
-    public byte[] get(List<Object> sources, Function<Instant, byte[]> compute) { … }
+    public V get(List<Object> sources, Function<Instant, V> compute) { … }
 
     /** Une entrée par clé. */
-    public byte[] get(K key, List<Object> sources, Function<Instant, byte[]> compute) { … }
+    public V get(K key, List<Object> sources, Function<Instant, V> compute) { … }
 }
 ```
 
-Une entrée retenue est `{sources, seconde, octets}`. Elle est réutilisée si et seulement si
+**Le composant est générique sur la valeur cachée, pas fixé à `byte[]`.** C'est ce qui rend le
+choix « octets ou objet » local à chaque contrôleur, et réversible sans toucher au cache : si la
+mesure du § 8 montrait que `/vehicles` n'en a pas besoin — ou qu'un autre endpoint en a besoin —
+c'est un paramètre de type et un lambda qui changent, pas le composant.
+
+Une entrée retenue est `{sources, seconde, valeur}`. Elle est réutilisée si et seulement si
 **chaque source est la même instance, dans le même ordre**, *et* que `now` tombe dans la même
 seconde. Sinon, recalcul et remplacement.
 
 ### Clés et sources par endpoint
 
-| Endpoint | Sources | Clé |
-|---|---|---|
-| `/vehicles` | `RtSnapshot`, `NetworkSnapshot` | aucune |
-| `/disruptions` | `DisruptionSnapshot`, `NetworkSnapshot` | aucune |
-| `/stations/{id}/departures` | `RtSnapshot`, `DisruptionSnapshot`, `NetworkSnapshot` | `stationId` |
+| Endpoint | Sources | Clé | `V` caché |
+|---|---|---|---|
+| `/vehicles` | `RtSnapshot`, `NetworkSnapshot` | aucune | `byte[]` (§ 2.5) |
+| `/disruptions` | `DisruptionSnapshot`, `NetworkSnapshot` | aucune | `DisruptionsResponse` |
+| `/stations/{id}/departures` | `RtSnapshot`, `DisruptionSnapshot`, `NetworkSnapshot` | `stationId` | `DeparturesResponse` |
+
+Seul `/vehicles` cache des octets, parce que seul lui a une charge utile de ~705 objets. Les deux
+autres cachent leur record : signature typée conservée, forme de la réponse toujours lisible par un
+générateur de schéma (§ 9).
 
 **Un seul chemin de code, quelle que soit la variante** : le support est toujours une
 `ConcurrentHashMap`, et la surcharge sans clé délègue à celle avec clé en passant une sentinelle
@@ -131,7 +174,7 @@ Deux requêtes simultanées sur une entrée absente peuvent calculer toutes les 
 écrasant la première. C'est délibéré : la parade évidente — `ConcurrentHashMap.compute` — tient le
 verrou du bin pendant tout le calcul, donc pendant les ~705 interpolations JTS. Elle bloquerait les
 autres clés tombant dans le même bin et, sur cette map, elle échangerait un doublon rare contre une
-contention certaine. Les deux calculs rendent de toute façon des octets équivalents : le doublon
+contention certaine. Les deux calculs rendent de toute façon une valeur équivalente : le doublon
 coûte du CPU, jamais de la justesse.
 
 ### Trois choix d'API, au service de la réutilisation
@@ -175,6 +218,12 @@ d'entrée au calcul. Les relire dans le lambda ouvrirait une fenêtre : un poll 
 lecture de la clé et le calcul ferait mettre en cache une réponse fraîche sous l'identité de
 l'ancien instantané — périmée jusqu'au **poll** suivant, et non jusqu'à la seconde suivante.
 
+Les deux autres endpoints ont la **même forme, sans `ObjectMapper`** : le lambda rend directement le
+record, et le type de retour est `ResponseEntity<DisruptionsResponse>` /
+`ResponseEntity<DeparturesResponse>`. L'enveloppe `ResponseEntity` est nécessaire dans les trois cas
+— c'est elle qui porte le `Cache-Control` ci-dessous — mais elle **préserve** le type paramétré, donc
+seul `/vehicles` perd la forme de sa réponse dans sa signature.
+
 `json.writeValueAsBytes` ne demande aucune plomberie d'exception, celles de Jackson 3 étant non
 vérifiées. Le code du projet le confirme déjà : `RealtimePoller.parse` ouvre un `JsonParser` sans
 déclarer le moindre `throws`
@@ -200,7 +249,7 @@ dormir**. En TDD : chaque test écrit avant son implémentation.
 
 | # | Ce qui est vérifié | Ce qui rougirait |
 |---|---|---|
-| 1 | Mêmes sources, même seconde, **appels séquentiels** → le calcul n'est invoqué qu'une fois, mêmes octets rendus | Un cache qui ne cache pas |
+| 1 | Mêmes sources, même seconde, **appels séquentiels** → le calcul n'est invoqué qu'une fois, et la même valeur est rendue | Un cache qui ne cache pas |
 | 2 | Une source remplacée par une instance **égale mais neuve** → recalcul | Un `==` « corrigé » en `equals` (§ 2.3) |
 | 3 | Seconde suivante, sources inchangées → recalcul | Une entrée sans péremption |
 | 4 | Deux clés distinctes → entrées indépendantes | Une map dégénérée en entrée unique |
@@ -246,10 +295,12 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   **configuration pure, sans couplage au code** : le reporter ne coûte rien, et il rejoint
   naturellement `limit_req` — même fichier, même préoccupation de bordure, même décision
   d'hébergement en attente.
-- **La mesure du partage entre calcul JTS et sérialisation.** Le choix « octets plutôt qu'objet »
-  a été fait sans chiffre, le backend n'étant pas joignable au moment du cadrage. Il est
-  conservateur : mettre les octets en cache est au moins aussi bon dans tous les cas. La mesure
-  n'aurait servi qu'à savoir *combien* on gagne, pas *s'il faut* le faire.
+- **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Le § 2.5
+  raisonne sur des estimations. Elle reste faisable **pendant** l'implémentation, quand on est déjà
+  dans `/vehicles`, et sans démarrer l'appli : un test jetable qui construit 705 `VehicleDto`
+  synthétiques et chronomètre `writeValueAsBytes` donne `S` ; `C` se lit en chronométrant
+  `computeAll` sur la fixture. Le design ne dépend pas du résultat — le composant est générique sur
+  `V` (§ 3), donc un démenti se solde par un paramètre de type et un lambda.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
   qu'à 60 s pendant que le front poll à 4 s. Effort L, et ce chantier ne l'empêche pas.
 
@@ -257,9 +308,10 @@ posera, exposée par `/actuator/prometheus` avec les autres.
 
 - **Roadmap** : PERF-3 passe à `fait`, avec la mention que l'`ETag` en a été écarté et que le
   micro-cache nginx a rejoint SEC-3. La ligne SEC-3 gagne cette part.
-- **QUA-7 (OpenAPI)** : les trois signatures deviennent `ResponseEntity<byte[]>`, donc un
-  générateur de schéma ne verra plus la forme des réponses. Les records restent la source de vérité
-  mais sortent des signatures — à dire au générateur le jour de QUA-7. C'est le seul vrai prix du
-  chantier, et il se paie ailleurs.
+- **QUA-7 (OpenAPI)** : **un seul** endpoint perd la forme de sa réponse dans sa signature,
+  `/vehicles` (`ResponseEntity<byte[]>`). Les deux autres passent à `ResponseEntity<T>`, qui préserve
+  le type paramétré et reste lisible par un générateur de schéma. `VehiclesResponse` reste la source
+  de vérité, à déclarer à la main au générateur le jour de QUA-7 — c'est le seul prix du chantier, et
+  il se paie ailleurs.
 - **CLAUDE.md** : rien à ajouter si le design tient. Le piège « un TTL pur casse les IT de
   contrôleur » vit dans cette spec et dans le test n°2, qui le rend actif.
