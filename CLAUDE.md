@@ -73,6 +73,21 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   `journeyRef`, pas par `feature-state` (pourtant l'approche idiomatique, essayée deux fois) :
   à ~15 `setData`/s sur ~705 features, `initializeTileState` finissait par lever « feature index
   out of bounds » en boucle. Détail complet dans le commentaire d'en-tête de `journeyRefFilter`.
+- **Style : CSS Modules colocalisés** (`X.module.css` à côté de `X.tsx`), depuis QUA-8 — un attribut
+  `style` ne peut exprimer ni `:hover`, ni `:focus-visible`, ni `@media`, ni `prefers-color-scheme`.
+  Les tokens de rôle, la garde `[hidden]` et le mapping `[data-severity]` (qui descend la teinte par
+  `--sev`) vivent dans `index.css` ; les deux motifs partagés — bouton-lien, pastille de ligne — dans
+  `ui/shared.module.css`, consommés par `composes` (vérifié jusque dans le build rolldown). Ne
+  subsistent que **deux** `style` inline, réduits à une variable CSS chacun : `--line-color`
+  (`LineBadge`) et `--sheet-height` (`Sheet`) — une valeur venue de la donnée ou d'une mesure, jamais
+  une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une variable CSS sans elle (TS2353).
+  Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** (tout module qui en
+  stylise un doit poser `font: inherit` — ce qu'apporte `composes: linkButton` — ou `font-family`,
+  sinon la fonte du widget revient) ; **tout masquage passe par l'attribut `hidden`**, jamais par
+  `display: none`, et la garde `[hidden] { display: none !important }` d'`index.css` est
+  indispensable, la feuille de l'UA étant écrasée par n'importe quelle règle auteur ; et **aucun test
+  ne voit une règle CSS** (Vitest n'applique pas les feuilles), donc le rendu ne se vérifie qu'en
+  navigateur.
 - **MapLibre 6 n'émet plus son worker tout seul** : il en dérive l'URL depuis `import.meta.url`, ce
   que le bundling casse. Sans le `setWorkerUrl` de `MapView.tsx` (import `?worker&url`), **le build
   est vert, sans un avertissement, et `dist/` ne contient aucun worker** — carte blanche en prod sur
@@ -103,9 +118,10 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   0) ; son garde `typeof Element !== "undefined"` est indispensable, ce fichier étant chargé aussi
   pour les tests qui tournent en Node. La **vitesse d'un geste est testable** : `Sheet.test.tsx`
   construit l'événement à la main (`firePointer`, un `MouseEvent` typé) pour maîtriser son
-  `timeStamp` — hérité de jsdom 26 sans `PointerEvent` global, gardé bien que jsdom 27 en fournisse
-  un (cf. QUA-8). **Piège toujours vrai : `timeStamp: 0` ne marche pas**, React calculant
-  `event.timeStamp || Date.now()`.
+  `timeStamp`. Mesuré par QUA-8 : jsdom 27 fournit bien un `PointerEvent` global **et**
+  `fireEvent.pointerDown` transmet `clientY` — le contournement ne subsiste donc que pour le
+  `timeStamp`, que l'`init` de `fireEvent` ne permet pas de fixer. **Piège toujours vrai :
+  `timeStamp: 0` ne marche pas**, React calculant `event.timeStamp || Date.now()`.
 - **`npm outdated` sous-déclare le retard** (mesuré le 2026-08-11) : `vite` plafonné à 6.4.3 quand
   son dist-tag `latest` était **8.2.1**, `@vitejs/plugin-react` omis **entièrement** (4.7.0 contre
   6.0.5) — `--prefer-online` n'y change rien ; le contrôle fiable est `npm view <paquet> dist-tags`.
@@ -238,5 +254,5 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   refermer sans déplier.
 - **`--tap` ne touche que nos composants** : les contrôles MapLibre (zoom, boussole, et le `ⓘ`
   de l'attribution) restent sous les 44 px tactiles, et peuvent chevaucher le bandeau d'état sous
-  384 px de large. Corriger demanderait une règle CSS visant leurs classes, hors du style inline
-  du projet.
+  384 px de large. Corriger demanderait une règle visant leurs classes tierces, donc un `:global()`
+  ou une règle dans `index.css` — les modules CSS du projet étant scopés (cf. QUA-8).
