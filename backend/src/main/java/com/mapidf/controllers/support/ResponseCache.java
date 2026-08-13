@@ -30,7 +30,7 @@ public final class ResponseCache<K, V> {
     /** Clé interne de la surcharge sans clé, pour n'avoir qu'un seul chemin de code. */
     private static final Object SINGLETON = new Object();
 
-    private record Entry<V>(List<Object> sources, Instant second, V value) {
+    private record Entry<T>(List<Object> sources, Instant second, T value) {
     }
 
     private final Clock clock;
@@ -73,9 +73,20 @@ public final class ResponseCache<K, V> {
         // échangeant un doublon rare contre une contention certaine. Les deux calculs rendent une
         // valeur équivalente — le doublon coûte du CPU, jamais de la justesse.
         misses.increment();
+        // Une entrée d'une autre seconde ne pourra plus jamais produire de hit : la garder
+        // n'épargne aucun calcul, mais retient fortement ses instantanés source (~1 Mo de courses
+        // pour un RtSnapshot) jusqu'à la prochaine visite de sa clé — soit indéfiniment pour une
+        // station qu'on ne rouvre pas. O(nombre de clés) sur un défaut, et ça évince du même coup
+        // l'entrée d'une station disparue d'un refresh GTFS.
+        entries.values().removeIf(stale -> !stale.second().equals(second));
         V value = compute.apply(now);
         entries.put(key, new Entry<>(List.copyOf(sources), second, value));
         return value;
+    }
+
+    /** Entrées retenues — visible pour le test de purge, qui doit constater l'éviction. */
+    int size() {
+        return entries.size();
     }
 
     private static boolean sameInstances(List<Object> cached, List<Object> current) {

@@ -127,6 +127,51 @@ class ResponseCacheTest {
     }
 
     @Test
+    void recomputesWhenOnlyANonFirstSourceChanges() {
+        // Les instantanés entrent dans la clé DANS L'ORDRE, et le NetworkSnapshot est le dernier
+        // (§ 2.4). Ce test rougit si la comparaison se contente de l'index 0, ce qu'aucun des
+        // autres ne voit : ils ne varient qu'une source, sur une liste d'un seul élément.
+        Object rt = new Object();
+        Object network = new Object();
+
+        cache.get(List.of(rt, network), this::compute);
+        cache.get(List.of(rt, new Object()), this::compute);
+
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void dropsTheEntriesOfAnEarlierSecondOnTheNextMiss() {
+        // Une entrée d'une autre seconde ne peut plus produire de hit : la garder n'épargne aucun
+        // calcul, mais épingle son instantané source (~1 Mo de courses) tant que sa clé n'est pas
+        // réinterrogée — la fuite par station visitée que la revue a relevée.
+        Object source = new Object();
+        cache.get("A", List.of(source), this::compute);
+        cache.get("B", List.of(source), this::compute);
+        assertThat(cache.size()).isEqualTo(2);
+
+        clock.set(Instant.parse("2026-08-12T08:00:01.000Z"));
+        cache.get("C", List.of(source), this::compute);
+
+        assertThat(cache.size()).isEqualTo(1);
+    }
+
+    @Test
+    void keepsTheEntriesOfTheSameSecondWhenAnotherKeyMisses() {
+        // Le revers : la purge ne doit pas évincer une entrée encore utile, sinon elle échange une
+        // fuite contre un cache qui ne cache plus dès que deux clés sont sollicitées.
+        Object source = new Object();
+        cache.get("A", List.of(source), this::compute);
+        cache.get("B", List.of(source), this::compute);
+
+        cache.get("C", List.of(source), this::compute); // le défaut qui déclenche la purge
+        cache.get("A", List.of(source), this::compute);
+
+        assertThat(calls).hasValue(3);
+        assertThat(cache.size()).isEqualTo(3);
+    }
+
+    @Test
     void countsHitsAndMisses() {
         Object source = new Object();
 
