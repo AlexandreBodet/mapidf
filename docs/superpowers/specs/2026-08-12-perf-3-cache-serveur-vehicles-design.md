@@ -95,10 +95,13 @@ simples recherches dans une map préconstruite
 ([PositionEngine.java:124](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L124),
 [:182-183](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L182-L183)).
 `extractPoint` parcourt les segments de la branche, soit ~220 points en moyenne (8 110 points pour
-37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains**. Ce terme,
-noté `C`, **reste une estimation** : le mesurer demanderait une fixture de réseau réaliste, la
-`branchedLine()` de `PositionEngineTest` ne portant qu'une poignée de points par branche — le coût
-d'`extractPoint` y serait sans rapport avec celui de production.
+37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains** : c'est
+l'estimation de départ de ce terme, noté `C`. **Aucune sonde JUnit ne pouvait la vérifier** — il y
+faudrait une fixture de réseau réaliste, la `branchedLine()` de `PositionEngineTest` ne portant
+qu'une poignée de points par branche, et le coût d'`extractPoint` y serait sans rapport avec celui
+de production. Ce raisonnement reste vrai ; la mesure est venue **d'ailleurs** : en chronométrant
+l'endpoint réel et en séparant hits et misses par le compteur de cache (plus bas dans ce §), ce qui
+ne demande aucune fixture.
 
 La sérialisation, notée `S` : 705 DTO de 11 champs dont **deux `Instant` chacun** (`expectedTime`
 et `recordedAt`, [VehiclesResponse.java:22-24](../../../backend/src/main/java/com/mapidf/controllers/vehicles/VehiclesResponse.java#L22-L24)),
@@ -107,42 +110,97 @@ soit ~1 410 formatages ISO-8601, qui en sont le gros. L'estimation de départ �
 le relevé ci-dessous. Mesure du **2026-08-13**, par une sonde jetable (705 `VehicleDto`
 synthétiques, `writeValueAsBytes` en régime chaud, 15 lots de 200 appels après 3 000 de chauffe) :
 
-> **`S` ≈ 0,9 ms par appel**, pour une charge utile de **174 ko** — sur **neuf exécutions** :
+> **`S` ≈ 0,9 ms par appel**, pour une charge utile **synthétique** de **174 ko** — sur **neuf
+> exécutions** :
 > médiane des neuf médianes **0,902 ms**, minimum absolu 0,734 ms, exécution la plus chargée à
 > 1,382 ms de médiane. Médianes des neuf exécutions, dans l'ordre de tir : **1,382 / 0,902 /
 > 0,928 / 1,176 / 0,750 / 0,908 / 0,790 / 0,805 / 0,754 ms** ; charge utile identique aux neuf.
 
+**Cette charge utile est sous-estimée.** Sur le réseau réel, `curl -w "%{size_download}"` sur
+`GET /api/vehicles` rend **224 796 octets, soit 219 ko** : la sonde en annonçait **174**, soit 45 ko
+de moins — un cinquième de la charge réelle, qui vaut **1,26×** la synthétique (identifiants et
+libellés y sont plus longs). Le nombre de DTO et d'`Instant`, lui, est le même. Le `S` de la sonde
+est donc un **plancher** pour la vraie sérialisation, pas une valeur transposable telle quelle : ce
+qui suit l'encadre au lieu de le reprendre.
+
 **L'estimation tient, à sa borne basse.** Elle n'est ni confirmée au milieu de sa fourchette ni
-démentie : la valeur mesurée est ~3× sous le haut de la fourchette, mais reste du même ordre de
-grandeur que `C` — ce qui est la seule chose dont dépend la conception. (Trois détails de la mesure :
+démentie : la valeur mesurée est ~3× sous le haut de la fourchette. Son rapport à `C` — la seule
+chose dont dépende la conception — se lit sur la mesure ci-dessous : `S` y vaut entre le **sixième
+et le neuvième** de `C`, donc `N·S` dépasse `C` dès quelques dizaines de clients. (Trois détails de la mesure :
 Jackson 3 écrit les `Instant` en ISO-8601 **sans configuration**, `WRITE_DATES_AS_TIMESTAMPS` étant
 désactivé par défaut, donc la sonde mesure bien le format servi ; sans les 3 000 appels de chauffe
 le chiffre est plusieurs fois trop élevé ; et la dispersion **entre** exécutions reste réelle —
 d'où les neuf répétitions, une seule aurait pu rendre n'importe quoi entre 0,75 et 1,38. C'est une
 machine de développement, pas un hôte de production.)
 
+**`C + S` mesuré sur le réseau réel, le 2026-08-13.** Ce qu'une sonde JUnit ne pouvait pas faire,
+une salve HTTP le fait : **700 requêtes séquentielles** sur `GET /api/vehicles` contre le backend de
+développement en marche, réseau complet (16 lignes, ~705 véhicules), chronométrées par
+`curl -w "%{time_total}"`. Hits et misses se séparent **par le compteur** :
+`mapidf_cache_misses_total{cache="vehicles"}`, relevé avant et après la salve, donne **8 misses sur
+700 requêtes** ; les 8 temps les plus longs forment un groupe serré — **8,6 à 12,4 ms** — nettement
+détaché du reste.
+
+| | Temps de réponse |
+|---|---|
+| Miss — calcul + sérialisation + transport | **10,3 ms** de moyenne (n = 8) |
+| Hit — transport seul | **1,65 ms** de moyenne (n = 692) |
+| Écart = **`C + S`**, net du transport | **8,7 ms** |
+
+**L'estimation de `C` tient, mais par le haut** : 8,7 ms mesurés contre 4 à 9 ms estimés (3 à 8 pour
+`C`, 0,9 pour `S`). Elle n'est ni démentie ni confirmée en son milieu — elle est validée de justesse,
+par le sommet de sa fourchette.
+
+**Ce que cette méthode ne sait pas faire**, à écrire noir sur blanc :
+
+- elle **ne sépare pas** `C` de `S`, seulement leur somme — toute décomposition écrite plus bas est
+  **dérivée**, jamais mesurée ;
+- machine de développement, boucle locale, et le backend servait en parallèle le front de
+  l'utilisateur : il y a du **bruit concurrent** ;
+- « les 8 plus lents sont les 8 misses » est une **inférence**. Elle tient sur deux faits : le
+  compte correspond exactement au delta du compteur, et l'écart entre le 8ᵉ temps (8,6 ms) et le 9ᵉ
+  est net.
+
 Les deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
-sérialisation **une fois par requête**. En notant `N` le débit en requêtes par seconde, et en
-retenant `C` ≈ 3 à 8 ms et `S` = 0,9 ms :
+sérialisation **une fois par requête**. Seule leur **somme** est mesurée, d'où la façon de lire le
+tableau. La colonne « octets » vaut directement la mesure : `(C+S)/s` = **8,7 ms/s**, sans aucune
+décomposition. La colonne « objet », elle, exige `S` seul, donc une **déduction** — `C` = 8,7 − `S`,
+avec `S` **encadré** plutôt que fixé :
 
-| Charge | Cache de l'objet (`C/s + N·S`) | Cache des octets (`C/s + S/s`) |
+- borne basse **0,90 ms** — la sonde telle quelle, si le coût ne tient qu'au nombre de champs et aux
+  1 410 formatages ISO-8601, invariants entre charge synthétique et charge réelle ;
+- borne haute **1,14 ms** — la même remise à l'échelle des 219 ko réels (0,902 × 219/174), si le
+  coût suit le volume écrit.
+
+Soit **`C` entre 7,56 et 7,80 ms**, dérivé. En notant `N` le débit en requêtes par seconde :
+
+| Charge | Cache de l'objet — `C/s + N·S` (dérivé) | Cache des octets — `(C+S)/s` (mesuré) |
 |---|---|---|
-| 1 client (0,25 req/s) | ~5,2 ms/s | ~5,9 ms/s |
-| 40 clients (10 req/s) | ~14 ms/s | ~5,9 ms/s |
-| 400 clients (100 req/s) | ~95 ms/s | ~5,9 ms/s |
+| 1 client (0,25 req/s) | 7,8 à 8,0 ms/s | **8,7 ms/s** |
+| 40 clients (10 req/s) | 16,8 à 19,0 ms/s | **8,7 ms/s** |
+| 400 clients (100 req/s) | 98 à 122 ms/s | **8,7 ms/s** |
 
-La colonne `C/s + S/s` est une **borne basse idéalisée** : elle suppose qu'une seule requête paie
+La colonne `(C+S)/s` est une **borne basse idéalisée** : elle suppose qu'une seule requête paie
 le calcul par seconde. À chaque bascule de seconde, les requêtes en vol manquent toutes ensemble et
 recalculent en parallèle — d'autant plus nombreuses que le débit est élevé. À 100 req/s le terme
 réel est donc un petit multiple de `C` par seconde, pas exactement `C`. Ça ne déplace pas la
 bascule (le cache d'objet subit la même chose sur son terme `C`), mais « plat » veut dire plat au
 bruit de concurrence près.
 
-La bascule est là où `N·S` dépasse `C`, soit **3,3 à 8,9 req/s — 13 à 36 clients** au poll de 4 s —
-plus tard que la « dizaine » annoncée avant mesure, et la fourchette reste large parce que `C`,
-lui, n'est pas mesuré : c'est **son** incertitude qui la fixe, pas celle de `S`. C'est quand même l'argument des octets, et il ne dépend
-pas du chiffre exact : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
-rend **plat**. Ce que la mesure change, c'est le moment où ça compte, pas le sens.
+La bascule est là où `N·S` dépasse `C`, soit `N` > (8,7 − `S`)/`S` : **6,6 à 8,7 req/s — 27 à 35
+clients** au poll de 4 s. Bien plus tard que la « dizaine » annoncée avant mesure, et la fourchette
+s'est **resserrée sur la moitié haute** des « 13 à 36 clients » d'avant celle-ci. Elle a surtout
+changé de source d'incertitude : ce n'est plus `C` — sa somme avec `S` est maintenant mesurée —
+mais la façon dont `S` se transpose de la charge synthétique à la charge réelle. C'est quand même
+l'argument des octets, et il ne dépend pas du chiffre exact : le cache d'objet laisse le coût
+**linéaire** en clients, celui des octets le rend **plat**. Ce que la mesure change, c'est le moment
+où ça compte, pas le sens.
+
+**Un hit coûte encore 1,65 ms, et le cache n'y peut rien** : les 219 ko partent sur le réseau à
+chaque requête. Le cache supprime le calcul, pas le transport. C'est exactement le reste que
+**PERF-4** (§ 8) irait chercher : envoyer le segment une fois par minute et laisser le front
+interpoler. À noter que ce coût-là n'entre dans aucune colonne du tableau ci-dessus, qui ne compte
+que le travail supprimé par le cache.
 
 **Ce raisonnement ne vaut que pour `/vehicles`.** `/disruptions` sert une poignée d'éléments,
 `/stations/{id}/departures` quelques dizaines de passages — deux ordres de grandeur sous les 705
@@ -385,17 +443,20 @@ dans `CLAUDE.md`, où elles sont présentées comme le garde-fou observable du r
 - **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Elle a bien
   eu lieu, mais **après** l'implémentation et sans que le design en dépende — le composant est
   générique sur `V` (§ 3), donc un démenti se serait soldé par un paramètre de type et un lambda.
-  `S` est mesuré (§ 2.5) ; **`C` ne l'est pas**, et ne le sera pas à ce prix-là : `computeAll` sur
-  la fixture de `PositionEngineTest` mesurerait des branches de quelques points, pas les ~220 de
-  production. Le faire honnêtement demande une fixture de réseau réaliste — un chantier en soi, qui
-  ne changerait aucune décision de celui-ci.
+  `S` est mesuré par sonde, et **`C + S` par chronométrage de l'endpoint réel** (§ 2.5). Ce qui
+  reste hors de portée, c'est le **partage** des deux termes : par sonde, il demanderait `computeAll`
+  sur une fixture de réseau réaliste — celle de `PositionEngineTest` mesurerait des branches de
+  quelques points, pas les ~220 de production —, un chantier en soi qui ne changerait aucune
+  décision de celui-ci. D'où un `C` déduit par différence, et signalé comme tel partout.
 - **L'adoption complète du bean `Clock`.** Il n'est adopté qu'à moitié : `RealtimePoller`
   (`inServiceNow`, via `LocalTime.now(PARIS)`) et `LineCoverageGuard` appellent toujours l'horloge
   murale en dur. Relevé en revue finale, consigné, non corrigé — ce chantier n'avait besoin d'une
   horloge injectable que dans le cache, et étendre l'injection touche du code de poll que rien ici
   ne fait bouger.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
-  qu'à 60 s pendant que le front poll à 4 s. Effort L, et ce chantier ne l'empêche pas.
+  qu'à 60 s pendant que le front poll à 4 s. C'est aussi la seule façon d'attaquer les **1,65 ms**
+  que coûte encore un hit (§ 2.5) : le transport des 219 ko, que le cache ne supprime pas. Effort L,
+  et ce chantier ne l'empêche pas.
 
 ## 9. Conséquences sur la documentation
 
