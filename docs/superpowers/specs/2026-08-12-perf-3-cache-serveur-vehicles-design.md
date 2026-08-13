@@ -102,15 +102,18 @@ formatages ISO-8601, qui en sont le gros. Estimée à ~1 à 3 ms, elle a été *
 par une sonde jetable (705 `VehicleDto` synthétiques, `writeValueAsBytes` en régime chaud, 15 lots
 de 200 appels après 3 000 de chauffe) :
 
-> **`S` ≈ 0,9 ms par appel**, pour une charge utile de **174 ko** — min 0,85 / médiane 0,90 sur
-> trois exécutions stabilisées.
+> **`S` ≈ 0,9 ms par appel**, pour une charge utile de **174 ko** — sur **neuf exécutions** :
+> médiane des neuf médianes **0,902 ms**, minimum absolu 0,734 ms, exécution la plus chargée à
+> 1,382 ms de médiane. Les neuf relevés sont dans le rapport de tâche.
 
 **L'estimation tient, à sa borne basse.** Elle n'est ni confirmée au milieu de sa fourchette ni
 démentie : la valeur mesurée est ~3× sous le haut de la fourchette, mais reste du même ordre de
-grandeur que `C` — ce qui est la seule chose dont dépend la conception. (Deux détails de la mesure :
+grandeur que `C` — ce qui est la seule chose dont dépend la conception. (Trois détails de la mesure :
 Jackson 3 écrit les `Instant` en ISO-8601 **sans configuration**, `WRITE_DATES_AS_TIMESTAMPS` étant
-désactivé par défaut, donc la sonde mesure bien le format servi ; et sans les 3 000 appels de
-chauffe le chiffre est plusieurs fois trop élevé.)
+désactivé par défaut, donc la sonde mesure bien le format servi ; sans les 3 000 appels de chauffe
+le chiffre est plusieurs fois trop élevé ; et la dispersion **entre** exécutions reste réelle —
+d'où les neuf répétitions, une seule aurait pu rendre n'importe quoi entre 0,75 et 1,38. C'est une
+machine de développement, pas un hôte de production.)
 
 Les deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
 sérialisation **une fois par requête**. En notant `N` le débit en requêtes par seconde, et en
@@ -122,9 +125,9 @@ retenant `C` ≈ 3 à 8 ms et `S` = 0,9 ms :
 | 40 clients (10 req/s) | ~14 ms/s | ~5,9 ms/s |
 | 400 clients (100 req/s) | ~95 ms/s | ~5,9 ms/s |
 
-La bascule est là où `N·S` dépasse `C`, soit **3 à 9 req/s, une quinzaine à une quarantaine de
-clients** au poll de 4 s — plus tard que la « dizaine » annoncée avant mesure, et la fourchette
-reste large parce que `C` n'est pas mesuré. C'est quand même l'argument des octets, et il ne dépend
+La bascule est là où `N·S` dépasse `C`, soit **3,3 à 8,9 req/s — 13 à 36 clients** au poll de 4 s —
+plus tard que la « dizaine » annoncée avant mesure, et la fourchette reste large parce que `C`,
+lui, n'est pas mesuré : c'est **son** incertitude qui la fixe, pas celle de `S`. C'est quand même l'argument des octets, et il ne dépend
 pas du chiffre exact : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
 rend **plat**. Ce que la mesure change, c'est le moment où ça compte, pas le sens.
 
