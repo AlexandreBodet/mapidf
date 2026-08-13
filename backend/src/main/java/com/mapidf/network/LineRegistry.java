@@ -26,10 +26,6 @@ public class LineRegistry {
         snapshot.set(next);
     }
 
-    public Station requireStation(String id) {
-        return requireStation(current(), id);
-    }
-
     /**
      * Surcharge sur un instantané déjà lu : un appelant qui a besoin du réseau ET de la station
      * doit les tirer du MÊME instantané, sinon un refresh GTFS glissé entre les deux lectures lui
