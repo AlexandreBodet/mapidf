@@ -130,9 +130,14 @@ Un `HandlerInterceptor` s'exécute **dans** le `DispatcherServlet`. Il lève une
 l'`ApiExceptionHandler` existant produit la réponse, au format déjà servi par
 `STATION_NOT_FOUND`. C'est ce qui décide entre les deux.
 
-Conséquence à connaître : un chemin **non mappé** sous `/api/` n'a pas de handler, donc n'appelle
-pas l'interceptor, donc **n'est pas compté**. Sans importance — un 404 ne coûte rien — mais à
-écrire, pour qu'on ne cherche pas le défaut plus tard.
+**Conséquence à connaître, établie par test** (`RateLimitIT#compteAussiUnCheminNonMappe`) —
+l'inverse de ce qu'on supposait ici au cadrage : un chemin **non mappé** sous `/api/` EST compté
+par le quota. `spring.web.resources.add-mappings` vaut `true` par défaut, donc Boot enregistre un
+`ResourceHttpRequestHandler` sur `/**`, et Spring MVC lui applique **les mêmes interceptors**
+qu'aux contrôleurs — `RateLimitInterceptor` s'exécute donc aussi sur ces chemins. Sans
+conséquence pour ce chantier : un chemin qui n'existe pas ne coûte de toute façon presque rien à
+traiter. Le même test a révélé, hors périmètre, que ce chemin répond **500** au lieu d'un 404
+(`ApiExceptionHandler` ne traite pas `NoResourceFoundException`) — ouvert en roadmap sous QUA-14.
 
 ## 3. Architecture retenue
 

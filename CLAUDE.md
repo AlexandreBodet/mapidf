@@ -142,6 +142,23 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   plus inclus automatiquement, d'où les imports explicites depuis `"geojson"` dans `VehicleLayer.ts`
   et `App.tsx` — et surtout **pas** de `"types": [...]` en tsconfig, qui masquerait en silence tout
   futur `@types/x`.
+- **`server.forward-headers-strategy: native`, jamais `framework`.** `framework` installe le
+  `ForwardedHeaderFilter` de Spring, qui n'a **pas** de notion de proxy de confiance : il croit
+  `X-Forwarded-For`, donc n'importe quel client choisit l'IP sur laquelle le quota SEC-3 le compte.
+  `native` installe le `RemoteIpValve` de Tomcat, dont le défaut
+  `server.tomcat.remoteip.internal-proxies` (vérifié dans `spring-boot-tomcat-4.1.0.jar`) ne croit
+  l'en-tête que d'une adresse privée. Et **aucun test ne le voit** : MockMvc ne monte pas la valve,
+  seule une pile lancée le constate.
+- **Un `Filter` ne peut pas réutiliser l'`ApiExceptionHandler`.** Une exception levée dans un
+  `jakarta.servlet.Filter` se produit hors du `DispatcherServlet` : l'`@RestControllerAdvice` ne la
+  voit pas, et il faudrait réécrire à la main statut, `Content-Type` et sérialisation
+  d'`ErrorResponse`. D'où le `HandlerInterceptor` de `RateLimitInterceptor` (SEC-3), enregistré sur
+  `/**`. Corollaire **mesuré, contraire à l'intuition initiale** : un chemin **non mappé** sous
+  `/api/` EST compté par le quota (`RateLimitIT#compteAussiUnCheminNonMappe`) —
+  `spring.web.resources.add-mappings` vaut `true` par défaut, Boot y enregistre un
+  `ResourceHttpRequestHandler` sur `/**`, et Spring MVC lui applique les mêmes interceptors qu'aux
+  contrôleurs. Que ce même interceptor atteigne ou non le contexte enfant de l'Actuator ne change
+  rien : celui-ci n'est publié que sur la loopback (port 9100), donc exempté quoi qu'il arrive.
 
 ## Configuration du réseau suivi
 
@@ -172,6 +189,15 @@ journalise désormais un WARN quand une ligne suivie reste **15 min sans aucune 
 le reste du réseau circule** (réseau entier à zéro = panne du flux, pas d'une ligne → aucun
 avertissement, le compteur d'échecs de poll le dit déjà). Et `/actuator/prometheus` expose toutes
 les mesures pour un collecteur, s'il y en a un jour.
+
+Depuis SEC-3, les quatre endpoints publics sont soumis à un quota de **600 req/min par IP**
+(`app.ratelimit.requests-per-minute`), **littéral dans `application.yml`, pas dans `.env`** — un
+budget de requêtes est un réglage fonctionnel, comme `app.network.modes`, pas un secret ni une
+coordonnée d'infrastructure ; l'inscrire à `.env.example` le rendrait **obligatoire** au démarrage
+(`ConfigurationGuard`, SEC-7), pour un réglage que personne n'a besoin de changer. La règle qui
+gouverne le chiffre : **ce quota arrête une boucle emballée, il n'arbitre pas entre usagers** —
+l'IP est une clé imparfaite derrière un NAT partagé, un budget plus serré couperait des usagers
+légitimes avant un abuseur. La loopback est exemptée.
 
 ## Données temps réel — pièges à connaître (IMPORTANT)
 
