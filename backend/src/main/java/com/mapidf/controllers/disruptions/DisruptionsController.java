@@ -1,5 +1,6 @@
 package com.mapidf.controllers.disruptions;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.Map;
 import com.mapidf.controllers.disruptions.DisruptionsResponse.Item;
 import com.mapidf.controllers.disruptions.DisruptionsResponse.LineDisruptions;
 import com.mapidf.controllers.disruptions.DisruptionsResponse.StationDisruption;
+import com.mapidf.controllers.support.ResponseCache;
 import com.mapidf.disruptions.Disruption;
 import com.mapidf.disruptions.DisruptionPoller;
 import com.mapidf.disruptions.DisruptionSnapshot;
@@ -18,7 +20,10 @@ import com.mapidf.network.NetworkSnapshot;
 import com.mapidf.network.Station;
 import com.mapidf.network.TrackedLine;
 import com.mapidf.position.PositionEngine;
-import lombok.AllArgsConstructor;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,18 +32,38 @@ import org.springframework.web.bind.annotation.RestController;
  * et le filtre « en cours » est appliqué à l'instant de la requête.
  */
 @RestController
-@AllArgsConstructor
 public class DisruptionsController {
 
     private final LineRegistry registry;
     private final DisruptionPoller poller;
+    private final ResponseCache<Void, DisruptionsResponse> cache;
+
+    public DisruptionsController(LineRegistry registry, DisruptionPoller poller,
+                                 Clock clock, MeterRegistry meters) {
+        this.registry = registry;
+        this.poller = poller;
+        this.cache = new ResponseCache<>(clock, "disruptions", meters);
+    }
 
     @GetMapping("/disruptions")
-    public DisruptionsResponse disruptions() {
-        Instant now = Instant.now();
+    public ResponseEntity<DisruptionsResponse> disruptions() {
+        // Le record est mémorisé tel quel, et non sérialisé : la charge utile est deux ordres de
+        // grandeur sous celle de /vehicles, donc les octets n'achèteraient rien — et le type
+        // paramétré reste lisible par un générateur de schéma (QUA-7).
         DisruptionSnapshot snapshot = poller.current();
         NetworkSnapshot network = registry.current();
 
+        DisruptionsResponse body = cache.get(List.of(snapshot, network),
+            now -> build(snapshot, network, now));
+
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_JSON)
+            .cacheControl(CacheControl.noStore())
+            .body(body);
+    }
+
+    private DisruptionsResponse build(DisruptionSnapshot snapshot, NetworkSnapshot network,
+                                      Instant now) {
         List<LineDisruptions> lines = new ArrayList<>();
         for (TrackedLine line : network.lines()) {
             List<Disruption> active = snapshot.forLine(line.id(), now);

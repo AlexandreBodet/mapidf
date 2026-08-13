@@ -11,6 +11,7 @@ import com.mapidf.gtfs.GtfsStaticService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -20,6 +21,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -155,6 +157,28 @@ class DisruptionsControllerIT {
 
         mockMvc.perform(get("/disruptions"))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(0)));
+    }
+
+    @Test
+    void marksTheResponseAsNeverStorable() throws Exception {
+        mockMvc.perform(get("/disruptions"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void servesAFreshPollWithoutWaitingForTheNextSecond() throws Exception {
+        // Un instantané vide après un instantané peuplé, dans la même seconde : la ligne 9 doit
+        // disparaître immédiatement, pas à la seconde suivante.
+        mockMvc.perform(get("/disruptions"))
+            .andExpect(jsonPath("$.lines", hasSize(2)));
+
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), Instant.now());
+
+        mockMvc.perform(get("/disruptions"))
             .andExpect(jsonPath("$.lines", hasSize(0)));
     }
 }
