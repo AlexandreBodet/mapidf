@@ -1,9 +1,6 @@
 package com.mapidf.controllers.support;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -14,35 +11,6 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ResponseCacheTest {
-
-    /** Java n'a pas d'horloge mutable : sans elle, éprouver la frontière de seconde imposerait
-     *  de dormir, donc un test lent et instable. */
-    private static final class TestClock extends Clock {
-        private Instant now;
-
-        TestClock(Instant now) {
-            this.now = now;
-        }
-
-        void set(Instant next) {
-            this.now = next;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-    }
 
     private static final Instant T0 = Instant.parse("2026-08-12T08:00:00.400Z");
 
