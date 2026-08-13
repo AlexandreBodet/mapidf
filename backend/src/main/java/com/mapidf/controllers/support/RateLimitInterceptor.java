@@ -22,8 +22,12 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * la sérialisation d'ErrorResponse — une seconde implémentation du format d'erreur, vouée à
  * diverger de la première.
  *
- * <p>Conséquence à connaître : un chemin non mappé n'a pas de handler, donc n'appelle pas cet
- * interceptor, donc n'est pas compté. Sans importance — un 404 ne coûte rien.
+ * <p>Conséquence à connaître : {@code spring.web.resources.add-mappings} (vrai par défaut, non
+ * désactivé ici) fait couvrir {@code /**} par un {@code ResourceHttpRequestHandler} — un chemin
+ * non mappé a donc bien un handler, et cet interceptor s'y applique comme sur un
+ * {@code @RestController} (vérifié par {@code RateLimitIT#compteAussiUnCheminNonMappe} : après
+ * le budget, {@code /nope} répond 429, pas 404). Sans conséquence pratique : un client qui ne
+ * sait pas viser un endpoint réel n'a pas plus de budget qu'un autre.
  */
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
@@ -56,6 +60,15 @@ public class RateLimitInterceptor implements HandlerInterceptor {
      * 127.0.0.0/8 et ::1 : après résolution du X-Forwarded-For, c'est la machine elle-même et
      * jamais un client public. Pas InetAddress.getByName — sur autre chose qu'un littéral, il
      * ferait une résolution DNS à chaque requête.
+     *
+     * <p>Limite de la garantie : {@code server.tomcat.remoteip.internal-proxies} (défaut)
+     * fait confiance à l'en-tête X-Forwarded-For venant de {@code 10/8}, {@code 172.16/12},
+     * {@code 192.168/16}, {@code 169.254/16} ou {@code 127/8}. Une source dont l'adresse
+     * réelle tombe dans une de ces plages — un conteneur voisin sur le réseau bridge de
+     * Compose, ou une machine du LAN si le port 8100 dépassait un jour la loopback — peut donc
+     * envoyer {@code X-Forwarded-For: 127.0.0.1} et obtenir l'exemption. Un client public ne le
+     * peut pas. Acceptable pour les trois topologies visées par ce chantier ; à revoir si l'une
+     * change.
      */
     private static boolean isLoopback(String ip) {
         return ip.startsWith("127.") || "::1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip);

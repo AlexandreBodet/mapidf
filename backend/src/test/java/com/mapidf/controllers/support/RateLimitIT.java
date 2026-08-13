@@ -58,7 +58,8 @@ class RateLimitIT {
             .andExpect(header().exists("Retry-After"))
             .andExpect(jsonPath("$.status").value(429))
             .andExpect(jsonPath("$.errorCode").value("TOO_MANY_REQUESTS"))
-            .andExpect(jsonPath("$.timestamp").exists());
+            .andExpect(jsonPath("$.timestamp").exists())
+            .andExpect(jsonPath("$.path").value("/network"));
     }
 
     @Test
@@ -93,5 +94,25 @@ class RateLimitIT {
         for (int i = 0; i < BUDGET * 4; i++) {
             call("127.0.0.1").andExpect(status().isOk());
         }
+    }
+
+    @Test
+    void compteAussiUnCheminNonMappe() throws Exception {
+        // spring.web.resources.add-mappings vaut true par défaut et n'est désactivé nulle part :
+        // Boot enregistre un ResourceHttpRequestHandler sur /**, et
+        // WebMvcConfigurationSupport.resourceHandlerMapping() lui applique les mêmes
+        // interceptors qu'à un @RestController — vérifié : /nope finit en 429 après le budget,
+        // pas en 404 ou 500. IP dédiée pour ne pas hériter du compteur des autres méthodes.
+        for (int i = 0; i < BUDGET; i++) {
+            mockMvc.perform(get("/nope").with(request -> {
+                request.setRemoteAddr("203.0.113.10");
+                return request;
+            }));
+        }
+
+        mockMvc.perform(get("/nope").with(request -> {
+            request.setRemoteAddr("203.0.113.10");
+            return request;
+        })).andExpect(status().isTooManyRequests());
     }
 }

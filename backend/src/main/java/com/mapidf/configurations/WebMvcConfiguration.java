@@ -7,9 +7,9 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Sans motif de chemin : l'interceptor couvre les quatre endpoints. Il n'atteint pas l'Actuator,
- * qui vit sur le port 9100 dans un contexte enfant distinct — et ce port n'est publié que sur la
- * loopback.
+ * Sans motif de chemin : l'interceptor couvre les quatre endpoints. Que le contexte enfant de
+ * l'Actuator hérite ou non de ce {@code WebMvcConfigurer} n'a pas d'importance : le port 9100
+ * n'est publié que sur la loopback, donc exempté dans tous les cas par {@code isLoopback}.
  */
 @Configuration
 @AllArgsConstructor
