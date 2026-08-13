@@ -50,11 +50,11 @@ public class DisruptionsController {
         // Le record est mémorisé tel quel, et non sérialisé : la charge utile est deux ordres de
         // grandeur sous celle de /vehicles, donc les octets n'achèteraient rien — et le type
         // paramétré reste lisible par un générateur de schéma (QUA-7).
-        DisruptionSnapshot snapshot = poller.current();
+        DisruptionSnapshot disruptions = poller.current();
         NetworkSnapshot network = registry.current();
 
-        DisruptionsResponse body = cache.get(List.of(snapshot, network),
-            now -> build(snapshot, network, now));
+        DisruptionsResponse body = cache.get(List.of(disruptions, network),
+            now -> build(disruptions, network, now));
 
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_JSON)
@@ -62,11 +62,11 @@ public class DisruptionsController {
             .body(body);
     }
 
-    private DisruptionsResponse build(DisruptionSnapshot snapshot, NetworkSnapshot network,
+    private DisruptionsResponse build(DisruptionSnapshot disruptions, NetworkSnapshot network,
                                       Instant now) {
         List<LineDisruptions> lines = new ArrayList<>();
         for (TrackedLine line : network.lines()) {
-            List<Disruption> active = snapshot.forLine(line.id(), now);
+            List<Disruption> active = disruptions.forLine(line.id(), now);
             if (active.isEmpty()) {
                 continue;
             }
@@ -75,15 +75,15 @@ public class DisruptionsController {
                 active.getFirst().severity().name(),
                 active.stream().map(DisruptionsController::toItem).toList()));
         }
-        return new DisruptionsResponse(now, lines, disruptedStations(snapshot, network, now));
+        return new DisruptionsResponse(now, lines, disruptedStations(disruptions, network, now));
     }
 
     /**
      * Quais perturbés → stations parentes. Une correspondance peut cumuler plusieurs quais
      * touchés : on ne garde que la pire gravité, puisque la carte n'a qu'un anneau à dessiner.
      */
-    private static List<StationDisruption> disruptedStations(DisruptionSnapshot snapshot,
-                                                             NetworkSnapshot network, Instant now) {
+    private static List<StationDisruption> disruptedStations(DisruptionSnapshot disruptions,
+                                                            NetworkSnapshot network, Instant now) {
         Map<String, String> stationIdByStopKey = new HashMap<>();
         for (Station station : network.stations()) {
             for (String platformId : station.platformIds()) {
@@ -91,8 +91,8 @@ public class DisruptionsController {
             }
         }
         Map<String, Disruption.Severity> worstByStation = new LinkedHashMap<>();
-        for (String stopKey : snapshot.byStop().keySet()) {
-            List<Disruption> active = snapshot.forStop(stopKey, now);
+        for (String stopKey : disruptions.byStop().keySet()) {
+            List<Disruption> active = disruptions.forStop(stopKey, now);
             String stationId = stationIdByStopKey.get(stopKey);
             if (active.isEmpty() || stationId == null) {
                 continue;
