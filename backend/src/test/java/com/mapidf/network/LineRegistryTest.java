@@ -25,7 +25,7 @@ class LineRegistryTest {
         // les lignes d'une station. Il n'y a plus de requireLine — aucun endpoint ne prend un id
         // de ligne en entrée depuis la suppression de l'espace /lines/{id} en tâche 4.
         assertThat(registry.current().linesById().get("9")).isEqualTo(LINE_9);
-        assertThat(registry.requireStation("STC")).isEqualTo(STATION_STC);
+        assertThat(LineRegistry.requireStation(registry.current(), "STC")).isEqualTo(STATION_STC);
         assertThat(registry.trackedSiriLineRefs()).containsExactly("STIF:Line::C01379:");
     }
 
@@ -34,7 +34,7 @@ class LineRegistryTest {
         LineRegistry registry = new LineRegistry();
         registry.publish(NetworkSnapshot.empty());
 
-        assertThatThrownBy(() -> registry.requireStation("STC"))
+        assertThatThrownBy(() -> LineRegistry.requireStation(registry.current(), "STC"))
             .isInstanceOf(ApiException.class)
             .satisfies(ex -> {
                 ApiException apiException = (ApiException) ex;

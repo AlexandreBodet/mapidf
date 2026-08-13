@@ -19,11 +19,15 @@ nombre de requêtes, sans jamais retarder l'affichage d'une donnée fraîche.
 
 Est réussi si, tout appliqué :
 
-1. Le recalcul d'une réponse a lieu au plus une fois par seconde et par clé, quel que soit le
-   nombre de clients. Sur `/vehicles`, **la sérialisation aussi** (§ 2.5).
+1. Le recalcul d'une réponse a lieu au plus une fois par seconde et par clé **en régime
+   séquentiel, aux doublons de concurrence près** — des requêtes simultanées sur une entrée
+   absente calculent toutes les deux, par choix (§ « Concurrence » du § 3), et à chaque bascule de
+   seconde toutes les requêtes en vol manquent ensemble. Sur `/vehicles`, **la sérialisation
+   aussi** (§ 2.5).
 2. Un poll qui publie un instantané neuf est visible **immédiatement**, pas à la seconde suivante.
    C'est la propriété que les IT existants exigent déjà (§ 2.2).
-3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11).
+3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11 ; **atteint :
+   114 UT + 53 IT**, dont six tests venus de la revue finale).
 4. `mapidf.cache.hits` / `mapidf.cache.misses` permettent de constater le gain en production, sans
    test de charge (§ 6).
 5. Aucun changement visible côté front. Le contrat JSON des trois endpoints est **inchangé** au
@@ -86,32 +90,135 @@ plus tard, et l'inclure ne coûte qu'une référence de plus dans la liste.
 
 ### 2.5 La sérialisation vaut d'être cachée sur `/vehicles`, et seulement là
 
-**Estimations, pas mesures** — le backend n'était pas joignable au moment du cadrage. Elles sont
-assez tranchées pour décider, et le § 8 dit comment les confirmer sans que le design en dépende.
-
 Le calcul, par véhicule : trois `extractPoint` (position et cap) plus des `indexOf` qui sont de
 simples recherches dans une map préconstruite
 ([PositionEngine.java:124](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L124),
 [:182-183](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L182-L183)).
 `extractPoint` parcourt les segments de la branche, soit ~220 points en moyenne (8 110 points pour
-37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains**.
+37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains** : c'est
+l'estimation de départ de ce terme, noté `C`. **Aucune sonde JUnit ne pouvait la vérifier** — il y
+faudrait une fixture de réseau réaliste, la `branchedLine()` de `PositionEngineTest` ne portant
+qu'une poignée de points par branche, et le coût d'`extractPoint` y serait sans rapport avec celui
+de production. Ce raisonnement reste vrai ; la mesure est venue **d'ailleurs** : en chronométrant
+l'endpoint réel et en séparant hits et misses par le compteur de cache (plus bas dans ce §), ce qui
+ne demande aucune fixture.
 
-La sérialisation : 705 DTO de 11 champs dont **trois `Instant` chacun**, soit ~2 100 formatages
-ISO-8601, qui en sont le gros → **~1 à 3 ms**.
+La sérialisation, notée `S` : 705 DTO de 11 champs dont **deux `Instant` chacun** (`expectedTime`
+et `recordedAt`, [VehiclesResponse.java:22-24](../../../backend/src/main/java/com/mapidf/controllers/vehicles/VehiclesResponse.java#L22-L24)),
+soit ~1 410 formatages ISO-8601, qui en sont le gros. L'estimation de départ — ~1 à 3 ms — comptait
+**trois** `Instant` par DTO, donc un tiers de travail de trop : voilà **une part de l'écart** avec
+le relevé ci-dessous. Mesure du **2026-08-13**, par une sonde jetable (705 `VehicleDto`
+synthétiques, `writeValueAsBytes` en régime chaud, 15 lots de 200 appels après 3 000 de chauffe) :
 
-Le même ordre de grandeur, donc — et non deux ordres d'écart comme l'intuition le suggère. Or les
-deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
-sérialisation **une fois par requête**. En notant `C` le premier et `S` le second :
+> **`S` ≈ 0,9 ms par appel**, pour une charge utile **synthétique** de **174 ko** — sur **neuf
+> exécutions** :
+> médiane des neuf médianes **0,902 ms**, minimum absolu 0,734 ms, exécution la plus chargée à
+> 1,382 ms de médiane. Médianes des neuf exécutions, dans l'ordre de tir : **1,382 / 0,902 /
+> 0,928 / 1,176 / 0,750 / 0,908 / 0,790 / 0,805 / 0,754 ms** ; charge utile identique aux neuf.
 
-| Charge | Cache de l'objet (`C/s + N·S`) | Cache des octets (`C/s + S/s`) |
+**Cette charge utile est sous-estimée.** Sur le réseau réel, `curl -w "%{size_download}"` sur
+`GET /api/vehicles` rend **224 796 octets, soit 219 ko** : la sonde en annonçait **174**, soit 45 ko
+de moins — un cinquième de la charge réelle, qui vaut **1,26×** la synthétique (identifiants et
+libellés y sont plus longs). Le nombre de DTO et d'`Instant`, lui, est le même. Le `S` de la sonde
+est donc un **plancher** pour la vraie sérialisation, pas une valeur transposable telle quelle : ce
+qui suit l'encadre au lieu de le reprendre.
+
+**L'estimation tient, à sa borne basse.** Elle n'est ni confirmée au milieu de sa fourchette ni
+démentie : la valeur mesurée est ~3× sous le haut de la fourchette. Son rapport à `C` — la seule
+chose dont dépende la conception — se lit sur la mesure ci-dessous : `S` y vaut entre le **sixième
+et le neuvième** de `C`, donc `N·S` dépasse `C` dès quelques dizaines de clients. (Trois détails de la mesure :
+Jackson 3 écrit les `Instant` en ISO-8601 **sans configuration**, `WRITE_DATES_AS_TIMESTAMPS` étant
+désactivé par défaut, donc la sonde mesure bien le format servi ; sans les 3 000 appels de chauffe
+le chiffre est plusieurs fois trop élevé ; et la dispersion **entre** exécutions reste réelle —
+d'où les neuf répétitions, une seule aurait pu rendre n'importe quoi entre 0,75 et 1,38. C'est une
+machine de développement, pas un hôte de production.)
+
+**`C + S` mesuré sur le réseau réel, le 2026-08-13.** Ce qu'une sonde JUnit ne pouvait pas faire,
+une salve HTTP le fait : **700 requêtes séquentielles** sur `GET /api/vehicles` contre le backend de
+développement en marche, réseau complet (16 lignes, ~705 véhicules), chronométrées par
+`curl -w "%{time_total}"`. Hits et misses se séparent **par le compteur** :
+`mapidf_cache_misses_total{cache="vehicles"}`, relevé avant et après la salve, donne **8 misses sur
+700 requêtes** ; les 8 temps les plus longs forment un groupe serré — **8,6 à 12,4 ms** — nettement
+détaché du reste.
+
+| | Temps de réponse |
+|---|---|
+| Miss — calcul + sérialisation + transport | **10,3 ms** de moyenne (n = 8) |
+| Hit — transport seul | **1,65 ms** de moyenne (n = 692) |
+| Écart = **`C + S`**, net du transport | **8,7 ms** |
+
+**L'estimation de `C` tient, mais par le haut** : 8,7 ms mesurés contre 4 à 9 ms estimés (3 à 8 pour
+`C`, 0,9 pour `S`). Elle n'est ni démentie ni confirmée en son milieu — elle est validée de justesse,
+par le sommet de sa fourchette.
+
+**Ce que cette méthode ne sait pas faire**, à écrire noir sur blanc :
+
+- elle **ne sépare pas** `C` de `S`, seulement leur somme — toute décomposition écrite plus bas est
+  **dérivée**, jamais mesurée ;
+- machine de développement, boucle locale, et le backend servait en parallèle le front de
+  l'utilisateur : il y a du **bruit concurrent** ;
+- « les 8 plus lents sont les 8 misses » est une **inférence**. Elle tient sur deux faits : le
+  compte correspond exactement au delta du compteur, et l'écart entre le 8ᵉ temps (8,6 ms) et le 9ᵉ
+  est net.
+
+Les deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
+sérialisation **une fois par requête**. Seule leur **somme** est mesurée, d'où la façon de lire le
+tableau. La colonne « octets » vaut directement la mesure : `(C+S)/s` = **8,7 ms/s**, sans aucune
+décomposition. La colonne « objet », elle, exige `S` seul, donc une **déduction** — `C` = 8,7 − `S`,
+avec `S` **encadré** plutôt que fixé :
+
+- borne basse **0,90 ms** — la sonde telle quelle, si le coût ne tient qu'au nombre de champs et aux
+  1 410 formatages ISO-8601, invariants entre charge synthétique et charge réelle ;
+- borne haute **1,14 ms** — la même remise à l'échelle des 219 ko réels (0,902 × 219/174), si le
+  coût suit le volume écrit.
+
+Soit **`C` entre 7,56 et 7,80 ms**, dérivé. En notant `N` le débit en requêtes par seconde :
+
+| Charge | Cache de l'objet — `C/s + N·S` (dérivé) | Cache des octets — `(C+S)/s` (mesuré) |
 |---|---|---|
-| 1 client (0,25 req/s) | ~5 ms/s | ~5 ms/s |
-| 40 clients (10 req/s) | ~25 ms/s | ~7 ms/s |
-| 400 clients (100 req/s) | ~205 ms/s | ~7 ms/s |
+| 1 client (0,25 req/s) | 7,8 à 8,0 ms/s | **8,7 ms/s** |
+| 40 clients (10 req/s) | 16,8 à 19,0 ms/s | **8,7 ms/s** |
+| 400 clients (100 req/s) | 98 à 122 ms/s | **8,7 ms/s** |
 
-La bascule est là où `N·S` dépasse `C`, vers **une dizaine de clients simultanés**. C'est
-l'argument des octets : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
-rend **plat**.
+**Les deux colonnes se croisent dès `N` = 1 req/s, soit 4 clients**, et ce n'est pas une
+coïncidence : `C + N·S` et `C + S` s'égalisent quand `N·S = S`, donc à `N` = 1 quelle que soit la
+valeur de `S`. Au-delà, cacher les octets est **déjà** moins cher — d'un facteur ~2 à 40 clients.
+Le seuil retenu plus bas est **plus exigeant** que ce croisement : ce n'est pas celui où le cache
+d'octets commence à payer, c'est celui où le terme qu'il supprime devient l'**essentiel** du coût.
+
+La colonne `(C+S)/s` est une **borne basse idéalisée** : elle suppose qu'une seule requête paie
+le calcul par seconde. À chaque bascule de seconde, les requêtes en vol manquent toutes ensemble et
+recalculent en parallèle — d'autant plus nombreuses que le débit est élevé. À 100 req/s le terme
+réel est donc un petit multiple de `C` par seconde, pas exactement `C`. Ça ne déplace pas la
+bascule (le cache d'objet subit la même chose sur son terme `C`), mais « plat » veut dire plat au
+bruit de concurrence près.
+
+La bascule retenue est le seuil de **domination** — là où `N·S` dépasse `C`, c'est-à-dire où la
+sérialisation par requête devient le plus gros des deux termes —, soit `N` > (8,7 − `S`)/`S` :
+**6,6 à 8,7 req/s — 27 à 35 clients** au poll de 4 s. À ne pas lire comme « en dessous, cacher les
+octets n'achète rien » : le croisement, lui, est à 4 clients (ci-dessus). Bien plus tard que la « dizaine » annoncée avant mesure, et la fourchette
+s'est **resserrée sur la moitié haute** des « 13 à 36 clients » d'avant celle-ci. Elle a surtout
+changé de source d'incertitude : ce n'est plus `C` — sa somme avec `S` est maintenant mesurée —
+mais la façon dont `S` se transpose de la charge synthétique à la charge réelle. C'est quand même
+l'argument des octets, et il ne dépend pas du chiffre exact : le cache d'objet laisse le coût
+**linéaire** en clients, celui des octets le rend **plat**. Ce que la mesure change, c'est le moment
+où ça compte, pas le sens.
+
+**Ces bornes sont plus précises à l'écrit qu'à la mesure.** 7,56 et 7,80 tombent au centième par
+construction — c'est une soustraction —, mais leur base ne l'est pas : 10,3 − 1,65 = **8,65**,
+arrondi à 8,7 partout ci-dessus. En repartant de 8,65, la fourchette devient 26 à 34 clients. Et la
+conversion en clients ne se refait pas depuis les req/s arrondis : 6,6 × 4 donnerait 26,4, quand le
+chiffre vient de 6,63 × 4 = 26,5. À lire donc à **±0,3 ms et ±1 client** près — rien de tout cela ne
+déplace une décision.
+
+**Un hit coûte encore 1,65 ms, et le cache n'y peut rien** : les 219 ko partent sur le réseau à
+chaque requête. Le cache supprime le calcul, pas le transport. C'est exactement le reste que
+**PERF-4** (§ 8) irait chercher : envoyer le segment une fois par minute et laisser le front
+interpoler. Avec une réserve sur le montant : ces 1,65 ms ne sont pas *tous* du transport de charge
+utile — s'y ajoutent l'établissement de connexion et la pile HTTP, qu'alléger le corps ne supprime
+pas. C'est un **majorant** de ce que PERF-4 peut y gagner, pas une mesure du transport seul. À noter
+enfin que ce coût-là n'entre dans aucune colonne du tableau ci-dessus, qui ne compte que le travail
+supprimé par le cache.
 
 **Ce raisonnement ne vaut que pour `/vehicles`.** `/disruptions` sert une poignée d'éléments,
 `/stations/{id}/departures` quelques dizaines de passages — deux ordres de grandeur sous les 705
@@ -163,10 +270,23 @@ privée. Pas d'`AtomicReference` en parallèle de la map pour le cas global — 
 surcharges seraient deux fois plus de code à maintenir correct pour aucun gain mesurable sur une
 map d'une entrée.
 
-La map de `/stations/{id}/departures` est **bornée par construction** : `requireStation(id)` rejette
-un identifiant inconnu *avant* d'atteindre le cache, donc au plus une entrée par station du registry
-(321 aujourd'hui, quelques kilo-octets d'octets sérialisés). Aucune éviction à écrire, et aucun
-vecteur de saturation par identifiant forgé.
+La map de `/stations/{id}/departures` **ne peut pas être saturée par un identifiant forgé** : la
+station est résolue *avant* d'atteindre le cache et un identifiant absent du réseau courant lève,
+donc aucune entrée ne naît d'un identifiant inventé (321 stations aujourd'hui).
+
+Ce n'était pas une borne pour autant, et la première version de ce paragraphe en sous-estimait le
+prix de trois ordres de grandeur : une entrée ne retient pas que sa **valeur** (là, oui, quelques
+kilo-octets de records) — elle retient aussi une **référence forte vers ses instantanés source**,
+dont un `RtSnapshot` de ~705 courses et quelques milliers d'appels, soit **~1 Mo**. Le poller en
+publie un neuf toutes les 60 s : une station interrogée puis jamais rouverte épinglait donc celui de
+sa dernière visite jusqu'à la fin du processus. ~20 Mo pour 20 stations parcourues, ~300 Mo au
+plafond des 321 — une régression depuis zéro, relevée en revue finale.
+
+D'où la purge : **à chaque défaut, toute entrée dont la seconde n'est pas la seconde courante est
+retirée**. Elle ne coûte aucun hit, une entrée d'une autre seconde ne pouvant de toute façon plus en
+produire, et elle est en O(nombre de clés) sur un défaut — 321 au pire. Elle règle du même coup le
+cas de la station disparue d'un refresh GTFS, qu'aucune éviction ne couvrait. Ce qui reste retenu
+est donc borné par les seules clés visitées dans la seconde courante.
 
 ### Concurrence : on accepte un calcul en double
 
@@ -224,6 +344,16 @@ record, et le type de retour est `ResponseEntity<DisruptionsResponse>` /
 — c'est elle qui porte le `Cache-Control` ci-dessous — mais elle **préserve** le type paramétré, donc
 seul `/vehicles` perd la forme de sa réponse dans sa signature.
 
+**Effet de bord assumé du `contentType` : la négociation de contenu est court-circuitée.** Dès
+qu'une `ResponseEntity` porte un Content-Type concret, Spring ne consulte plus l'en-tête `Accept`.
+Un `Accept: application/xml` sur les trois endpoints rend donc **200 JSON** là où il rendait 406.
+C'est bénin — aucun client du projet ne demande autre chose que du JSON — et l'en-tête est
+**indispensable** sur `/vehicles` : sans lui, un `byte[]` sort en `application/octet-stream`, que
+nginx ne gzippe pas. Conséquence à connaître : `/network`, qui ne pose pas cet en-tête
+([NetworkController](../../../backend/src/main/java/com/mapidf/controllers/network/NetworkController.java)),
+**diverge** — la négociation y reste en vigueur. Aligner les quatre endpoints est possible ; ce
+n'est pas un correctif de ce chantier.
+
 `json.writeValueAsBytes` ne demande aucune plomberie d'exception, celles de Jackson 3 étant non
 vérifiées. Le code du projet le confirme déjà : `RealtimePoller.parse` ouvre un `JsonParser` sans
 déclarer le moindre `throws`
@@ -255,16 +385,39 @@ dormir**. En TDD : chaque test écrit avant son implémentation.
 | 4 | Deux clés distinctes → entrées indépendantes | Une map dégénérée en entrée unique |
 | 5 | Le `now` reçu par le calcul est celui qui sert de clé | Le décalage clé/calcul du § 3 |
 | 6 | `hits` et `misses` comptent juste | Une métrique décorative |
+| 7 | Deux sources, **seule la seconde change** → recalcul | Une comparaison qui s'arrête à l'index 0 — donc qui ignore le `NetworkSnapshot` du § 2.4 |
+| 8 | Un défaut à la seconde suivante **purge** les entrées des secondes précédentes | Les entrées qui épinglent leurs instantanés source (§ 3) |
+| 9 | Un défaut sur une autre clé, **même seconde**, laisse les entrées voisines intactes | Une purge trop large, qui échangerait la fuite contre un cache qui ne cache plus |
 
-**Les IT existants sont le filet principal**, et ils n'ont pas à être modifiés : les trois suivent
-le motif `pollOnce` puis `GET` dans la même seconde (§ 2.2), donc ils rougissent sur un cache mal
-invalidé. C'est le seul endroit du chantier où un test préexistant couvre le risque n°1.
+Les tests 7 à 9 sont venus de la revue finale. Le 7 a été vérifié par une **mutation de contrôle** :
+`sameInstances` réduit à `cached.get(0) == current.get(0)` passait les six tests d'origine et ne
+rougit que sur celui-là.
 
-S'ajoutent, par endpoint :
+**Ce qui est vraiment le filet côté IT, ce sont les tests à deux `GET`** — pas les IT préexistants,
+contrairement à ce que ce paragraphe affirmait. Chaque `@BeforeEach` rejoue `publishFromDatabase()`,
+donc republie un `NetworkSnapshot` neuf, et l'invalidation par identité se déclenche de toute façon
+entre deux méthodes de test : un cache purement TTL n'y serait détecté que si deux **corps** de test
+tombaient dans la même seconde murale, ce que rien ne garantit. Mesuré en mutant `sameInstances` en
+`return true` : trois tests de `StationsControllerIT` rougissent — mais deux d'entre eux par le seul
+effet d'un enchaînement rapide, pas par construction.
+
+S'ajoutent donc, par endpoint :
 
 - `Content-Type: application/json` et `Cache-Control: no-store` ;
-- deux `GET` séparés par un `pollOnce` d'`asOf` différent → deux `asOf` différents dans les
-  réponses. C'est l'invalidation prouvée de bout en bout, pas seulement en unitaire.
+- deux `GET` séparés par un `pollOnce` d'instantané différent → deux réponses différentes. C'est
+  l'invalidation prouvée de bout en bout, avec des millisecondes entre les deux requêtes et non le
+  hasard d'un enchaînement de méthodes. Les trois endpoints en ont un
+  (`/stations/{id}/departures` l'a reçu en revue finale, il manquait) ;
+- **un** IT qui prouve qu'un hit *se produit* : deux `GET` identiques, puis une assertion sur
+  `mapidf.cache.hits`. Aucun autre test ne le faisait — vérifié en mutant `sameInstances` en
+  `return false`, les cinq autres tests de `VehiclesControllerIT` restent verts. Le bean `Clock`
+  étant l'horloge système, la tentative n'est retenue que si la seconde murale n'a pas changé de
+  part et d'autre des deux requêtes ; sinon le test retente. Le verdict est donc déterministe, et
+  exact (un poll ouvre chaque tentative, donc la première requête est toujours un défaut).
+
+Enfin, `StationsControllerTest` (unitaire, horloge figée) vérifie que la station servie est tirée de
+l'instantané qui entre dans la clé : avec un registry qui republie entre deux lectures, la variante
+à deux lectures servait encore le nom d'avant le refresh à une requête entièrement postérieure.
 
 ## 6. Observabilité
 
@@ -275,9 +428,19 @@ de charge que le projet n'a pas. Même logique que
 [QUA-2](2026-07-29-multi-ligne-metro-design.md) — une mesure qui répond à une question qu'on se
 posera, exposée par `/actuator/prometheus` avec les autres.
 
+**Deux métriques existantes changent de sémantique**, sans que leur nom bouge :
+`mapidf.position.unplaced` et `mapidf.position.branch.unresolved` s'incrémentaient une fois par
+**requête** (une toutes les 4 s par client, soit ~10/s à 40 clients) ; elles s'incrémentent
+maintenant une fois par **calcul**, soit ~1/s, quel que soit le nombre de clients. C'est un
+progrès — elles mesurent enfin la donnée et non le trafic, ce qu'un garde-fou de
+réseau doit faire — mais leurs **ordres de grandeur historiques ne sont plus comparables** : une
+chute de ces compteurs après PERF-3 ne veut pas dire que le placement s'est amélioré. Noté aussi
+dans `CLAUDE.md`, où elles sont présentées comme le garde-fou observable du réseau.
+
 ## 7. Ordre d'exécution
 
-1. Bean `Clock` + `ResponseCache` avec ses six tests unitaires (TDD, aucun contrôleur touché).
+1. Bean `Clock` + `ResponseCache` avec ses six premiers tests unitaires (TDD, aucun contrôleur
+   touché) ; les tests 7 à 9 du § 5 sont venus après, avec la revue finale.
 2. `/vehicles` : constructeur explicite, `ResponseEntity<byte[]>`, IT d'en-têtes et d'invalidation.
 3. `/disruptions`, puis `/stations/{id}/departures` — le second introduit la variante à clé.
 4. `./mvnw verify` complet, et vérification que les trois IT préexistants sont **restés** verts
@@ -295,14 +458,23 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   **configuration pure, sans couplage au code** : le reporter ne coûte rien, et il rejoint
   naturellement `limit_req` — même fichier, même préoccupation de bordure, même décision
   d'hébergement en attente.
-- **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Le § 2.5
-  raisonne sur des estimations. Elle reste faisable **pendant** l'implémentation, quand on est déjà
-  dans `/vehicles`, et sans démarrer l'appli : un test jetable qui construit 705 `VehicleDto`
-  synthétiques et chronomètre `writeValueAsBytes` donne `S` ; `C` se lit en chronométrant
-  `computeAll` sur la fixture. Le design ne dépend pas du résultat — le composant est générique sur
-  `V` (§ 3), donc un démenti se solde par un paramètre de type et un lambda.
+- **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Elle a bien
+  eu lieu, mais **après** l'implémentation et sans que le design en dépende — le composant est
+  générique sur `V` (§ 3), donc un démenti se serait soldé par un paramètre de type et un lambda.
+  `S` est mesuré par sonde, et **`C + S` par chronométrage de l'endpoint réel** (§ 2.5). Ce qui
+  reste hors de portée, c'est le **partage** des deux termes : par sonde, il demanderait `computeAll`
+  sur une fixture de réseau réaliste — celle de `PositionEngineTest` mesurerait des branches de
+  quelques points, pas les ~220 de production —, un chantier en soi qui ne changerait aucune
+  décision de celui-ci. D'où un `C` déduit par différence, et signalé comme tel partout.
+- **L'adoption complète du bean `Clock`.** Il n'est adopté qu'à moitié : `RealtimePoller`
+  (`inServiceNow`, via `LocalTime.now(PARIS)`) et `LineCoverageGuard` appellent toujours l'horloge
+  murale en dur. Relevé en revue finale, consigné, non corrigé — ce chantier n'avait besoin d'une
+  horloge injectable que dans le cache, et étendre l'injection touche du code de poll que rien ici
+  ne fait bouger.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
-  qu'à 60 s pendant que le front poll à 4 s. Effort L, et ce chantier ne l'empêche pas.
+  qu'à 60 s pendant que le front poll à 4 s. C'est aussi la seule façon d'attaquer le coût résiduel
+  d'un hit — **au plus 1,65 ms**, dont le transport des 219 ko que le cache ne supprime pas (§ 2.5).
+  Effort L, et ce chantier ne l'empêche pas.
 
 ## 9. Conséquences sur la documentation
 
@@ -313,5 +485,7 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   le type paramétré et reste lisible par un générateur de schéma. `VehiclesResponse` reste la source
   de vérité, à déclarer à la main au générateur le jour de QUA-7 — c'est le seul prix du chantier, et
   il se paie ailleurs.
-- **CLAUDE.md** : rien à ajouter si le design tient. Le piège « un TTL pur casse les IT de
-  contrôleur » vit dans cette spec et dans le test n°2, qui le rend actif.
+- **CLAUDE.md** : une ligne, finalement — le déplacement de sémantique de
+  `mapidf.position.unplaced` et `mapidf.position.branch.unresolved` (§ 6), là où elles sont
+  présentées comme le garde-fou observable du réseau. Le piège « un TTL pur casse les IT de
+  contrôleur », lui, vit dans cette spec et dans le test n°2, qui le rend actif.

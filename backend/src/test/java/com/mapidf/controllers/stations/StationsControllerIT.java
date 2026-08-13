@@ -12,11 +12,14 @@ import com.mapidf.rt.RealtimePoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -164,5 +167,47 @@ class StationsControllerIT {
     void returnsNotFoundForAnUnknownStation() throws Exception {
         mockMvc.perform(get("/stations/NOPE/departures"))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void marksTheResponseAsNeverStorable() throws Exception {
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void servesAFreshPollWithoutWaitingForTheNextSecond() throws Exception {
+        // L'endpoint le plus exposé du chantier — trois sources et une clé — était le seul sans
+        // preuve d'invalidation de bout en bout. Le setup() a injecté un instantané vide, donc
+        // aucune ligne ne dessert encore la station.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(0)));
+
+        Instant now = Instant.now();
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            twoLineSnapshotAt(now.plusSeconds(120), now.plusSeconds(180))
+                .getBytes(StandardCharsets.UTF_8)), now);
+
+        // Même seconde murale que la requête précédente, selon toute vraisemblance : c'est
+        // l'identité de l'instantané, et non le temps, qui doit faire tomber l'entrée.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(2)));
+    }
+
+    @Test
+    void keepsStationsIndependentWithinTheSameSecond() throws Exception {
+        // Le cache est indexé par station : deux stations interrogées dans la même seconde ne
+        // doivent pas se servir la réponse l'une de l'autre.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.stationName").value("Correspondance"));
+
+        mockMvc.perform(get("/stations/ST1/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.stationName").value("Alpha"));
     }
 }

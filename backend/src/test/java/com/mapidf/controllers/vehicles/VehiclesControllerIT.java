@@ -8,18 +8,24 @@ import com.mapidf.MapIdfTest;
 import com.mapidf.gtfs.GtfsStaticLoader;
 import com.mapidf.gtfs.GtfsStaticService;
 import com.mapidf.rt.RealtimePoller;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,6 +36,7 @@ class VehiclesControllerIT {
     @Autowired GtfsStaticLoader loader;
     @Autowired GtfsStaticService staticService;
     @Autowired RealtimePoller poller;
+    @Autowired MeterRegistry meters;
     MockMvc mockMvc;
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -121,5 +128,66 @@ class VehiclesControllerIT {
             .andExpect(jsonPath("$.vehicles[*].lineId", containsInAnyOrder("7", "9")))
             .andExpect(jsonPath("$.vehicles[*].confidence",
                 containsInAnyOrder("APPROXIMATE", "APPROXIMATE")));
+    }
+
+    @Test
+    void marksTheResponseAsNeverStorable() throws Exception {
+        // Sans en-tête, un proxy peut cacher un 200 de façon heuristique et figer les trains
+        // chez tous les clients. Le cache de PERF-3 est serveur ; celui des intermédiaires est
+        // interdit.
+        mockMvc.perform(get("/vehicles"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void servesAFreshPollWithoutWaitingForTheNextSecond() throws Exception {
+        // La propriété qui interdit un cache à TTL : deux polls et deux requêtes dans la même
+        // seconde doivent donner deux réponses différentes.
+        Instant first = Instant.parse("2026-08-12T08:00:00Z");
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), first);
+        String before = mockMvc.perform(get("/vehicles"))
+            .andReturn().getResponse().getContentAsString();
+
+        Instant later = Instant.parse("2026-08-12T09:00:00Z");
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), later);
+        String after = mockMvc.perform(get("/vehicles"))
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(Instant.parse(JSON.readTree(before).path("asOf").asString())).isEqualTo(first);
+        assertThat(Instant.parse(JSON.readTree(after).path("asOf").asString())).isEqualTo(later);
+    }
+
+    @Test
+    void reusesTheSerializedBodyAcrossTwoRequestsOfTheSameSecond() throws Exception {
+        // Les autres IT prouvent que le cache ne GÊNE pas la fraîcheur ; aucun ne prouvait qu'il
+        // CACHE. Une régression qui relirait l'instantané dans le lambda, ou un `sameInstances`
+        // toujours faux, les laisserait tous verts. Le compteur est le seul témoin.
+        //
+        // Le bean Clock est l'horloge système : rien ne garantit que deux requêtes tombent dans la
+        // même seconde. On n'assène donc rien sur une tentative qui a franchi une frontière de
+        // seconde — on retente. Le verdict porte sur une tentative CONSTATÉE dans une seule
+        // seconde, et il y est exact : le poll qui l'ouvre publie un instantané neuf, donc la
+        // première requête est forcément un défaut et la seconde forcément l'unique hit attendu.
+        Counter hits = meters.counter("mapidf.cache.hits", "cache", "vehicles");
+
+        for (int attempt = 0; attempt < 20; attempt++) {
+            poller.pollOnce(url -> new ByteArrayInputStream(
+                "{}".getBytes(StandardCharsets.UTF_8)), Instant.now());
+            long second = Instant.now().getEpochSecond();
+            double before = hits.count();
+
+            mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
+            mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
+
+            if (second == Instant.now().getEpochSecond()) {
+                assertThat(hits.count() - before).isEqualTo(1.0);
+                return;
+            }
+        }
+        fail("aucune paire de requêtes n'est restée dans une seule seconde en 20 tentatives");
     }
 }
