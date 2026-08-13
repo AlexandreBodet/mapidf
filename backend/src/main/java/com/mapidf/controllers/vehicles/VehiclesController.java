@@ -28,8 +28,9 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Les positions dépendent de l'instant, donc elles sont recalculées ; mais au plus une fois
  * par seconde, la réponse étant mémorisée SÉRIALISÉE. C'est le seul des trois endpoints à cacher
- * des octets : lui seul porte ~705 objets, dont la sérialisation est du même ordre de grandeur
- * que le calcul et, contrairement à lui, croît avec le nombre de clients.
+ * des octets : ne mémoriser que l'objet laisserait la sérialisation de ~705 véhicules se payer
+ * une fois par REQUÊTE, quand le calcul se paie une fois par seconde — ce terme-là finit donc
+ * par dominer quand le débit monte, si léger soit-il par appel.
  */
 @RestController
 public class VehiclesController {
