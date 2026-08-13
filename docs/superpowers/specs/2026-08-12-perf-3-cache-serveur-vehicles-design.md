@@ -23,7 +23,8 @@ Est réussi si, tout appliqué :
    nombre de clients. Sur `/vehicles`, **la sérialisation aussi** (§ 2.5).
 2. Un poll qui publie un instantané neuf est visible **immédiatement**, pas à la seconde suivante.
    C'est la propriété que les IT existants exigent déjà (§ 2.2).
-3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11).
+3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11 ; **atteint :
+   110 UT + 51 IT**).
 4. `mapidf.cache.hits` / `mapidf.cache.misses` permettent de constater le gain en production, sans
    test de charge (§ 6).
 5. Aucun changement visible côté front. Le contrat JSON des trois endpoints est **inchangé** au
@@ -86,32 +87,46 @@ plus tard, et l'inclure ne coûte qu'une référence de plus dans la liste.
 
 ### 2.5 La sérialisation vaut d'être cachée sur `/vehicles`, et seulement là
 
-**Estimations, pas mesures** — le backend n'était pas joignable au moment du cadrage. Elles sont
-assez tranchées pour décider, et le § 8 dit comment les confirmer sans que le design en dépende.
-
 Le calcul, par véhicule : trois `extractPoint` (position et cap) plus des `indexOf` qui sont de
 simples recherches dans une map préconstruite
 ([PositionEngine.java:124](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L124),
 [:182-183](../../../backend/src/main/java/com/mapidf/position/PositionEngine.java#L182-L183)).
 `extractPoint` parcourt les segments de la branche, soit ~220 points en moyenne (8 110 points pour
-37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains**.
+37 polylignes). Quelques microsecondes par véhicule → **~3 à 8 ms pour 705 trains**. Ce terme,
+noté `C`, **reste une estimation** : le mesurer demanderait une fixture de réseau réaliste, la
+`branchedLine()` de `PositionEngineTest` ne portant qu'une poignée de points par branche — le coût
+d'`extractPoint` y serait sans rapport avec celui de production.
 
-La sérialisation : 705 DTO de 11 champs dont **trois `Instant` chacun**, soit ~2 100 formatages
-ISO-8601, qui en sont le gros → **~1 à 3 ms**.
+La sérialisation, notée `S` : 705 DTO de 11 champs dont **trois `Instant` chacun**, soit ~2 100
+formatages ISO-8601, qui en sont le gros. Estimée à ~1 à 3 ms, elle a été **mesurée le 2026-08-13**
+par une sonde jetable (705 `VehicleDto` synthétiques, `writeValueAsBytes` en régime chaud, 15 lots
+de 200 appels après 3 000 de chauffe) :
 
-Le même ordre de grandeur, donc — et non deux ordres d'écart comme l'intuition le suggère. Or les
-deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
-sérialisation **une fois par requête**. En notant `C` le premier et `S` le second :
+> **`S` ≈ 0,9 ms par appel**, pour une charge utile de **174 ko** — min 0,85 / médiane 0,90 sur
+> trois exécutions stabilisées.
+
+**L'estimation tient, à sa borne basse.** Elle n'est ni confirmée au milieu de sa fourchette ni
+démentie : la valeur mesurée est ~3× sous le haut de la fourchette, mais reste du même ordre de
+grandeur que `C` — ce qui est la seule chose dont dépend la conception. (Deux détails de la mesure :
+Jackson 3 écrit les `Instant` en ISO-8601 **sans configuration**, `WRITE_DATES_AS_TIMESTAMPS` étant
+désactivé par défaut, donc la sonde mesure bien le format servi ; et sans les 3 000 appels de
+chauffe le chiffre est plusieurs fois trop élevé.)
+
+Les deux termes ne se comportent pas pareil : le calcul est payé **une fois par seconde**, la
+sérialisation **une fois par requête**. En notant `N` le débit en requêtes par seconde, et en
+retenant `C` ≈ 3 à 8 ms et `S` = 0,9 ms :
 
 | Charge | Cache de l'objet (`C/s + N·S`) | Cache des octets (`C/s + S/s`) |
 |---|---|---|
-| 1 client (0,25 req/s) | ~5 ms/s | ~5 ms/s |
-| 40 clients (10 req/s) | ~25 ms/s | ~7 ms/s |
-| 400 clients (100 req/s) | ~205 ms/s | ~7 ms/s |
+| 1 client (0,25 req/s) | ~5,2 ms/s | ~5,9 ms/s |
+| 40 clients (10 req/s) | ~14 ms/s | ~5,9 ms/s |
+| 400 clients (100 req/s) | ~95 ms/s | ~5,9 ms/s |
 
-La bascule est là où `N·S` dépasse `C`, vers **une dizaine de clients simultanés**. C'est
-l'argument des octets : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
-rend **plat**.
+La bascule est là où `N·S` dépasse `C`, soit **3 à 9 req/s, une quinzaine à une quarantaine de
+clients** au poll de 4 s — plus tard que la « dizaine » annoncée avant mesure, et la fourchette
+reste large parce que `C` n'est pas mesuré. C'est quand même l'argument des octets, et il ne dépend
+pas du chiffre exact : le cache d'objet laisse le coût **linéaire** en clients, celui des octets le
+rend **plat**. Ce que la mesure change, c'est le moment où ça compte, pas le sens.
 
 **Ce raisonnement ne vaut que pour `/vehicles`.** `/disruptions` sert une poignée d'éléments,
 `/stations/{id}/departures` quelques dizaines de passages — deux ordres de grandeur sous les 705
@@ -163,10 +178,16 @@ privée. Pas d'`AtomicReference` en parallèle de la map pour le cas global — 
 surcharges seraient deux fois plus de code à maintenir correct pour aucun gain mesurable sur une
 map d'une entrée.
 
-La map de `/stations/{id}/departures` est **bornée par construction** : `requireStation(id)` rejette
-un identifiant inconnu *avant* d'atteindre le cache, donc au plus une entrée par station du registry
-(321 aujourd'hui, quelques kilo-octets d'octets sérialisés). Aucune éviction à écrire, et aucun
-vecteur de saturation par identifiant forgé.
+La map de `/stations/{id}/departures` **ne peut pas être saturée par un identifiant forgé** :
+`requireStation(id)` rejette un identifiant inconnu *avant* d'atteindre le cache, donc aucune entrée
+n'existe pour un identifiant absent du registry **courant** (321 stations aujourd'hui, quelques
+kilo-octets de records).
+
+Ce n'est pas tout à fait une borne dans la durée, et il ne faut pas l'écrire comme telle : si un
+refresh GTFS republie un `NetworkSnapshot` d'où une station a disparu, son entrée reste dans la map
+— jamais relue, jamais évincée. Rien n'est prévu contre ça, sciemment : les identifiants de station
+de métro sont stables, la fuite se compte en une poignée de records sur la durée de vie d'un
+processus, et une éviction coûterait plus de code à maintenir correct qu'elle ne rendrait de mémoire.
 
 ### Concurrence : on accepte un calcul en double
 
@@ -295,12 +316,13 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   **configuration pure, sans couplage au code** : le reporter ne coûte rien, et il rejoint
   naturellement `limit_req` — même fichier, même préoccupation de bordure, même décision
   d'hébergement en attente.
-- **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Le § 2.5
-  raisonne sur des estimations. Elle reste faisable **pendant** l'implémentation, quand on est déjà
-  dans `/vehicles`, et sans démarrer l'appli : un test jetable qui construit 705 `VehicleDto`
-  synthétiques et chronomètre `writeValueAsBytes` donne `S` ; `C` se lit en chronométrant
-  `computeAll` sur la fixture. Le design ne dépend pas du résultat — le composant est générique sur
-  `V` (§ 3), donc un démenti se solde par un paramètre de type et un lambda.
+- **La mesure du partage entre calcul JTS et sérialisation, comme préalable bloquant.** Elle a bien
+  eu lieu, mais **après** l'implémentation et sans que le design en dépende — le composant est
+  générique sur `V` (§ 3), donc un démenti se serait soldé par un paramètre de type et un lambda.
+  `S` est mesuré (§ 2.5) ; **`C` ne l'est pas**, et ne le sera pas à ce prix-là : `computeAll` sur
+  la fixture de `PositionEngineTest` mesurerait des branches de quelques points, pas les ~220 de
+  production. Le faire honnêtement demande une fixture de réseau réaliste — un chantier en soi, qui
+  ne changerait aucune décision de celui-ci.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
   qu'à 60 s pendant que le front poll à 4 s. Effort L, et ce chantier ne l'empêche pas.
 

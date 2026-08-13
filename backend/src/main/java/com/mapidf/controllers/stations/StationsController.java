@@ -52,9 +52,11 @@ public class StationsController {
 
     @GetMapping("/stations/{id}/departures")
     public ResponseEntity<DeparturesResponse> departures(@PathVariable String id) {
-        // requireStation AVANT le cache : un identifiant inconnu lève, donc la map reste bornée
-        // par le nombre de stations du registry — pas d'éviction à écrire, pas de saturation par
-        // identifiant forgé.
+        // requireStation AVANT le cache : un identifiant inconnu lève, donc aucune entrée ne peut
+        // naître d'un identifiant absent du registry courant — pas de saturation par identifiant
+        // forgé. Ce n'est pas une borne dans la durée pour autant : une station retirée par un
+        // refresh GTFS laisse son entrée derrière elle, retenue sans plus jamais être relue.
+        // Assumé — les identifiants de station de métro sont stables.
         Station station = registry.requireStation(id);
 
         RtSnapshot rt = poller.current();
