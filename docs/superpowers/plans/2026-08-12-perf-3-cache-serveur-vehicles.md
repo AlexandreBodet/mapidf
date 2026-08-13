@@ -14,7 +14,7 @@
 
 - **`./mvnw` exige Java 25** : le `java` du shell est en 21. Toute commande Maven de ce plan se lance avec `JAVA_HOME=~/.jdks/temurin-25.0.4` en préfixe. Sans ça, le build échoue sur la version de release.
 - **Jackson 3, pas Jackson 2** : `tools.jackson.databind.ObjectMapper`, jamais `com.fasterxml`. Sur un `JsonNode`, `.asString()` et non `.asText()`.
-- **TDD strict** : le test qui échoue s'écrit et se lance *avant* l'implémentation. Une étape « vérifier que ça échoue » n'est pas décorative — c'est elle qui prouve que le test teste quelque chose.
+- **Deux régimes de test, à ne pas confondre.** Pour du **code neuf** (tâche 1), TDD strict : le test s'écrit et se lance *avant* l'implémentation, et l'étape « vérifier que ça échoue » n'est pas décorative — c'est elle qui prouve que le test teste quelque chose. Pour un **comportement qui existe déjà** et que le chantier risque de casser (les tests d'invalidation des tâches 2 à 4), le test est un **filet de régression** : il passe dès son écriture, et c'est normal. Le plan signale explicitement, à chaque fois, lequel des deux est attendu — un test annoncé « passe déjà » n'est pas un défaut de TDD. Quand un filet porte sur du code qu'on va modifier sans que le test doive changer, on le prouve par une **mutation de contrôle** (cf. tâche 1, étape 5).
 - **Commentaires sobres** : seulement le « pourquoi » non-évident, en une ou deux lignes. Pas de paraphrase du code.
 - **Records pour les DTO immuables**, Lombok pour le reste.
 - **Messages de commit** en français, préfixés du type conventionnel et du chantier : `feat(perf-3): …`, `test(perf-3): …`, `docs(perf-3): …`.
