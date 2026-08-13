@@ -19,12 +19,15 @@ nombre de requêtes, sans jamais retarder l'affichage d'une donnée fraîche.
 
 Est réussi si, tout appliqué :
 
-1. Le recalcul d'une réponse a lieu au plus une fois par seconde et par clé, quel que soit le
-   nombre de clients. Sur `/vehicles`, **la sérialisation aussi** (§ 2.5).
+1. Le recalcul d'une réponse a lieu au plus une fois par seconde et par clé **en régime
+   séquentiel, aux doublons de concurrence près** — des requêtes simultanées sur une entrée
+   absente calculent toutes les deux, par choix (§ « Concurrence » du § 3), et à chaque bascule de
+   seconde toutes les requêtes en vol manquent ensemble. Sur `/vehicles`, **la sérialisation
+   aussi** (§ 2.5).
 2. Un poll qui publie un instantané neuf est visible **immédiatement**, pas à la seconde suivante.
    C'est la propriété que les IT existants exigent déjà (§ 2.2).
 3. `./mvnw verify` est vert, avec plus de tests qu'avant (104 UT + 45 IT au 2026-08-11 ; **atteint :
-   110 UT + 51 IT**).
+   114 UT + 53 IT**, dont six tests venus de la revue finale).
 4. `mapidf.cache.hits` / `mapidf.cache.misses` permettent de constater le gain en production, sans
    test de charge (§ 6).
 5. Aucun changement visible côté front. Le contrat JSON des trois endpoints est **inchangé** au
@@ -97,14 +100,17 @@ noté `C`, **reste une estimation** : le mesurer demanderait une fixture de rés
 `branchedLine()` de `PositionEngineTest` ne portant qu'une poignée de points par branche — le coût
 d'`extractPoint` y serait sans rapport avec celui de production.
 
-La sérialisation, notée `S` : 705 DTO de 11 champs dont **trois `Instant` chacun**, soit ~2 100
-formatages ISO-8601, qui en sont le gros. Estimée à ~1 à 3 ms, elle a été **mesurée le 2026-08-13**
-par une sonde jetable (705 `VehicleDto` synthétiques, `writeValueAsBytes` en régime chaud, 15 lots
-de 200 appels après 3 000 de chauffe) :
+La sérialisation, notée `S` : 705 DTO de 11 champs dont **deux `Instant` chacun** (`expectedTime`
+et `recordedAt`, [VehiclesResponse.java:22-24](../../../backend/src/main/java/com/mapidf/controllers/vehicles/VehiclesResponse.java#L22-L24)),
+soit ~1 410 formatages ISO-8601, qui en sont le gros. L'estimation de départ — ~1 à 3 ms — comptait
+**trois** `Instant` par DTO, donc un tiers de travail de trop : voilà **une part de l'écart** avec
+le relevé ci-dessous. Mesure du **2026-08-13**, par une sonde jetable (705 `VehicleDto`
+synthétiques, `writeValueAsBytes` en régime chaud, 15 lots de 200 appels après 3 000 de chauffe) :
 
 > **`S` ≈ 0,9 ms par appel**, pour une charge utile de **174 ko** — sur **neuf exécutions** :
 > médiane des neuf médianes **0,902 ms**, minimum absolu 0,734 ms, exécution la plus chargée à
-> 1,382 ms de médiane. Les neuf relevés sont dans le rapport de tâche.
+> 1,382 ms de médiane. Médianes des neuf exécutions, dans l'ordre de tir : **1,382 / 0,902 /
+> 0,928 / 1,176 / 0,750 / 0,908 / 0,790 / 0,805 / 0,754 ms** ; charge utile identique aux neuf.
 
 **L'estimation tient, à sa borne basse.** Elle n'est ni confirmée au milieu de sa fourchette ni
 démentie : la valeur mesurée est ~3× sous le haut de la fourchette, mais reste du même ordre de
@@ -124,6 +130,13 @@ retenant `C` ≈ 3 à 8 ms et `S` = 0,9 ms :
 | 1 client (0,25 req/s) | ~5,2 ms/s | ~5,9 ms/s |
 | 40 clients (10 req/s) | ~14 ms/s | ~5,9 ms/s |
 | 400 clients (100 req/s) | ~95 ms/s | ~5,9 ms/s |
+
+La colonne `C/s + S/s` est une **borne basse idéalisée** : elle suppose qu'une seule requête paie
+le calcul par seconde. À chaque bascule de seconde, les requêtes en vol manquent toutes ensemble et
+recalculent en parallèle — d'autant plus nombreuses que le débit est élevé. À 100 req/s le terme
+réel est donc un petit multiple de `C` par seconde, pas exactement `C`. Ça ne déplace pas la
+bascule (le cache d'objet subit la même chose sur son terme `C`), mais « plat » veut dire plat au
+bruit de concurrence près.
 
 La bascule est là où `N·S` dépasse `C`, soit **3,3 à 8,9 req/s — 13 à 36 clients** au poll de 4 s —
 plus tard que la « dizaine » annoncée avant mesure, et la fourchette reste large parce que `C`,
@@ -181,16 +194,23 @@ privée. Pas d'`AtomicReference` en parallèle de la map pour le cas global — 
 surcharges seraient deux fois plus de code à maintenir correct pour aucun gain mesurable sur une
 map d'une entrée.
 
-La map de `/stations/{id}/departures` **ne peut pas être saturée par un identifiant forgé** :
-`requireStation(id)` rejette un identifiant inconnu *avant* d'atteindre le cache, donc aucune entrée
-n'existe pour un identifiant absent du registry **courant** (321 stations aujourd'hui, quelques
-kilo-octets de records).
+La map de `/stations/{id}/departures` **ne peut pas être saturée par un identifiant forgé** : la
+station est résolue *avant* d'atteindre le cache et un identifiant absent du réseau courant lève,
+donc aucune entrée ne naît d'un identifiant inventé (321 stations aujourd'hui).
 
-Ce n'est pas tout à fait une borne dans la durée, et il ne faut pas l'écrire comme telle : si un
-refresh GTFS republie un `NetworkSnapshot` d'où une station a disparu, son entrée reste dans la map
-— jamais relue, jamais évincée. Rien n'est prévu contre ça, sciemment : les identifiants de station
-de métro sont stables, la fuite se compte en une poignée de records sur la durée de vie d'un
-processus, et une éviction coûterait plus de code à maintenir correct qu'elle ne rendrait de mémoire.
+Ce n'était pas une borne pour autant, et la première version de ce paragraphe en sous-estimait le
+prix de trois ordres de grandeur : une entrée ne retient pas que sa **valeur** (là, oui, quelques
+kilo-octets de records) — elle retient aussi une **référence forte vers ses instantanés source**,
+dont un `RtSnapshot` de ~705 courses et quelques milliers d'appels, soit **~1 Mo**. Le poller en
+publie un neuf toutes les 60 s : une station interrogée puis jamais rouverte épinglait donc celui de
+sa dernière visite jusqu'à la fin du processus. ~20 Mo pour 20 stations parcourues, ~300 Mo au
+plafond des 321 — une régression depuis zéro, relevée en revue finale.
+
+D'où la purge : **à chaque défaut, toute entrée dont la seconde n'est pas la seconde courante est
+retirée**. Elle ne coûte aucun hit, une entrée d'une autre seconde ne pouvant de toute façon plus en
+produire, et elle est en O(nombre de clés) sur un défaut — 321 au pire. Elle règle du même coup le
+cas de la station disparue d'un refresh GTFS, qu'aucune éviction ne couvrait. Ce qui reste retenu
+est donc borné par les seules clés visitées dans la seconde courante.
 
 ### Concurrence : on accepte un calcul en double
 
@@ -248,6 +268,16 @@ record, et le type de retour est `ResponseEntity<DisruptionsResponse>` /
 — c'est elle qui porte le `Cache-Control` ci-dessous — mais elle **préserve** le type paramétré, donc
 seul `/vehicles` perd la forme de sa réponse dans sa signature.
 
+**Effet de bord assumé du `contentType` : la négociation de contenu est court-circuitée.** Dès
+qu'une `ResponseEntity` porte un Content-Type concret, Spring ne consulte plus l'en-tête `Accept`.
+Un `Accept: application/xml` sur les trois endpoints rend donc **200 JSON** là où il rendait 406.
+C'est bénin — aucun client du projet ne demande autre chose que du JSON — et l'en-tête est
+**indispensable** sur `/vehicles` : sans lui, un `byte[]` sort en `application/octet-stream`, que
+nginx ne gzippe pas. Conséquence à connaître : `/network`, qui ne pose pas cet en-tête
+([NetworkController](../../../backend/src/main/java/com/mapidf/controllers/network/NetworkController.java)),
+**diverge** — la négociation y reste en vigueur. Aligner les quatre endpoints est possible ; ce
+n'est pas un correctif de ce chantier.
+
 `json.writeValueAsBytes` ne demande aucune plomberie d'exception, celles de Jackson 3 étant non
 vérifiées. Le code du projet le confirme déjà : `RealtimePoller.parse` ouvre un `JsonParser` sans
 déclarer le moindre `throws`
@@ -279,16 +309,39 @@ dormir**. En TDD : chaque test écrit avant son implémentation.
 | 4 | Deux clés distinctes → entrées indépendantes | Une map dégénérée en entrée unique |
 | 5 | Le `now` reçu par le calcul est celui qui sert de clé | Le décalage clé/calcul du § 3 |
 | 6 | `hits` et `misses` comptent juste | Une métrique décorative |
+| 7 | Deux sources, **seule la seconde change** → recalcul | Une comparaison qui s'arrête à l'index 0 — donc qui ignore le `NetworkSnapshot` du § 2.4 |
+| 8 | Un défaut à la seconde suivante **purge** les entrées des secondes précédentes | Les entrées qui épinglent leurs instantanés source (§ 3) |
+| 9 | Un défaut sur une autre clé, **même seconde**, laisse les entrées voisines intactes | Une purge trop large, qui échangerait la fuite contre un cache qui ne cache plus |
 
-**Les IT existants sont le filet principal**, et ils n'ont pas à être modifiés : les trois suivent
-le motif `pollOnce` puis `GET` dans la même seconde (§ 2.2), donc ils rougissent sur un cache mal
-invalidé. C'est le seul endroit du chantier où un test préexistant couvre le risque n°1.
+Les tests 7 à 9 sont venus de la revue finale. Le 7 a été vérifié par une **mutation de contrôle** :
+`sameInstances` réduit à `cached.get(0) == current.get(0)` passait les six tests d'origine et ne
+rougit que sur celui-là.
 
-S'ajoutent, par endpoint :
+**Ce qui est vraiment le filet côté IT, ce sont les tests à deux `GET`** — pas les IT préexistants,
+contrairement à ce que ce paragraphe affirmait. Chaque `@BeforeEach` rejoue `publishFromDatabase()`,
+donc republie un `NetworkSnapshot` neuf, et l'invalidation par identité se déclenche de toute façon
+entre deux méthodes de test : un cache purement TTL n'y serait détecté que si deux **corps** de test
+tombaient dans la même seconde murale, ce que rien ne garantit. Mesuré en mutant `sameInstances` en
+`return true` : trois tests de `StationsControllerIT` rougissent — mais deux d'entre eux par le seul
+effet d'un enchaînement rapide, pas par construction.
+
+S'ajoutent donc, par endpoint :
 
 - `Content-Type: application/json` et `Cache-Control: no-store` ;
-- deux `GET` séparés par un `pollOnce` d'`asOf` différent → deux `asOf` différents dans les
-  réponses. C'est l'invalidation prouvée de bout en bout, pas seulement en unitaire.
+- deux `GET` séparés par un `pollOnce` d'instantané différent → deux réponses différentes. C'est
+  l'invalidation prouvée de bout en bout, avec des millisecondes entre les deux requêtes et non le
+  hasard d'un enchaînement de méthodes. Les trois endpoints en ont un
+  (`/stations/{id}/departures` l'a reçu en revue finale, il manquait) ;
+- **un** IT qui prouve qu'un hit *se produit* : deux `GET` identiques, puis une assertion sur
+  `mapidf.cache.hits`. Aucun autre test ne le faisait — vérifié en mutant `sameInstances` en
+  `return false`, les cinq autres tests de `VehiclesControllerIT` restent verts. Le bean `Clock`
+  étant l'horloge système, la tentative n'est retenue que si la seconde murale n'a pas changé de
+  part et d'autre des deux requêtes ; sinon le test retente. Le verdict est donc déterministe, et
+  exact (un poll ouvre chaque tentative, donc la première requête est toujours un défaut).
+
+Enfin, `StationsControllerTest` (unitaire, horloge figée) vérifie que la station servie est tirée de
+l'instantané qui entre dans la clé : avec un registry qui republie entre deux lectures, la variante
+à deux lectures servait encore le nom d'avant le refresh à une requête entièrement postérieure.
 
 ## 6. Observabilité
 
@@ -299,9 +352,18 @@ de charge que le projet n'a pas. Même logique que
 [QUA-2](2026-07-29-multi-ligne-metro-design.md) — une mesure qui répond à une question qu'on se
 posera, exposée par `/actuator/prometheus` avec les autres.
 
+**Deux métriques existantes changent de sémantique**, sans que leur nom bouge :
+`mapidf.position.unplaced` et `mapidf.position.branch.unresolved` s'incrémentaient une fois par
+**requête** ; elles s'incrémentent maintenant une fois par **calcul**, soit ~1/s au lieu de ~4/s par
+client. C'est un progrès — elles mesurent enfin la donnée et non le trafic, ce qu'un garde-fou de
+réseau doit faire — mais leurs **ordres de grandeur historiques ne sont plus comparables** : une
+chute de ces compteurs après PERF-3 ne veut pas dire que le placement s'est amélioré. Noté aussi
+dans `CLAUDE.md`, où elles sont présentées comme le garde-fou observable du réseau.
+
 ## 7. Ordre d'exécution
 
-1. Bean `Clock` + `ResponseCache` avec ses six tests unitaires (TDD, aucun contrôleur touché).
+1. Bean `Clock` + `ResponseCache` avec ses six premiers tests unitaires (TDD, aucun contrôleur
+   touché) ; les tests 7 à 9 du § 5 sont venus après, avec la revue finale.
 2. `/vehicles` : constructeur explicite, `ResponseEntity<byte[]>`, IT d'en-têtes et d'invalidation.
 3. `/disruptions`, puis `/stations/{id}/departures` — le second introduit la variante à clé.
 4. `./mvnw verify` complet, et vérification que les trois IT préexistants sont **restés** verts
@@ -326,6 +388,11 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   la fixture de `PositionEngineTest` mesurerait des branches de quelques points, pas les ~220 de
   production. Le faire honnêtement demande une fixture de réseau réaliste — un chantier en soi, qui
   ne changerait aucune décision de celui-ci.
+- **L'adoption complète du bean `Clock`.** Il n'est adopté qu'à moitié : `RealtimePoller`
+  (`inServiceNow`, via `LocalTime.now(PARIS)`) et `LineCoverageGuard` appellent toujours l'horloge
+  murale en dur. Relevé en revue finale, consigné, non corrigé — ce chantier n'avait besoin d'une
+  horloge injectable que dans le cache, et étendre l'injection touche du code de poll que rien ici
+  ne fait bouger.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
   qu'à 60 s pendant que le front poll à 4 s. Effort L, et ce chantier ne l'empêche pas.
 
@@ -338,5 +405,7 @@ posera, exposée par `/actuator/prometheus` avec les autres.
   le type paramétré et reste lisible par un générateur de schéma. `VehiclesResponse` reste la source
   de vérité, à déclarer à la main au générateur le jour de QUA-7 — c'est le seul prix du chantier, et
   il se paie ailleurs.
-- **CLAUDE.md** : rien à ajouter si le design tient. Le piège « un TTL pur casse les IT de
-  contrôleur » vit dans cette spec et dans le test n°2, qui le rend actif.
+- **CLAUDE.md** : une ligne, finalement — le déplacement de sémantique de
+  `mapidf.position.unplaced` et `mapidf.position.branch.unresolved` (§ 6), là où elles sont
+  présentées comme le garde-fou observable du réseau. Le piège « un TTL pur casse les IT de
+  contrôleur », lui, vit dans cette spec et dans le test n°2, qui le rend actif.
