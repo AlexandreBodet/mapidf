@@ -180,6 +180,12 @@ Soit **`C` entre 7,56 et 7,80 ms**, dérivé. En notant `N` le débit en requêt
 | 40 clients (10 req/s) | 16,8 à 19,0 ms/s | **8,7 ms/s** |
 | 400 clients (100 req/s) | 98 à 122 ms/s | **8,7 ms/s** |
 
+**Les deux colonnes se croisent dès `N` = 1 req/s, soit 4 clients**, et ce n'est pas une
+coïncidence : `C + N·S` et `C + S` s'égalisent quand `N·S = S`, donc à `N` = 1 quelle que soit la
+valeur de `S`. Au-delà, cacher les octets est **déjà** moins cher — d'un facteur ~2 à 40 clients.
+Le seuil retenu plus bas est **plus exigeant** que ce croisement : ce n'est pas celui où le cache
+d'octets commence à payer, c'est celui où le terme qu'il supprime devient l'**essentiel** du coût.
+
 La colonne `(C+S)/s` est une **borne basse idéalisée** : elle suppose qu'une seule requête paie
 le calcul par seconde. À chaque bascule de seconde, les requêtes en vol manquent toutes ensemble et
 recalculent en parallèle — d'autant plus nombreuses que le débit est élevé. À 100 req/s le terme
@@ -187,8 +193,10 @@ réel est donc un petit multiple de `C` par seconde, pas exactement `C`. Ça ne 
 bascule (le cache d'objet subit la même chose sur son terme `C`), mais « plat » veut dire plat au
 bruit de concurrence près.
 
-La bascule est là où `N·S` dépasse `C`, soit `N` > (8,7 − `S`)/`S` : **6,6 à 8,7 req/s — 27 à 35
-clients** au poll de 4 s. Bien plus tard que la « dizaine » annoncée avant mesure, et la fourchette
+La bascule retenue est le seuil de **domination** — là où `N·S` dépasse `C`, c'est-à-dire où la
+sérialisation par requête devient le plus gros des deux termes —, soit `N` > (8,7 − `S`)/`S` :
+**6,6 à 8,7 req/s — 27 à 35 clients** au poll de 4 s. À ne pas lire comme « en dessous, cacher les
+octets n'achète rien » : le croisement, lui, est à 4 clients (ci-dessus). Bien plus tard que la « dizaine » annoncée avant mesure, et la fourchette
 s'est **resserrée sur la moitié haute** des « 13 à 36 clients » d'avant celle-ci. Elle a surtout
 changé de source d'incertitude : ce n'est plus `C` — sa somme avec `S` est maintenant mesurée —
 mais la façon dont `S` se transpose de la charge synthétique à la charge réelle. C'est quand même
@@ -196,11 +204,21 @@ l'argument des octets, et il ne dépend pas du chiffre exact : le cache d'objet 
 **linéaire** en clients, celui des octets le rend **plat**. Ce que la mesure change, c'est le moment
 où ça compte, pas le sens.
 
+**Ces bornes sont plus précises à l'écrit qu'à la mesure.** 7,56 et 7,80 tombent au centième par
+construction — c'est une soustraction —, mais leur base ne l'est pas : 10,3 − 1,65 = **8,65**,
+arrondi à 8,7 partout ci-dessus. En repartant de 8,65, la fourchette devient 26 à 34 clients. Et la
+conversion en clients ne se refait pas depuis les req/s arrondis : 6,6 × 4 donnerait 26,4, quand le
+chiffre vient de 6,63 × 4 = 26,5. À lire donc à **±0,3 ms et ±1 client** près — rien de tout cela ne
+déplace une décision.
+
 **Un hit coûte encore 1,65 ms, et le cache n'y peut rien** : les 219 ko partent sur le réseau à
 chaque requête. Le cache supprime le calcul, pas le transport. C'est exactement le reste que
 **PERF-4** (§ 8) irait chercher : envoyer le segment une fois par minute et laisser le front
-interpoler. À noter que ce coût-là n'entre dans aucune colonne du tableau ci-dessus, qui ne compte
-que le travail supprimé par le cache.
+interpoler. Avec une réserve sur le montant : ces 1,65 ms ne sont pas *tous* du transport de charge
+utile — s'y ajoutent l'établissement de connexion et la pile HTTP, qu'alléger le corps ne supprime
+pas. C'est un **majorant** de ce que PERF-4 peut y gagner, pas une mesure du transport seul. À noter
+enfin que ce coût-là n'entre dans aucune colonne du tableau ci-dessus, qui ne compte que le travail
+supprimé par le cache.
 
 **Ce raisonnement ne vaut que pour `/vehicles`.** `/disruptions` sert une poignée d'éléments,
 `/stations/{id}/departures` quelques dizaines de passages — deux ordres de grandeur sous les 705
@@ -454,9 +472,9 @@ dans `CLAUDE.md`, où elles sont présentées comme le garde-fou observable du r
   horloge injectable que dans le cache, et étendre l'injection touche du code de poll que rien ici
   ne fait bouger.
 - **PERF-4 (interpolation côté client).** C'est la vraie réponse au fait que la source ne bouge
-  qu'à 60 s pendant que le front poll à 4 s. C'est aussi la seule façon d'attaquer les **1,65 ms**
-  que coûte encore un hit (§ 2.5) : le transport des 219 ko, que le cache ne supprime pas. Effort L,
-  et ce chantier ne l'empêche pas.
+  qu'à 60 s pendant que le front poll à 4 s. C'est aussi la seule façon d'attaquer le coût résiduel
+  d'un hit — **au plus 1,65 ms**, dont le transport des 219 ko que le cache ne supprime pas (§ 2.5).
+  Effort L, et ce chantier ne l'empêche pas.
 
 ## 9. Conséquences sur la documentation
 
