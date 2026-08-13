@@ -12,11 +12,14 @@ import com.mapidf.rt.RealtimePoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -164,5 +167,26 @@ class StationsControllerIT {
     void returnsNotFoundForAnUnknownStation() throws Exception {
         mockMvc.perform(get("/stations/NOPE/departures"))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void marksTheResponseAsNeverStorable() throws Exception {
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void keepsStationsIndependentWithinTheSameSecond() throws Exception {
+        // Le cache est indexé par station : deux stations interrogées dans la même seconde ne
+        // doivent pas se servir la réponse l'une de l'autre.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.stationName").value("Correspondance"));
+
+        mockMvc.perform(get("/stations/ST1/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.stationName").value("Alpha"));
     }
 }
