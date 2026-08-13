@@ -762,7 +762,7 @@ C'est le contrôle qui compte : l'exemption loopback doit laisser les 53 IT exis
 JAVA_HOME=~/.jdks/temurin-25.0.4 ./mvnw verify
 ```
 
-Attendu : `BUILD SUCCESS`, **plus** de tests qu'avant (référence du 2026-08-13 : 167 exécutions unitaires + 53 IT), zéro échec, zéro erreur. Si un IT existant rougit en 429, l'exemption loopback ne fonctionne pas — c'est `isLoopback` ou l'ordre des tests qu'il faut regarder, pas le budget qu'il faut relever.
+Attendu : `BUILD SUCCESS`, **plus** de tests qu'avant (référence au point de départ de la branche : 114 exécutions unitaires + 53 IT), zéro échec, zéro erreur. Si un IT existant rougit en 429, l'exemption loopback ne fonctionne pas — c'est `isLoopback` ou l'ordre des tests qu'il faut regarder, pas le budget qu'il faut relever.
 
 - [ ] **Étape 12 : commit**
 

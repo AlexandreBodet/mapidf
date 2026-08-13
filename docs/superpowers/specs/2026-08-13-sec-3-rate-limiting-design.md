@@ -28,8 +28,9 @@ Est réussi si, tout appliqué :
 2. Le quota couvre **les quatre** endpoints, `/network` compris (§ 2.2).
 3. La clé du quota est **la vraie IP cliente** derrière un proxy, et n'est **pas forgeable** par un
    client public (§ 2.3).
-4. `./mvnw verify` est vert, avec plus de tests qu'avant (167 exécutions unitaires + 53 IT au
-   2026-08-13).
+4. `./mvnw verify` est vert, avec plus de tests qu'avant. Référence mesurée au point de départ de
+   la branche (`af8804a`) : **114 exécutions unitaires + 53 IT**, soit 167 au total. Le « 167
+   unitaires » d'une note antérieure était ce total mal étiqueté.
 5. `mapidf.ratelimit.rejected` et un WARN borné permettent de constater qu'un rejet a eu lieu sans
    qu'on ait pensé à lire une métrique (§ 6).
 6. Aucun changement côté front (§ 7).
