@@ -11,6 +11,7 @@ import com.mapidf.rt.RealtimePoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -20,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -121,5 +124,36 @@ class VehiclesControllerIT {
             .andExpect(jsonPath("$.vehicles[*].lineId", containsInAnyOrder("7", "9")))
             .andExpect(jsonPath("$.vehicles[*].confidence",
                 containsInAnyOrder("APPROXIMATE", "APPROXIMATE")));
+    }
+
+    @Test
+    void marksTheResponseAsNeverStorable() throws Exception {
+        // Sans en-tête, un proxy peut cacher un 200 de façon heuristique et figer les trains
+        // chez tous les clients. Le cache de PERF-3 est serveur ; celui des intermédiaires est
+        // interdit.
+        mockMvc.perform(get("/vehicles"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void servesAFreshPollWithoutWaitingForTheNextSecond() throws Exception {
+        // La propriété qui interdit un cache à TTL : deux polls et deux requêtes dans la même
+        // seconde doivent donner deux réponses différentes.
+        Instant first = Instant.parse("2026-08-12T08:00:00Z");
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), first);
+        String before = mockMvc.perform(get("/vehicles"))
+            .andReturn().getResponse().getContentAsString();
+
+        Instant later = Instant.parse("2026-08-12T09:00:00Z");
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            "{}".getBytes(StandardCharsets.UTF_8)), later);
+        String after = mockMvc.perform(get("/vehicles"))
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(Instant.parse(JSON.readTree(before).path("asOf").asString())).isEqualTo(first);
+        assertThat(Instant.parse(JSON.readTree(after).path("asOf").asString())).isEqualTo(later);
     }
 }
