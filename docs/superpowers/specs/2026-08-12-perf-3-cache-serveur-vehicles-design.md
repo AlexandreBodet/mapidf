@@ -354,8 +354,9 @@ posera, exposée par `/actuator/prometheus` avec les autres.
 
 **Deux métriques existantes changent de sémantique**, sans que leur nom bouge :
 `mapidf.position.unplaced` et `mapidf.position.branch.unresolved` s'incrémentaient une fois par
-**requête** ; elles s'incrémentent maintenant une fois par **calcul**, soit ~1/s au lieu de ~4/s par
-client. C'est un progrès — elles mesurent enfin la donnée et non le trafic, ce qu'un garde-fou de
+**requête** (une toutes les 4 s par client, soit ~10/s à 40 clients) ; elles s'incrémentent
+maintenant une fois par **calcul**, soit ~1/s, quel que soit le nombre de clients. C'est un
+progrès — elles mesurent enfin la donnée et non le trafic, ce qu'un garde-fou de
 réseau doit faire — mais leurs **ordres de grandeur historiques ne sont plus comparables** : une
 chute de ces compteurs après PERF-3 ne veut pas dire que le placement s'est amélioré. Noté aussi
 dans `CLAUDE.md`, où elles sont présentées comme le garde-fou observable du réseau.

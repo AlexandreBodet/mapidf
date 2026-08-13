@@ -162,7 +162,8 @@ compteurs tagués `line` : `mapidf.position.unplaced` (cf. limitations) et
 `mapidf.position.branch.unresolved` (arrêt imminent présent sur plusieurs branches sans terminus
 correspondant à la destination SIRI). Une ligne qui dégrade se voit dans ces métriques ; le
 remède est `app.network.exclude`, pas un seuil de tolérance. **Depuis PERF-3, ces deux compteurs
-s'incrémentent une fois par _calcul_ (~1/s) et non plus par requête (~4/s et par client)** : ils
+s'incrémentent une fois par _calcul_ (~1/s) et non plus par requête (une toutes les 4 s par
+client, soit ~10/s à 40 clients)** : ils
 mesurent enfin la donnée et non le trafic, mais leurs ordres de grandeur d'avant le cache ne sont
 plus comparables — une chute n'est pas une amélioration du placement.
 
