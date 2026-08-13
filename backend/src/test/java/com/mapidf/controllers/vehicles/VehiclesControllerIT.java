@@ -8,6 +8,8 @@ import com.mapidf.MapIdfTest;
 import com.mapidf.gtfs.GtfsStaticLoader;
 import com.mapidf.gtfs.GtfsStaticService;
 import com.mapidf.rt.RealtimePoller;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -33,6 +36,7 @@ class VehiclesControllerIT {
     @Autowired GtfsStaticLoader loader;
     @Autowired GtfsStaticService staticService;
     @Autowired RealtimePoller poller;
+    @Autowired MeterRegistry meters;
     MockMvc mockMvc;
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -155,5 +159,35 @@ class VehiclesControllerIT {
 
         assertThat(Instant.parse(JSON.readTree(before).path("asOf").asString())).isEqualTo(first);
         assertThat(Instant.parse(JSON.readTree(after).path("asOf").asString())).isEqualTo(later);
+    }
+
+    @Test
+    void reusesTheSerializedBodyAcrossTwoRequestsOfTheSameSecond() throws Exception {
+        // Les autres IT prouvent que le cache ne GÊNE pas la fraîcheur ; aucun ne prouvait qu'il
+        // CACHE. Une régression qui relirait l'instantané dans le lambda, ou un `sameInstances`
+        // toujours faux, les laisserait tous verts. Le compteur est le seul témoin.
+        //
+        // Le bean Clock est l'horloge système : rien ne garantit que deux requêtes tombent dans la
+        // même seconde. On n'assène donc rien sur une tentative qui a franchi une frontière de
+        // seconde — on retente. Le verdict porte sur une tentative CONSTATÉE dans une seule
+        // seconde, et il y est exact : le poll qui l'ouvre publie un instantané neuf, donc la
+        // première requête est forcément un défaut et la seconde forcément l'unique hit attendu.
+        Counter hits = meters.counter("mapidf.cache.hits", "cache", "vehicles");
+
+        for (int attempt = 0; attempt < 20; attempt++) {
+            poller.pollOnce(url -> new ByteArrayInputStream(
+                "{}".getBytes(StandardCharsets.UTF_8)), Instant.now());
+            long second = Instant.now().getEpochSecond();
+            double before = hits.count();
+
+            mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
+            mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
+
+            if (second == Instant.now().getEpochSecond()) {
+                assertThat(hits.count() - before).isEqualTo(1.0);
+                return;
+            }
+        }
+        fail("aucune paire de requêtes n'est restée dans une seule seconde en 20 tentatives");
     }
 }

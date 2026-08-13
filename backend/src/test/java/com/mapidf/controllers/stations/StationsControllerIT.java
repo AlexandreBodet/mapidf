@@ -178,6 +178,27 @@ class StationsControllerIT {
     }
 
     @Test
+    void servesAFreshPollWithoutWaitingForTheNextSecond() throws Exception {
+        // L'endpoint le plus exposé du chantier — trois sources et une clé — était le seul sans
+        // preuve d'invalidation de bout en bout. Le setup() a injecté un instantané vide, donc
+        // aucune ligne ne dessert encore la station.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(0)));
+
+        Instant now = Instant.now();
+        poller.pollOnce(url -> new ByteArrayInputStream(
+            twoLineSnapshotAt(now.plusSeconds(120), now.plusSeconds(180))
+                .getBytes(StandardCharsets.UTF_8)), now);
+
+        // Même seconde murale que la requête précédente, selon toute vraisemblance : c'est
+        // l'identité de l'instantané, et non le temps, qui doit faire tomber l'entrée.
+        mockMvc.perform(get("/stations/STC/departures"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines", hasSize(2)));
+    }
+
+    @Test
     void keepsStationsIndependentWithinTheSameSecond() throws Exception {
         // Le cache est indexé par station : deux stations interrogées dans la même seconde ne
         // doivent pas se servir la réponse l'une de l'autre.
