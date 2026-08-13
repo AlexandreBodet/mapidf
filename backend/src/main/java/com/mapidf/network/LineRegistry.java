@@ -27,7 +27,16 @@ public class LineRegistry {
     }
 
     public Station requireStation(String id) {
-        Station station = current().stationsById().get(id);
+        return requireStation(current(), id);
+    }
+
+    /**
+     * Surcharge sur un instantané déjà lu : un appelant qui a besoin du réseau ET de la station
+     * doit les tirer du MÊME instantané, sinon un refresh GTFS glissé entre les deux lectures lui
+     * ferait bâtir une réponse sur une station absente du réseau qu'il utilise.
+     */
+    public static Station requireStation(NetworkSnapshot network, String id) {
+        Station station = network.stationsById().get(id);
         if (station == null) {
             throw new ApiException(HttpStatus.NOT_FOUND, ErrorCode.STATION_NOT_FOUND);
         }

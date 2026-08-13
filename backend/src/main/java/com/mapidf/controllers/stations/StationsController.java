@@ -52,16 +52,16 @@ public class StationsController {
 
     @GetMapping("/stations/{id}/departures")
     public ResponseEntity<DeparturesResponse> departures(@PathVariable String id) {
-        // requireStation AVANT le cache : un identifiant inconnu lève, donc aucune entrée ne peut
-        // naître d'un identifiant absent du registry courant — pas de saturation par identifiant
-        // forgé. Ce n'est pas une borne dans la durée pour autant : une station retirée par un
-        // refresh GTFS laisse son entrée derrière elle, retenue sans plus jamais être relue.
-        // Assumé — les identifiants de station de métro sont stables.
-        Station station = registry.requireStation(id);
-
         RtSnapshot rt = poller.current();
         DisruptionSnapshot disruptions = disruptionPoller.current();
         NetworkSnapshot network = registry.current();
+
+        // La station est tirée de l'instantané qui entre dans la clé, et non d'une seconde lecture
+        // du registry : sinon un refresh GTFS glissé entre les deux ferait enregistrer un corps
+        // bâti sur le réseau N1 sous l'identité de N2, servi jusqu'à une seconde. Et cette
+        // résolution reste AVANT le cache, donc aucune entrée ne peut naître d'un identifiant
+        // forgé, absent du réseau courant.
+        Station station = LineRegistry.requireStation(network, id);
 
         DeparturesResponse body = cache.get(id, List.of(rt, disruptions, network),
             now -> build(station, rt, disruptions, network, now));
@@ -72,8 +72,7 @@ public class StationsController {
             .body(body);
     }
 
-    private DeparturesResponse build(Station station, RtSnapshot rt,
-                                     DisruptionSnapshot disruptionSnapshot,
+    private DeparturesResponse build(Station station, RtSnapshot rt, DisruptionSnapshot disruptions,
                                      NetworkSnapshot network, Instant now) {
         // Seules les lignes qui desservent cette station : jusqu'à 5 sur une correspondance.
         List<TrackedLine> lines = station.lineIds().stream()
@@ -83,7 +82,7 @@ public class StationsController {
         DeparturesResponse departures = departureService.departures(
             station, lines, rt, now, PASSAGES_PER_DIRECTION);
         return new DeparturesResponse(departures.stationName(), departures.lines(),
-            disruptionsOf(station, disruptionSnapshot, now));
+            disruptionsOf(station, disruptions, now));
     }
 
     /**
@@ -91,10 +90,12 @@ public class StationsController {
      * souvent plusieurs quais du même nom de station.
      */
     private List<DisruptionsResponse.Item> disruptionsOf(Station station,
-                                                         DisruptionSnapshot snapshot, Instant now) {
+                                                        DisruptionSnapshot disruptions,
+                                                        Instant now) {
         Map<String, Disruption> byId = new LinkedHashMap<>();
         for (String platformId : station.platformIds()) {
-            for (Disruption disruption : snapshot.forStop(PositionEngine.stopKey(platformId), now)) {
+            for (Disruption disruption
+                : disruptions.forStop(PositionEngine.stopKey(platformId), now)) {
                 byId.putIfAbsent(disruption.id(), disruption);
             }
         }
