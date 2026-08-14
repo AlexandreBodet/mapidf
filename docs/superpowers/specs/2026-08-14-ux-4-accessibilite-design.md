@@ -155,8 +155,10 @@ dans `PanelHeader`, `FloatingCard` en `div` anonyme.
 - Un `<h1>` **visuellement masqué** — le titre existe déjà dans `<title>`, et l'écran est occupé par
   la carte. Masqué par une classe utilitaire (décalage hors écran), **pas** par `hidden` ni
   `display: none`, qui le retireraient aussi de l'arbre d'accessibilité. La classe vit dans
-  `index.css`, avec les deux autres concernes globales : elle n'appartient à aucun composant, et un
-  module CSS la scoperait au seul premier consommateur.
+  `App.module.css`, colocalisée avec son unique consommateur — la règle QUA-8 des modules
+  colocalisés s'applique, `index.css` étant réservé à ce qui vaut pour tout le document (la garde
+  `[hidden]`, le mapping `[data-severity]`, l'anneau de focus du § 4, qui doit atteindre les
+  contrôles MapLibre). Une classe utilisée à un seul endroit n'a rien de document-wide.
 - Le `<h3>` de `PanelHeader` devient `<h2>` : sous un `h1`, c'est le niveau juste.
 - `FloatingCard` reçoit une prop `label` et rend un `<section aria-label>` — exactement ce que
   `Sheet` fait déjà, donc les deux mises en page se nomment de la même façon, et le composant garde
@@ -283,8 +285,22 @@ vide, `aria-*` invalide ou orphelin, rôle incompatible avec l'élément, `aria-
 
 L'assertion est branchée sur les **dix fichiers de test de composants existants** (`DisruptionRow`,
 `LinePicker`, `NetworkStatus`, `NetworkSummary`, `PanelHeader`, `Sheet`, `SheetFooter`, `StaleWarning`,
-`StopPanel`, `VehiclePanel`), et **doit rougir avant** les correctifs des § 5 et 6 : un test de filet
-écrit sur du code déjà correct passe du premier coup et ne prouve rien (leçon de QUA-8).
+`StopPanel`, `VehiclePanel`).
+
+**Ce que ce garde-fou ne peut pas prouver, et qu'il ne faut donc pas lui demander.** Les défauts du
+§ 5 lui échappent par construction : axe ne peut pas savoir qu'un bouton est une bascule, donc
+l'absence d'`aria-pressed` ne lui apparaît pas ; et la pastille **a** un contenu textuel (« 912 »),
+donc la règle `button-name` passe malgré un nom accessible inutilisable. Le § 6 lui échappe aussi
+(règles de niveau page désactivées).
+
+La conséquence est un ordre de travail, pas un renoncement : **axe est un filet de régression, pas
+un détecteur de ces défauts-là**. Il se branche d'abord et son verdict réel se consigne tel quel —
+vert partout est un résultat acceptable, c'est la ligne de base. Ce qui **doit rougir avant** les
+correctifs des § 5 et 6, ce sont des **assertions écrites à la main** :
+`toHaveAttribute("aria-pressed")`, `getByRole("button", { name: /Ligne 9, 12 trains/ })`,
+`getByRole("heading", { level: 1 })`, `getByRole("region", { name: "État du réseau" })`. La leçon de
+QUA-8 reste entière — un test de filet écrit sur du code déjà correct passe du premier coup et ne
+prouve rien — mais elle porte sur ces assertions, pas sur axe.
 
 ## 10. Recette navigateur
 
@@ -340,21 +356,25 @@ en jsdom.
 
 ## 12. Découpage
 
-Cinq tâches, dans cet ordre. La deuxième avant les correctifs, pour que le filet rougisse sur les
-vrais défauts avant qu'on les touche.
+Sept tâches, chacune indépendamment relisible et testable. Le harnais arrive en deuxième, avant les
+correctifs, pour que la ligne de base soit connue et non reconstituée après coup.
 
 1. **Tokens et focus** — `--focus`, `--text`, `--on-sev`, `--text-faint` corrigé, la règle globale
-   `:focus-visible`, les trois surcharges locales, la palette sombre, le filet d'élévation. CSS seul,
+   `:focus-visible`, les deux surcharges locales, la palette sombre, le filet d'élévation. CSS seul,
    aucun changement de comportement.
 2. **Harnais `axe-core`** — dépendance, helper, branchement sur les dix fichiers de test de
-   composants. Doit rougir sur les pastilles avant la tâche 3.
-3. **Noms, rôles, états** — `aria-pressed` et nom accessible des pastilles, `LineBadge` à
-   avant-plan calculé (avec ses tests de fonction pure), `--on-sev` sur la puce de gravité,
-   `FloatingCard` nommée, `h1` masqué et `h2`.
-4. **Clavier et focus** — `Échap`, retour du focus au canevas.
-5. **Documentation** — CLAUDE.md (la consigne « rendu identique » de QUA-8 à amender, la règle de
-   l'avant-plan calculé, ce que le garde-fou ne voit pas), roadmap (UX-4 `fait`, nouvelle ligne
-   « carte sombre / réentrance après `setStyle` »), et la limitation 2.5.8.
+   composants, verdict de base consigné tel quel (cf. § 9).
+3. **Avant-plan calculé** — la fonction dans `color.ts` et ses tests de fonction pure, puis
+   `LineBadge` qui la consomme.
+4. **Pastilles de ligne** — `aria-pressed`, nom accessible, et l'état masqué exprimé sans `opacity`.
+5. **Structure** — `h1` masqué, `PanelHeader` en `h2`, `FloatingCard` nommée, `--on-sev` sur la puce
+   de gravité.
+6. **Clavier et focus** — `Échap`, retour du focus au canevas. Vérifié à la recette seule : aucun
+   test ne monte `App`, qui construit MapLibre (périmètre exclu par QUA-3).
+7. **Documentation** — CLAUDE.md (la consigne « rendu identique » de QUA-8 à amender, la règle de
+   l'avant-plan calculé, ce que le garde-fou ne voit pas, la règle de focus qui atteint les contrôles
+   MapLibre là où `--tap` échoue), roadmap (UX-4 `fait`, nouvelle ligne UX-6 « carte sombre /
+   réentrance après `setStyle` »), et la limitation 2.5.8.
 
 ## 13. Ce que ce chantier ne prétend pas
 
