@@ -96,9 +96,10 @@ body {
 [hidden] { display: none !important; }
 
 /* Anneau de focus unique pour tout le document. Global et non par module : la règle ne dépend
-   d'aucun composant, et `:focus-visible` étant un sélecteur d'état, elle atteint aussi les contrôles
-   MapLibre (zoom, boussole, « ⓘ ») sans nommer leurs classes tierces — ce que `--tap` ne sait pas
-   faire (cf. CLAUDE.md). */
+   d'aucun composant, et `:focus-visible` étant un sélecteur d'état, elle atteint le « ⓘ » de
+   l'attribution sans nommer sa classe tierce. Elle ne suffit pas pour le zoom et la boussole, sur
+   lesquels `maplibre-gl.css` pose un `outline: none` plus spécifique — d'où la règle dédiée plus
+   bas dans ce fichier. */
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
