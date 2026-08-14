@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeparturesResponse } from "../api/types";
+import { expectNoA11yViolations } from "../test/axe";
 import { StopPanel } from "./StopPanel";
 
 // Sans `globals: true`, le nettoyage automatique de Testing Library ne s'enregistre pas.
@@ -117,5 +118,16 @@ describe("StopPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "N'afficher que la ligne 3" }));
 
     expect(onSelectLine).toHaveBeenCalledExactlyOnceWith("3");
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<StopPanel data={departures({
+      disruptions: [{
+        severity: "BLOQUANTE", cause: "PERTURBATION", title: "Métro 3 : Trafic interrompu",
+        shortMessage: "Trafic interrompu", detail: "",
+      }],
+    })} onSelectTrain={vi.fn()} onSelectLine={vi.fn()} />);
+
+    await expectNoA11yViolations();
   });
 });

@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Vehicle } from "../api/types";
+import { expectNoA11yViolations } from "../test/axe";
 import { VehiclePanel } from "./VehiclePanel";
 
 afterEach(cleanup);
@@ -60,5 +61,11 @@ describe("VehiclePanel", () => {
     render(<VehiclePanel vehicle={vehicle()} following onFollow={onFollow} />);
     expect(screen.getByRole("button").textContent).toBe("◉ Suivi actif");
     expect(screen.getByRole("button").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<VehiclePanel vehicle={vehicle({ confidence: "APPROXIMATE" })} following onFollow={vi.fn()} />);
+
+    await expectNoA11yViolations();
   });
 });

@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DisruptionItem } from "../api/types";
+import { expectNoA11yViolations } from "../test/axe";
 import { DisruptionRow } from "./DisruptionRow";
 
 // Sans `globals: true`, le nettoyage automatique de Testing Library ne s'enregistre pas.
@@ -57,5 +58,12 @@ describe("DisruptionRow", () => {
 
     render(<ul><DisruptionRow item={item()} /></ul>);
     expect(screen.queryByText("Métro 5 : Incident - Train stationne")).not.toBeNull();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<ul><DisruptionRow item={item({ detail: "Un train stationne à Bobigny." })} /></ul>);
+    fireEvent.click(screen.getByRole("button"));
+
+    await expectNoA11yViolations();
   });
 });

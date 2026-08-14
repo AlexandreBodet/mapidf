@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectNoA11yViolations } from "../test/axe";
 import { NetworkSummary } from "./NetworkSummary";
 
 // Sans `globals: true`, le nettoyage automatique de Testing Library ne s'enregistre pas : les
@@ -81,5 +82,11 @@ describe("NetworkSummary", () => {
 
     expect(onToggleDisruptions).toHaveBeenCalledOnce();
     expect(onShowAll).not.toHaveBeenCalled();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    renderSummary({ disruptedCount: 3, canShowAll: true, collapsible: true, expanded: true });
+
+    await expectNoA11yViolations();
   });
 });

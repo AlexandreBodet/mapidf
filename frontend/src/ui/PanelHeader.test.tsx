@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectNoA11yViolations } from "../test/axe";
 import { PanelHeader } from "./PanelHeader";
 
 afterEach(cleanup);
@@ -20,5 +21,11 @@ describe("PanelHeader", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
 
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<PanelHeader title="République" onClose={vi.fn()} />);
+
+    await expectNoA11yViolations();
   });
 });

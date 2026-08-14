@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectNoA11yViolations } from "../test/axe";
 import { stubHeight, triggerResize } from "../test/setup";
 import { Sheet } from "./Sheet";
 import type { Cran } from "./sheetCrans";
@@ -294,5 +295,11 @@ describe("Sheet — fin de geste", () => {
     fireEvent.click(long.handle, { detail: 1 });
     // `moved` est vrai : le clic natif qui suit le geste ne doit pas avancer d'un cran de plus.
     expect(long.onCranChange).not.toHaveBeenCalled();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    renderSheet("moitie", "2026-08-11T14:32:10Z");
+
+    await expectNoA11yViolations();
   });
 });

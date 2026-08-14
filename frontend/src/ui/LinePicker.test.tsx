@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LineDisruptions, NetworkLine } from "../api/types";
+import { expectNoA11yViolations } from "../test/axe";
 import { LinePicker } from "./LinePicker";
 
 afterEach(cleanup);
@@ -76,5 +77,16 @@ describe("LinePicker", () => {
     renderPicker({ disruptions, disrupted: [LIGNE_8], disruptionsOpen: true });
     // Titre raccourci par disruptionTitle : la pastille de ligne porte déjà « Métro 8 ».
     expect(screen.queryByText("Incident - Trafic ralenti")).not.toBeNull();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    renderPicker({
+      disruptions: new Map([[LIGNE_8.id, perturbation("BLOQUANTE", "Métro 8 : Trafic interrompu")]]),
+      disrupted: [LIGNE_8],
+      disruptionsOpen: true,
+      visible: new Set([LIGNE_9.id]),
+    });
+
+    await expectNoA11yViolations();
   });
 });

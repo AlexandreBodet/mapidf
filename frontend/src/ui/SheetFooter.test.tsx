@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { expectNoA11yViolations } from "../test/axe";
 import { SheetFooter } from "./SheetFooter";
 
 // Sans `globals: true`, le nettoyage automatique de Testing Library ne s'enregistre pas.
@@ -23,5 +24,11 @@ describe("SheetFooter", () => {
 
     render(<SheetFooter asOf="2026-08-11T14:32:10Z" />);
     expect(screen.queryByText(/Données IDFM du/)).not.toBeNull();
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<SheetFooter asOf="2026-08-11T14:32:10Z" />);
+
+    await expectNoA11yViolations();
   });
 });

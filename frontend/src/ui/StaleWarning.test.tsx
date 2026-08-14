@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { expectNoA11yViolations } from "../test/axe";
 import { StaleWarning } from "./StaleWarning";
 
 afterEach(cleanup);
@@ -16,5 +17,11 @@ describe("StaleWarning", () => {
     render(<StaleWarning stale />);
 
     expect(screen.getByRole("status").textContent).toContain("Positions plus mises à jour");
+  });
+
+  it("ne présente aucune violation détectable par axe", async () => {
+    render(<StaleWarning stale />);
+
+    await expectNoA11yViolations();
   });
 });
