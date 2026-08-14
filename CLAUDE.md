@@ -158,7 +158,9 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   `spring.web.resources.add-mappings` vaut `true` par défaut, Boot y enregistre un
   `ResourceHttpRequestHandler` sur `/**`, et Spring MVC lui applique les mêmes interceptors qu'aux
   contrôleurs. Que ce même interceptor atteigne ou non le contexte enfant de l'Actuator ne change
-  rien : celui-ci n'est publié que sur la loopback (port 9100), donc exempté quoi qu'il arrive.
+  pas grand-chose : celui-ci n'est publié que sur la loopback (port 9100), donc inatteignable
+  depuis le réseau — dans la pile Docker, un appel venu de l'hôte y arrive via la passerelle du
+  bridge, donc y serait compté, mais 600/min ne gêne aucun collecteur réaliste.
 
 ## Configuration du réseau suivi
 

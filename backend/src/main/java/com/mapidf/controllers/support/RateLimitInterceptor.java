@@ -61,14 +61,15 @@ public class RateLimitInterceptor implements HandlerInterceptor {
      * jamais un client public. Pas InetAddress.getByName — sur autre chose qu'un littéral, il
      * ferait une résolution DNS à chaque requête.
      *
-     * <p>Limite de la garantie : {@code server.tomcat.remoteip.internal-proxies} (défaut)
-     * fait confiance à l'en-tête X-Forwarded-For venant de {@code 10/8}, {@code 172.16/12},
-     * {@code 192.168/16}, {@code 169.254/16} ou {@code 127/8}. Une source dont l'adresse
-     * réelle tombe dans une de ces plages — un conteneur voisin sur le réseau bridge de
-     * Compose, ou une machine du LAN si le port 8100 dépassait un jour la loopback — peut donc
-     * envoyer {@code X-Forwarded-For: 127.0.0.1} et obtenir l'exemption. Un client public ne le
-     * peut pas. Acceptable pour les trois topologies visées par ce chantier ; à revoir si l'une
-     * change.
+     * <p>Limite de la garantie : le défaut de {@code server.tomcat.remoteip.internal-proxies}
+     * couvre aussi {@code 100.64.0.0/10} (CGNAT). Le {@code RemoteIpValve} retient l'entrée la
+     * plus à gauche de X-Forwarded-For quand toute la chaîne est interne : l'exemption est donc
+     * forgeable par quiconque a, vu de la bordure, une adresse déjà privée — un pair du LAN, un
+     * conteneur voisin du bridge Compose, un pod du cluster — jamais par un client public. Le
+     * chemin est vivant aujourd'hui via nginx (port 8080, toutes interfaces), pas via le port
+     * 8100. Assumé : qui est déjà dans le périmètre privé a d'autres portes, et resserrer la
+     * liste échangerait ce trou improbable contre un risque de seau global si un saut amont
+     * légitime siégeait un jour dans une plage retirée.
      */
     private static boolean isLoopback(String ip) {
         return ip.startsWith("127.") || "::1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip);

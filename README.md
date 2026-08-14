@@ -87,9 +87,15 @@ modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin
 
 Les quatre endpoints sont limités à **600 requêtes par minute et par adresse IP**
 (`app.ratelimit.requests-per-minute`) ; au-delà, la réponse est un **429** portant `Retry-After`
-et le corps d'erreur habituel. La loopback n'est pas comptée. Un client normal consomme ~31
-req/min par onglet en pointe (cf. [feuille de route](docs/roadmap.md), SEC-3) : il ne l'atteint
-jamais.
+et le corps d'erreur habituel. La loopback n'est pas comptée — **telle que l'application la voit
+après résolution du `X-Forwarded-For`**. Dans la pile Docker, `EnableUserlandProxy` valant `true`,
+une requête de l'hôte vers un port publié arrive dans le conteneur **depuis la passerelle du
+bridge** (`172.x`), pas depuis `127.0.0.1` : elle **est** donc comptée, sous une clé unique
+partagée par tout le trafic d'origine hôte (scrape Prometheus, `curl`,
+`scripts/check-headers.sh`) — sans gravité à 600/min, mais à savoir quand on opère la pile. Le
+`HEALTHCHECK` de `backend/Dockerfile`, lui, reste exempté : il tourne *dans* le conteneur. Un
+client normal consomme ~31 req/min par onglet en pointe (cf. [feuille de route](docs/roadmap.md),
+SEC-3) : il ne l'atteint jamais.
 
 ## Utilisation — échelle de zoom
 La carte se peuple progressivement avec le zoom : les tracés des lignes sont visibles à tout
@@ -138,6 +144,10 @@ Ce que le terminateur doit faire, et que rien ici ne peut faire à sa place :
    tous ses en-têtes de sécurité.
 5. Laisser passer les en-têtes de réponse de nginx sans les réécrire — c'est à ce moment-là que
    HSTS devient actif, sans changement de configuration.
+6. **Déclarer son CIDR à nginx** via `set_real_ip_from` / `real_ip_header X-Forwarded-For` dans
+   `frontend/nginx.conf` — sans ça, la zone `limit_req` (clé sur `$binary_remote_addr`) devient un
+   budget partagé par tous les usagers au lieu d'un quota par IP (réserve détaillée dans
+   `nginx.conf`).
 
 Aucune question de CORS ne se pose : une seule origine sert l'application et l'API.
 

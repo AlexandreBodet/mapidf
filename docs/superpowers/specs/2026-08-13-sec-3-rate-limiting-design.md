@@ -26,8 +26,8 @@ Est réussi si, tout appliqué :
 1. Une boucle sans délai depuis une IP publique reçoit des **429** en moins d'une seconde, avec un
    `Retry-After` exploitable et le corps d'erreur déjà servi partout ailleurs.
 2. Le quota couvre **les quatre** endpoints, `/network` compris (§ 2.2).
-3. La clé du quota est **la vraie IP cliente** derrière un proxy, et n'est **pas forgeable** par un
-   client public (§ 2.3).
+3. La clé du quota est **la vraie IP cliente** derrière un proxy, et n'est pas forgeable par un
+   client public — seul un pair déjà dans le périmètre privé le peut (§ 2.3).
 4. `./mvnw verify` est vert, avec plus de tests qu'avant. Référence mesurée au point de départ de
    la branche (`af8804a`) : **114 exécutions unitaires + 53 IT**, soit 167 au total. Le « 167
    unitaires » d'une note antérieure était ce total mal étiqueté.
@@ -90,12 +90,15 @@ en compose (réseau bridge Docker en 172.16/12), un Ingress dans un cluster et u
 un client public tapant le port du backend en direct ne peut rien forger, son XFF étant ignoré au
 profit de son adresse de socket.
 
-**Angle mort accepté** : `100.64.0.0/10` (CGNAT) fait partie des proxys internes par défaut. Un
-client dont l'adresse publique tombe dans cette plage — cela arrive chez certains opérateurs
-mobiles — et qui atteindrait le backend *sans* proxy devant pourrait forger son XFF. La topologie
-suppose toujours un proxy devant ; restreindre la liste demanderait de la fixer par environnement,
-ce qui échange un angle mort improbable contre une configuration à tenir à jour dans trois
-déploiements.
+**Angle mort accepté** : le `RemoteIpValve` retient l'entrée la plus à gauche de X-Forwarded-For
+quand la chaîne entière est interne. La condition n'est donc pas l'absence de proxy devant — c'est
+au contraire le proxy qui ajoute l'adresse du pair à la chaîne qui la rend entièrement interne, et
+donc forgeable. Il faut que ce pair soit lui-même dans une plage interne : `100.64.0.0/10` (CGNAT)
+en fait partie, tout comme `192.168/16`, `172.16/12` ou `10/8` — un pair du LAN, un conteneur
+voisin du bridge Compose, un pod du cluster. Le périmètre d'exposition est donc déjà le réseau
+privé, pas Internet : un client public termine toujours la chaîne et reste compté. Restreindre la
+liste échangerait ce trou — déjà circonscrit à qui est dans le périmètre privé — contre une
+configuration à tenir à jour dans trois déploiements.
 
 ### 2.4 L'IP est une clé imparfaite, et le quota doit en tenir compte
 

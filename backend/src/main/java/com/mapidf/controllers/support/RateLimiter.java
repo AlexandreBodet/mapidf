@@ -35,7 +35,9 @@ public final class RateLimiter {
     private final Map<String, Entry> entries = new ConcurrentHashMap<>();
 
     /** Dernière fenêtre balayée. Non volatile : deux balayages concurrents sont sans effet de
-     *  bord, et un balayage manqué sera rattrapé par la requête suivante. */
+     *  bord — le modèle mémoire ne garantit pas qu'un balayage manqué soit rattrapé, mais le
+     *  prédicat de {@code removeIf} porte sur la fenêtre propre à chaque entrée, donc il
+     *  n'évince jamais une entrée vivante. */
     private Instant sweptWindow = Instant.EPOCH;
 
     public RateLimiter(Clock clock, int budget, MeterRegistry meters) {
@@ -70,8 +72,9 @@ public final class RateLimiter {
         }
 
         rejected.increment();
-        // Une seule ligne par clé et par fenêtre, au franchissement exact : borné par
-        // construction, donc un abuseur ne peut pas inonder les journaux. Une métrique ne sert à
+        // Une seule ligne par clé et par fenêtre, au franchissement exact : bornée en pratique,
+        // pas garantie par construction — un thread retardataire peut réinstaller une entrée
+        // d'une fenêtre déjà balayée et remettre son compteur à zéro. Une métrique ne sert à
         // rien tant qu'il faut penser à la lire (même intention que LineCoverageGuard).
         if (count == budget + 1L) {
             log.warn("Quota dépassé pour {} : plus de {} requêtes sur la minute {}",
