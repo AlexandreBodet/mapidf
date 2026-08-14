@@ -41,6 +41,17 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ErrorResponse handleUnexpected(HttpServletRequest request, HttpServletResponse response, Exception ex) {
+        // Les exceptions du framework portent leur propre statut via l'interface ErrorResponse de
+        // Spring (homonyme de notre DTO, d'où le nom complet). Sans ce test, l'attrape-tout les
+        // classait toutes en 500 : un chemin non mappé répondait « erreur interne » et laissait
+        // une trace de pile dans le journal pour une faute du client (QUA-14).
+        if (ex instanceof org.springframework.web.ErrorResponse framework
+            && framework.getStatusCode().is4xxClientError()) {
+            HttpStatus status = HttpStatus.valueOf(framework.getStatusCode().value());
+            ErrorCode errorCode = status == HttpStatus.NOT_FOUND ? ErrorCode.NOT_FOUND : ErrorCode.BAD_REQUEST;
+            log.debug("Client error [{}]: {}", errorCode, ex.getMessage());
+            return write(response, status, errorCode, request);
+        }
         log.error("Unexpected error", ex);
         return write(response, HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_ERROR, request);
     }

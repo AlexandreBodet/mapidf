@@ -139,8 +139,8 @@ par le quota. `spring.web.resources.add-mappings` vaut `true` par défaut, donc 
 `ResourceHttpRequestHandler` sur `/**`, et Spring MVC lui applique **les mêmes interceptors**
 qu'aux contrôleurs — `RateLimitInterceptor` s'exécute donc aussi sur ces chemins. Sans
 conséquence pour ce chantier : un chemin qui n'existe pas ne coûte de toute façon presque rien à
-traiter. Le même test a révélé, hors périmètre, que ce chemin répond **500** au lieu d'un 404
-(`ApiExceptionHandler` ne traite pas `NoResourceFoundException`) — ouvert en roadmap sous QUA-14.
+traiter. Le même test a révélé, hors périmètre, que ce chemin répondait **500** au lieu d'un 404 —
+ouvert en roadmap sous QUA-14, et corrigé depuis.
 
 ## 3. Architecture retenue
 
