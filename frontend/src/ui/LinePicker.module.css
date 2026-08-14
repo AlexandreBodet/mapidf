@@ -28,10 +28,15 @@
   min-height: var(--tap);
 }
 
-/* Ligne exclue du filtre courant : atténuée, jamais retirée — on doit pouvoir la rallumer. */
-.pill[data-shown="false"] {
+/* Ligne exclue du filtre courant : atténuée, jamais retirée — on doit pouvoir la rallumer. Piloté
+   par `aria-pressed` et non par un `data-*` parallèle : un seul état, et c'est l'état accessible
+   (même motif que `.follow` dans VehiclePanel.module.css).
+   Sans `opacity`, contrairement à ce qui était écrit ici : à .45, le compteur tombait à 3,49:1 et
+   l'anneau de focus s'atténuait avec lui, l'opacité s'appliquant à l'élément entier, outline
+   comprise. Deux tokens explicites disent la même chose à 5,17:1. */
+.pill[aria-pressed="false"] {
   background: var(--surface-off);
-  opacity: .45;
+  color: var(--text-muted);
 }
 
 .glyph {

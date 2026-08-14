@@ -37,9 +37,8 @@ describe("LinePicker", () => {
   it("compte les trains de chaque ligne, pastille et compteur", () => {
     renderPicker();
 
-    // Deux boutons, un par ligne suivie ; le shortName vit dans la pastille.
-    // `getByTitle` et non `getByRole(…, { name })` : ce bouton n'a pas d'`aria-label`, donc son nom
-    // accessible est son contenu textuel (« 912 »), pas son infobulle.
+    // Deux boutons, un par ligne suivie ; le shortName vit dans la pastille. On lit ici le contenu
+    // textuel, pas le nom accessible : celui-ci vient désormais d'un `aria-label` (cas suivants).
     expect(screen.getAllByRole("button")).toHaveLength(2);
     expect(screen.getByTitle(/ligne 9/).textContent).toBe("912");
     expect(screen.getByTitle(/ligne 8/).textContent).toBe("87");
@@ -88,5 +87,40 @@ describe("LinePicker", () => {
     });
 
     await expectNoA11yViolations();
+  });
+
+  it("expose l'état affiché/masqué de chaque ligne", () => {
+    // `data-shown` ne disait l'état qu'au CSS : au lecteur d'écran, une ligne masquée était
+    // indiscernable d'une ligne affichée.
+    renderPicker({ visible: new Set([LIGNE_9.id]) });
+
+    expect(screen.getByTitle(/ligne 9/).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTitle(/ligne 8/).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("nomme la pastille au lieu de laisser lire « 912 »", () => {
+    // Le `title` n'est qu'un dernier recours dans le calcul du nom accessible : le contenu
+    // textuel l'emportait, donc la pastille s'annonçait « 912 ».
+    renderPicker();
+
+    expect(screen.getByRole("button", { name: "Ligne 9, 12 trains" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Ligne 8, 7 trains" })).not.toBeNull();
+  });
+
+  it("annonce la gravité dans le nom, sans y déverser les titres", () => {
+    renderPicker({
+      disruptions: new Map([[LIGNE_8.id, perturbation("BLOQUANTE", "Métro 8 : Trafic interrompu")]]),
+    });
+
+    const pastille = screen.getByRole("button", { name: "Ligne 8, 7 trains, trafic bloqué" });
+    // Le détail reste dans l'infobulle, qui a la place de le porter.
+    expect(pastille.getAttribute("title")).toContain("Métro 8 : Trafic interrompu");
+  });
+
+  it("accorde le nom au singulier", () => {
+    renderPicker({ counts: new Map([[LIGNE_9.id, 1], [LIGNE_8.id, 0]]) });
+
+    expect(screen.getByRole("button", { name: "Ligne 9, 1 train" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Ligne 8, 0 train" })).not.toBeNull();
   });
 });

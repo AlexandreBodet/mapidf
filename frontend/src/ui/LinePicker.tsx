@@ -42,19 +42,26 @@ export function LinePicker({
           const shown = !visible || visible.has(line.id);
           const disruption = disruptions.get(line.id);
           const severity = disruption ? severityMeta(disruption.severity) : null;
+          const count = counts.get(line.id) ?? 0;
+          // Le nom porte l'identité, le décompte et la gravité ; l'état vient d'`aria-pressed`, le
+          // redire ici le ferait annoncer deux fois. Le détail des perturbations reste dans le
+          // `title`, qui a la place de le porter.
+          const label = `Ligne ${line.shortName}, ${count} train${count > 1 ? "s" : ""}`
+            + (severity ? `, ${severity.label}` : "");
           return (
             <button
               key={line.id}
               onClick={() => onToggle(line.id)}
               title={disruption
                 ? `Ligne ${line.shortName} — ${severity!.label} : ${disruption.items.map((i) => i.title).join(" · ")}`
-                : `${counts.get(line.id) ?? 0} train(s) sur la ligne ${line.shortName}`}
+                : `${count} train(s) sur la ligne ${line.shortName}`}
+              aria-label={label}
+              aria-pressed={shown}
               className={styles.pill}
-              data-shown={shown}
               data-severity={disruption?.severity}
             >
               <LineBadge color={line.color} shortName={line.shortName} size="s" />
-              {counts.get(line.id) ?? 0}
+              {count}
               {severity && <span className={styles.glyph}>{severity.glyph}</span>}
             </button>
           );
