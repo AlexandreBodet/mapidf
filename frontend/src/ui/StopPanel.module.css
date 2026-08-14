@@ -33,6 +33,12 @@
   min-height: var(--tap);
 }
 
+/* La cible tactile monte à 44 px sous 720 px pour une pastille ronde de 18 px : l'anneau
+   rectangulaire de la règle globale encadrerait du vide et ferait croire à un bouton carré. */
+.isolate:focus-visible {
+  border-radius: 999px;
+}
+
 .direction {
   margin: 4px 0 0 4px;
 }

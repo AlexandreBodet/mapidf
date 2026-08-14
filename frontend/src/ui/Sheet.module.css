@@ -52,6 +52,17 @@
   margin: 0 auto;
 }
 
+/* La poignée fait 44 px sur toute la largeur pour un grip visible de 36×4 : l'anneau global s'y
+   lirait « la feuille est focalisée » et non « ce bouton l'est ». On le reporte sur le grip. */
+.handle:focus-visible {
+  outline: none;
+}
+
+.handle:focus-visible .grip {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
 /* `font-family` explicite : ce texte vit dans un `<button>`, qui n'hérite pas de la police du
    document. L'attribut remplacé posait `font: 10px sans-serif`. */
 .asOf {

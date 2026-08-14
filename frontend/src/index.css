@@ -15,6 +15,7 @@ body {
    `font: inherit` ou `font-family` eux-mêmes. */
 body {
   font-family: var(--font);
+  color: var(--text);
 }
 
 :root {
@@ -28,19 +29,32 @@ body {
 
   --font: sans-serif;
 
-  /* Surfaces, texte, filets. Les nuances proches sont volontairement distinctes : les fusionner
-     changerait le rendu, ce qu'interdit QUA-8. Aucune couleur de texte principale n'est définie —
-     le projet n'en posait pas, tout hérite du défaut du navigateur (UX-4 en ajoutera une). */
+  /* Surfaces, texte, filets. Les nuances proches restent distinctes ; contrairement à QUA-8, qui
+     interdisait tout changement de rendu, UX-4 en change volontairement — mais seulement là où une
+     mesure l'exige (`--text-faint` valait 2,85:1). */
   --surface: #fff;
   --surface-off: #f3f3f3;      /* fond d'une pastille de ligne masquée */
   --text-muted: #666;
   --text-detail: #444;         /* corps du bandeau d'état, titre sans détail */
   --text-detail-open: #555;    /* détail déplié d'une perturbation */
-  --text-faint: #999;          /* heure sur la poignée de la feuille */
-  --separator: #bbb;           /* point entre deux horaires */
+  --text-faint: #767676;       /* heure sur la poignée ; #999 valait 2,85:1 sur blanc */
+  --separator: #bbb;           /* point entre deux horaires ; 1,92:1 assumé, cf. ci-dessous */
   --handle: #ccc;              /* barre de la poignée */
   --border: #ddd;              /* contour d'une pastille sans perturbation */
   --border-subtle: #eee;       /* filet entre deux perturbations */
+
+  /* Couleur de texte principale. Le projet n'en posait aucune, tout héritait du défaut du
+     navigateur — donc la règle du thème sombre n'aurait rien eu à surcharger. `#111` et non `#000`
+     pour s'accorder au `text-color` des libellés de station sur la carte. */
+  --text: #111;
+
+  /* Avant-plan des puces de gravité. Séparé de `--surface`, que la puce détournait comme couleur de
+     texte : en thème sombre celui-ci devient foncé, ce qui retournerait le texte sur son fond. */
+  --on-sev: #fff;
+
+  /* Anneau de focus. Aucune teinte unique ne tient les deux thèmes — mesuré, #1d4ed8 vaut 6,70:1 sur
+     blanc et 2,54:1 sur la surface sombre — donc il suit `--accent`, qui bascule. */
+  --focus: var(--accent);
 
   --accent: #1d4ed8;
   --warn: #b45309;
@@ -59,6 +73,10 @@ body {
   --shadow-sheet: 0 -2px 16px rgba(0, 0, 0, .2);
 }
 
+/* `--separator` reste sous 4,5:1 à dessein : le « · » entre deux horaires est `aria-hidden` et
+   purement décoratif — la séparation est portée par les boîtes des boutons —, or le critère 1.4.3
+   exempte le texte décoratif. Le remonter le ferait concurrencer les horaires qu'il sépare. */
+
 /* Gravité d'une perturbation : l'élément porteur déclare `data-severity`, la couleur descend par
    `--sev`. Global plutôt que dupliqué dans chaque module — les quatre valeurs sont les mêmes
    partout (sélecteur de lignes, fiche station), et `severity.ts` ne garde que glyphe et libellé.
@@ -72,9 +90,59 @@ body {
    un `display: flex` posé par une classe l'écrase et déplierait la feuille en silence. */
 [hidden] { display: none !important; }
 
+/* Anneau de focus unique pour tout le document. Global et non par module : la règle ne dépend
+   d'aucun composant, et `:focus-visible` étant un sélecteur d'état, elle atteint aussi les contrôles
+   MapLibre (zoom, boussole, « ⓘ ») sans nommer leurs classes tierces — ce que `--tap` ne sait pas
+   faire (cf. CLAUDE.md). */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* Doit rester synchronisé avec NARROW_MAX_WIDTH dans src/ui/useViewport.ts. */
 @media (max-width: 720px) {
   :root {
     --tap: 44px;
+  }
+}
+
+/* Thème sombre des panneaux seuls : la carte reste claire (le style tiers ne bascule pas, cf. UX-6).
+   Pas d'interrupteur manuel — le projet n'a pas d'écran de réglages, et le système exprime déjà la
+   préférence.
+
+   `--sev-perturbee` et `--sev-information` ne sont PAS redéfinis : ce sont des alias de `--warn` et
+   `--accent`, résolus à l'usage, donc ils suivent gratuitement. Les deux puces d'état de StopPanel
+   (`--amber-*`, `--red-*`) restent claires à dessein : mesurées à 13,68:1 et 11,78:1 contre le
+   panneau sombre, les inverser serait du travail pour rien. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1b1c1f;
+    --surface-off: #2a2b2f;
+
+    --text: #e8e8ea;             /* 13,92:1 */
+    --text-detail: #c6c8cc;      /* 10,17:1 */
+    --text-detail-open: #bfc1c6;
+    --text-muted: #a5a7ac;       /* 7,08:1 */
+    --text-faint: #8f9196;       /* 5,40:1 */
+
+    --separator: #5a5c61;        /* assombri, pas éclairci : #bbb serait trop voyant sur ce fond */
+    --handle: #4a4c51;
+    --border: #3a3c41;
+    --border-subtle: #2e3034;
+
+    --accent: #8ab0ff;           /* 7,90:1 ; #1d4ed8 tombait à 2,54:1 */
+    --warn: #f0a559;             /* 8,30:1 ; #b45309 tombait à 3,39:1 */
+
+    /* Éclaircies pour tenir leur rôle de bordure (≥ 3:1 sur la surface), ce que #b91c1c ne faisait
+       plus (2,63:1). Le texte de la puce suit par `--on-sev`, qui bascule en même temps. */
+    --sev-bloquante: #ef8f8f;
+    --sev-inconnue: #a1a5ad;
+
+    --on-sev: #17181a;
+
+    /* L'ombre portée ne se lit plus sur du sombre, alors qu'elle est le seul signe qui détache un
+       panneau de la carte restée claire : un filet la remplace, l'ombre restant pour la profondeur. */
+    --shadow-card: 0 0 0 1px var(--border), 0 2px 12px rgba(0, 0, 0, .5);
+    --shadow-sheet: 0 0 0 1px var(--border), 0 -2px 16px rgba(0, 0, 0, .5);
   }
 }
