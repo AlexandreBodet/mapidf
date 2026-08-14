@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { readableOn } from "./color";
 import shared from "./shared.module.css";
 
 interface Props {
@@ -15,13 +16,16 @@ interface Props {
  *
  * L'assertion sur `style` est nécessaire : `CSSProperties` ne connaît pas les variables CSS et
  * `tsc` refuse la propriété (TS2353) sans elle.
+ *
+ * L'avant-plan est **calculé** et non fixé au blanc : six des huit teintes réelles du flux échouent
+ * le seuil de 4,5:1 avec du blanc (cf. `readableOn`).
  */
 export function LineBadge({ color, shortName, size }: Props) {
   return (
     <span
       className={shared.lineBadge}
       data-size={size}
-      style={{ "--line-color": color } as CSSProperties}
+      style={{ "--line-color": color, "--line-fg": readableOn(color) } as CSSProperties}
     >
       {shortName}
     </span>
