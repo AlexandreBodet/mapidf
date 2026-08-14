@@ -82,10 +82,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   propre. **Aucun module n'en surcharge un autre à spécificité égale** : l'ordre des règles dans la
   feuille émise vient du graphe d'imports, et `composes` ne garantit même pas que la base sorte avant
   sa consommatrice (mesuré) — d'où le `[data-anchor]` de `.reseau` dans `App.module.css`. Ne
-  subsistent que **deux** `style` inline, réduits à une variable CSS chacun :
-  `--line-color` (`LineBadge`) et `--sheet-height` (`Sheet`) — une valeur venue de la donnée ou d'une
-  mesure, jamais une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une variable CSS sans
-  elle (TS2353).
+  subsistent que **deux** `style` inline — `LineBadge` et `Sheet` — mais plus à une variable CSS
+  chacun : `LineBadge` en porte **deux** depuis UX-4 (`--line-color` et `--line-fg`, l'avant-plan
+  calculé par `readableOn`, cf. plus bas), `Sheet` une seule (`--sheet-height`) — une valeur venue de
+  la donnée ou d'une mesure, jamais une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une
+  variable CSS sans elle (TS2353).
   Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** — un module qui en
   stylise un doit reposer `font: inherit` (ce qu'apporte `composes: linkButton`) ou `font-family`,
   **mais seulement si l'attribut remplacé posait une famille** ; s'il ne posait qu'une taille, en
@@ -94,7 +95,21 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   `display: none`, et la garde `[hidden] { display: none !important }` d'`index.css` est
   indispensable, la feuille de l'UA étant écrasée par n'importe quelle règle auteur ; et **aucun test
   ne voit une règle CSS** (Vitest n'applique pas les feuilles), donc le rendu ne se vérifie qu'en
-  navigateur.
+  navigateur. **Depuis UX-4**, deux des concernes que le style inline ne savait pas exprimer sont
+  posées : un **anneau de focus global** (`:focus-visible` dans `index.css`, sur `var(--focus)` qui
+  bascule avec le thème — sélecteur d'état et non de classe, il **atteint aussi les contrôles
+  MapLibre** — zoom, boussole, `ⓘ` — là où `--tap` ne le peut pas, cf. limitation ci-dessous) et un
+  **thème sombre au seul `prefers-color-scheme`**, sans interrupteur manuel, qui ne couvre que les
+  **panneaux** : la carte reste claire, le style tiers ne basculant pas avec elle (cf. UX-6).
+- **Les couleurs de ligne ne sont pas dessinées pour du blanc.** `LineBadge` calcule son avant-plan
+  par `readableOn` (`ui/color.ts`) : mesuré, six des huit teintes réelles du flux échouent le seuil de
+  4,5:1 avec du blanc, jusqu'à 1,62:1 sur la ligne 9. Le choix se **calcule** au lieu de suivre un
+  seuil de luminance, qui se tromperait sur la ligne 3. Ne pas « simplifier » en refixant `#fff`.
+- **`axe-core` tourne dans les tests de composants** (`src/test/axe.ts`), mais **ne voit ni le
+  contraste** (jsdom n'applique aucune feuille, la règle sort en *incomplete*) **ni les règles de
+  niveau page** (désactivées : un composant monté seul n'a ni `main` ni `h1`). Il ne voit pas non plus
+  qu'un bouton est une bascule : l'`aria-pressed` des pastilles est tenu par des assertions écrites à
+  la main. Le contraste et le plan de document se vérifient au navigateur.
 - **MapLibre 6 n'émet plus son worker tout seul** : il en dérive l'URL depuis `import.meta.url`, ce
   que le bundling casse. Sans le `setWorkerUrl` de `MapView.tsx` (import `?worker&url`), **le build
   est vert, sans un avertissement, et `dist/` ne contient aucun worker** — carte blanche en prod sur
@@ -294,4 +309,17 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
 - **`--tap` ne touche que nos composants** : les contrôles MapLibre (zoom, boussole, et le `ⓘ`
   de l'attribution) restent sous les 44 px tactiles, et peuvent chevaucher le bandeau d'état sous
   384 px de large. Corriger demanderait une règle visant leurs classes tierces, donc un `:global()`
-  ou une règle dans `index.css` — les modules CSS du projet étant scopés (cf. QUA-8).
+  ou une règle dans `index.css` — les modules CSS du projet étant scopés (cf. QUA-8). **Reste vrai
+  pour la taille des cibles, plus pour le focus** (UX-4) : `:focus-visible` dans `index.css` est un
+  sélecteur d'état, pas de classe — il atteint les contrôles MapLibre sans avoir à les nommer.
+- **Cibles de moins de 24 px sur écran large** : `--tap` vaut 0 au-dessus de 720 px, et `.chevron`
+  (`padding: 0`) fait la hauteur de son glyphe. Le critère 2.5.8 de WCAG 2.2 demande 24 px ; l'écart
+  est réel mais ne bloque ni le clavier ni le lecteur d'écran, et le corriger déplacerait la mise en
+  page des deux cartes flottantes.
+- **`followTrainFromPanel` casse, sur un chemin de transition, le retour de focus qu'UX-4 pose pour
+  la fermeture** : suivre un train depuis une fiche station retire du DOM le bouton cliqué (le
+  passage), donc le focus retombe sur `body` et la tabulation repart du début du document — le même
+  défaut qu'UX-4 corrige à la *fermeture* d'une fiche, mais sur une *transition* que la spec ne
+  couvrait pas. Le corriger proprement demanderait de donner le focus au panneau train, qui n'existe
+  pas encore à cet instant (un effet ou un ref de rappel, pas une ligne) ; envoyer le focus à la carte
+  serait pire — c'est justement ce que le découpage `resetStation` / `closeStation` évite.

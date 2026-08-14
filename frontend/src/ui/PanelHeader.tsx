@@ -9,9 +9,9 @@ interface Props {
 export function PanelHeader({ title, onClose }: Props) {
   return (
     <div className={styles.header}>
-      {/* Aucun style de police : le `<h3>` d'origine n'en avait pas non plus et héritait du
-          défaut du navigateur. Le passage en `h2` change donc la taille rendue — c'est voulu, il
-          n'y avait aucun `h1` au-dessus et le niveau 3 était orphelin. */}
+      {/* `<h3>` devient `<h2>` : sous le `h1` masqué d'App, c'est le niveau juste (UX-4) — un geste
+          sémantique, pas visuel. Le rendu ne bouge pas : `.title` repose explicitement le
+          `font-size: 1.17em` par défaut d'un `<h3>`, pour que le passage de niveau ne se voie pas. */}
       <h2 className={styles.title}>{title}</h2>
       <button
         className={styles.close}
