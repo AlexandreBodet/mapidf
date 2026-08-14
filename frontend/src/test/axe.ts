@@ -4,8 +4,9 @@ import { expect } from "vitest";
 /**
  * Règles de niveau page, désactivées : un composant monté seul dans un `div` n'a ni `main`, ni `h1`,
  * ni `lang`, donc elles rougiraient partout sans rien dire du composant. Ce que ça coûte est assumé
- * (spec § 9) : `h1`, `main` et régions nommées ne sont couverts que par les assertions écrites à la
- * main de la tâche 5 et par la recette — aucun test ne monte `App`, qui construit MapLibre.
+ * (spec § 9) : le `h1` et le `main` d'`App` ne sont couverts par AUCUN test — `App` construit
+ * MapLibre et aucun test ne le monte —, ils se vérifient au navigateur. Seules les régions nommées
+ * de `FloatingCard` ont une assertion écrite à la main.
  */
 const PAGE_LEVEL_RULES = [
   "region",

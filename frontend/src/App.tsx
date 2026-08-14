@@ -382,7 +382,10 @@ export default function App() {
       : null;
 
   return (
-    <>
+    <main>
+      {/* Landmark du contenu principal : sans lui, une navigation par landmarks ne trouve que les
+          deux régions nommées et jamais le contenu. Statique, donc sans effet sur le positionnement
+          absolu de la carte et des panneaux. */}
       {/* Un plan de document commence par un titre de niveau 1. Masqué visuellement : le titre
           existe déjà dans `<title>` et l'écran est tout entier occupé par la carte. */}
       <h1 className={styles.srOnly}>MapIDF — métro d'Île-de-France</h1>
@@ -423,6 +426,6 @@ export default function App() {
           </FloatingCard>
         </>
       )}
-    </>
+    </main>
   );
 }

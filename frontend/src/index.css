@@ -27,6 +27,11 @@ body {
      `:root`) rejoue ce cas sans appareil Apple. */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
+  /* Déclare les deux thèmes aux surfaces que l'UA dessine et que nos tokens ne gouvernent pas —
+     ascenseurs des zones qui défilent, couleurs système. Sans lui, `ButtonText` reste noir même en
+     thème sombre. Sans effet en clair. */
+  color-scheme: light dark;
+
   --font: sans-serif;
 
   /* Surfaces, texte, filets. Les nuances proches restent distinctes ; contrairement à QUA-8, qui
@@ -38,7 +43,11 @@ body {
   --text-detail: #444;         /* corps du bandeau d'état, titre sans détail */
   --text-detail-open: #555;    /* détail déplié d'une perturbation */
   --text-faint: #767676;       /* heure sur la poignée ; #999 valait 2,85:1 sur blanc */
-  --separator: #bbb;           /* point entre deux horaires ; 1,92:1 assumé, cf. ci-dessous */
+  --separator: #bbb;           /* point entre deux horaires ; 1,92:1 assumé — le « · » est
+                                   `aria-hidden` et décoratif, la séparation étant portée par les
+                                   boîtes des boutons, et le critère 1.4.3 exempte le texte
+                                   décoratif ; le remonter le ferait concurrencer les horaires
+                                   qu'il sépare */
   --handle: #ccc;              /* barre de la poignée */
   --border: #ddd;              /* contour d'une pastille sans perturbation */
   --border-subtle: #eee;       /* filet entre deux perturbations */
@@ -73,10 +82,6 @@ body {
   --shadow-sheet: 0 -2px 16px rgba(0, 0, 0, .2);
 }
 
-/* `--separator` reste sous 4,5:1 à dessein : le « · » entre deux horaires est `aria-hidden` et
-   purement décoratif — la séparation est portée par les boîtes des boutons —, or le critère 1.4.3
-   exempte le texte décoratif. Le remonter le ferait concurrencer les horaires qu'il sépare. */
-
 /* Gravité d'une perturbation : l'élément porteur déclare `data-severity`, la couleur descend par
    `--sev`. Global plutôt que dupliqué dans chaque module — les quatre valeurs sont les mêmes
    partout (sélecteur de lignes, fiche station), et `severity.ts` ne garde que glyphe et libellé.
@@ -97,6 +102,25 @@ body {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* Le contrôle d'attribution de MapLibre pose son fond blanc translucide sans couleur de texte : il
+   héritait donc du `--text` de `body` et devenait illisible en thème sombre (~1,2:1), lien inclus,
+   `maplibre-gl.css` rendant `color: inherit` au survol. La mention de source relève de l'art. 5.4 de
+   la Licence Mobilité : elle ne peut pas dépendre du thème. Reprend la teinte de MapLibre, son fond
+   restant clair dans les deux cas. Corrige aussi le survol par ricochet, puisque c'est de cette
+   règle que `inherit` hérite désormais. */
+.maplibregl-ctrl-attrib {
+  color: rgba(0, 0, 0, .75);
+}
+
+/* `maplibre-gl.css` pose `outline: none` sur ces boutons à une spécificité (0,1,1) que la règle
+   globale ci-dessus (0,1,0) ne peut pas battre : sans cette reprise, zoom et boussole restent des
+   arrêts de tabulation sans indicateur. Décalage négatif, ces trois boutons étant collés dans leur
+   groupe — un anneau extérieur mordrait sur ses voisins. */
+.maplibregl-ctrl-group button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 /* Doit rester synchronisé avec NARROW_MAX_WIDTH dans src/ui/useViewport.ts. */

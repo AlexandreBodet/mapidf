@@ -97,8 +97,11 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   ne voit une règle CSS** (Vitest n'applique pas les feuilles), donc le rendu ne se vérifie qu'en
   navigateur. **Depuis UX-4**, deux des concernes que le style inline ne savait pas exprimer sont
   posées : un **anneau de focus global** (`:focus-visible` dans `index.css`, sur `var(--focus)` qui
-  bascule avec le thème — sélecteur d'état et non de classe, il **atteint aussi les contrôles
-  MapLibre** — zoom, boussole, `ⓘ` — là où `--tap` ne le peut pas, cf. limitation ci-dessous) et un
+  bascule avec le thème — sélecteur d'état et non de classe, il atteint le `ⓘ` de l'attribution
+  **sans nommer sa classe tierce**, mais pas le zoom ni la boussole : `maplibre-gl.css` y pose
+  `outline: none` à une spécificité que la règle globale ne peut pas battre, d'où une règle dédiée
+  qui les nomme (`.maplibregl-ctrl-group button:focus-visible`) — là où `--tap` ne peut toujours
+  rien, cf. limitation ci-dessous) et un
   **thème sombre au seul `prefers-color-scheme`**, sans interrupteur manuel, qui ne couvre que les
   **panneaux** : la carte reste claire, le style tiers ne basculant pas avec elle (cf. UX-6).
 - **Les couleurs de ligne ne sont pas dessinées pour du blanc.** `LineBadge` calcule son avant-plan
@@ -310,8 +313,12 @@ Ce qui n'est **pas** intuitif dans le flux, et qui a déjà causé des bugs :
   de l'attribution) restent sous les 44 px tactiles, et peuvent chevaucher le bandeau d'état sous
   384 px de large. Corriger demanderait une règle visant leurs classes tierces, donc un `:global()`
   ou une règle dans `index.css` — les modules CSS du projet étant scopés (cf. QUA-8). **Reste vrai
-  pour la taille des cibles, plus pour le focus** (UX-4) : `:focus-visible` dans `index.css` est un
-  sélecteur d'état, pas de classe — il atteint les contrôles MapLibre sans avoir à les nommer.
+  pour la taille des cibles, presque pour le focus** (UX-4) : `:focus-visible` dans `index.css`
+  atteint bien les trois contrôles, mais **pas** sans les nommer — seul le `ⓘ` l'obtient par le
+  sélecteur d'état global, le zoom et la boussole ayant exigé une règle qui nomme
+  `.maplibregl-ctrl-group button`. La porte est désormais ouverte : `index.css` contient déjà des
+  règles visant des classes MapLibre, donc corriger la taille des cibles ne demanderait plus
+  d'inventer un mécanisme, seulement de le vouloir.
 - **Cibles de moins de 24 px sur écran large** : `--tap` vaut 0 au-dessus de 720 px, et `.chevron`
   (`padding: 0`) fait la hauteur de son glyphe. Le critère 2.5.8 de WCAG 2.2 demande 24 px ; l'écart
   est réel mais ne bloque ni le clavier ni le lecteur d'écran, et le corriger déplacerait la mise en

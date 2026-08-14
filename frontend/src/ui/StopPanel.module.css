@@ -33,10 +33,17 @@
   min-height: var(--tap);
 }
 
-/* La cible tactile monte à 44 px sous 720 px pour une pastille ronde de 18 px : l'anneau
-   rectangulaire de la règle globale encadrerait du vide et ferait croire à un bouton carré. */
+/* La cible tactile monte à 44 px sous 720 px pour une pastille ronde de 18 px : l'anneau global
+   encadrerait du vide, et l'arrondir n'y changeait rien (il donnait une capsule verticale). Reporté
+   sur la pastille, comme `.handle` le fait sur son grip. Ciblé par position, `LineBadge` ayant sa
+   classe dans un autre module. */
 .isolate:focus-visible {
-  border-radius: 999px;
+  outline: none;
+}
+
+.isolate:focus-visible > span:first-child {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .direction {

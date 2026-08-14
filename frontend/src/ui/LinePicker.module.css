@@ -13,7 +13,9 @@
 
 /* `font-family` explicite : un bouton n'hérite pas de la police du document, et l'attribut
    remplacé posait `font: 12px sans-serif`. La bordure prend la teinte de gravité quand il y en a
-   une (`--sev`, posé par `[data-severity]`), et retombe sinon sur le gris de contour. */
+   une (`--sev`, posé par `[data-severity]`), et retombe sinon sur le gris de contour.
+   `color` est indispensable pour la même raison que `font-family` : un bouton n'hérite ni l'une ni
+   l'autre, donc le compteur sortait noir sur la surface sombre. */
 .pill {
   display: flex;
   align-items: center;
@@ -22,6 +24,7 @@
   border: 1px solid var(--sev, var(--border));
   border-radius: 12px;
   background: var(--surface);
+  color: var(--text);
   font-family: var(--font);
   font-size: 12px;
   cursor: pointer;
@@ -37,6 +40,15 @@
 .pill[aria-pressed="false"] {
   background: var(--surface-off);
   color: var(--text-muted);
+}
+
+/* L'atténuation revient sur la seule pastille de ligne : c'était le signal dominant de l'état
+   masqué, et le fond seul ne vaut que 1,05:1. Elle n'est pas remise sur le bouton entier, qui y
+   perdait le contraste de son compteur et son anneau de focus. Ciblée par position et non par
+   classe, `LineBadge` ayant la sienne dans un autre module : c'est le premier enfant par
+   construction. */
+.pill[aria-pressed="false"] > span:first-child {
+  opacity: .45;
 }
 
 .glyph {

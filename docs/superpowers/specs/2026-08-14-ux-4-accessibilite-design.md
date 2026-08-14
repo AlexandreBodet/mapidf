@@ -103,10 +103,13 @@ déclaration douze fois, et manquerait tout élément futur.
 2,16:1 et 7,90:1). Il se définit donc comme `var(--accent)`, qui bascule déjà — 6,70:1 en clair et
 7,90:1 en sombre, tous deux très au-dessus du seuil non-textuel de 3:1.
 
-**Effet de bord souhaitable** : une règle globale atteint aussi les contrôles MapLibre (zoom,
-boussole, le `ⓘ` de l'attribution), que `--tap` n'atteint pas — CLAUDE.md documente cette limite,
-parce que la corriger demanderait de viser des classes tierces. L'anneau de focus, lui, n'a pas
-besoin de les nommer : `:focus-visible` est un sélecteur d'état, pas de classe.
+**Effet de bord souhaitable, mais partiel** : la règle globale atteint sans le nommer le `ⓘ` de
+l'attribution, que `--tap` n'atteint pas — CLAUDE.md documente cette limite, parce que la corriger
+demanderait de viser des classes tierces. Le zoom et la boussole, en revanche, n'en profitent pas
+gratuitement : `maplibre-gl.css` pose `outline: none` sur `.maplibregl-ctrl-group button` à une
+spécificité que la règle globale ne peut pas battre, d'où une seconde règle, dédiée, qui les nomme.
+`:focus-visible` est un sélecteur d'état et non de classe, mais cela ne dispense pas de nommer le
+groupe MapLibre dès qu'il porte lui-même un `outline: none` plus spécifique.
 
 **Deux surcharges locales**, là où la boîte par défaut ne coïncide pas avec l'affordance visible :
 

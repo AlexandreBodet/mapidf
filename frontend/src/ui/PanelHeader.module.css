@@ -15,11 +15,14 @@
 }
 
 /* Pas de `font-family` ici : le bouton ne portait déjà que `font-size`, donc il gardait la police
-   du widget. En poser une changerait le rendu du « ✕ ». */
+   du widget. En poser une changerait le rendu du « ✕ ». `color` en revanche est indispensable : un
+   bouton n'hérite pas plus la couleur que la police (la feuille de l'UA pose `ButtonText` sur
+   l'élément), donc sans elle le ✕ sortait noir sur la surface sombre — 1,23:1. */
 .close {
   flex: 0 0 auto;
   border: none;
   background: none;
+  color: var(--text);
   cursor: pointer;
   font-size: 20px;
   line-height: 1;
