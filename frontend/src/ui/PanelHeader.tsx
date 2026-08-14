@@ -10,8 +10,9 @@ export function PanelHeader({ title, onClose }: Props) {
   return (
     <div className={styles.header}>
       {/* Aucun style de police : le `<h3>` d'origine n'en avait pas non plus et héritait du
-          défaut du navigateur (gras, 1.17em). En fixer un rétrécirait le titre. */}
-      <h3 className={styles.title}>{title}</h3>
+          défaut du navigateur. Le passage en `h2` change donc la taille rendue — c'est voulu, il
+          n'y avait aucun `h1` au-dessus et le niveau 3 était orphelin. */}
+      <h2 className={styles.title}>{title}</h2>
       <button
         className={styles.close}
         onClick={onClose}

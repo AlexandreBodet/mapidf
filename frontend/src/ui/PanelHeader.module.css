@@ -5,12 +5,13 @@
   margin: 0 0 8px;
 }
 
-/* Aucun style de police sur le titre : le `<h3>` n'en avait pas non plus et héritait du défaut du
-   navigateur (gras, 1.17em). En fixer un le rétrécirait. */
+/* Le titre héritait du 1.17em par défaut d'un `<h3>`. Passé en `h2` pour la structure du document
+   (UX-4), il faut reposer cette taille : le niveau de titre est un geste sémantique, pas visuel. */
 .title {
   margin: 0;
   flex: 1;
   min-width: 0;
+  font-size: 1.17em;
 }
 
 /* Pas de `font-family` ici : le bouton ne portait déjà que `font-size`, donc il gardait la police

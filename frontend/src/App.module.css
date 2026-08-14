@@ -3,6 +3,21 @@
   inset: 0;
 }
 
+/* Masquage visuel qui conserve l'élément dans l'arbre d'accessibilité — ni `hidden` ni
+   `display: none`, qui l'en retireraient. Colocalisé ici plutôt que dans `index.css` : un seul
+   consommateur, donc rien de document-wide. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Fiche du rendu large. La largeur dépend de ce qu'elle montre : une station cite ses lignes et
    ses passages, d'où 20 px de plus qu'un train. Deux classes plutôt qu'un `data-kind` :
    `FloatingCard` ne relaie pas d'attributs arbitraires, et lui en ajouter un pour deux largeurs

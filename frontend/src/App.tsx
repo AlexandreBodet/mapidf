@@ -347,6 +347,9 @@ export default function App() {
 
   return (
     <>
+      {/* Un plan de document commence par un titre de niveau 1. Masqué visuellement : le titre
+          existe déjà dans `<title>` et l'écran est tout entier occupé par la carte. */}
+      <h1 className={styles.srOnly}>MapIDF — métro d'Île-de-France</h1>
       <div ref={container} className={styles.map} />
       <NetworkStatus status={status} />
       {isNarrow ? (
@@ -367,12 +370,16 @@ export default function App() {
       ) : (
         <>
           {ficheHeader && (
-            <FloatingCard anchor="top-right" className={station ? styles.ficheStation : styles.ficheTrain}>
+            <FloatingCard
+              anchor="top-right"
+              label="Détail"
+              className={station ? styles.ficheStation : styles.ficheTrain}
+            >
               {ficheHeader}
               {ficheBody}
             </FloatingCard>
           )}
-          <FloatingCard anchor="bottom-left" className={styles.reseau}>
+          <FloatingCard anchor="bottom-left" label="État du réseau" className={styles.reseau}>
             {networkSummary}
             {pickerExpanded && linePicker}
             <StaleWarning stale={stale} />

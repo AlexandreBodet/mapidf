@@ -7,10 +7,10 @@ import { PanelHeader } from "./PanelHeader";
 afterEach(cleanup);
 
 describe("PanelHeader", () => {
-  it("porte le titre en en-tête de niveau 3", () => {
+  it("porte le titre en en-tête de niveau 2, sous le h1 de la page", () => {
     render(<PanelHeader title="République" onClose={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("République");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("République");
   });
 
   it("ferme par un bouton nommé, atteignable au lecteur d'écran", () => {

@@ -11,13 +11,15 @@
 }
 
 /* La teinte descend de `[data-severity]`, posé sur la rangée (cf. index.css) : quatre valeurs,
-   une seule source, et le défaut couvre une gravité que le flux aurait inventée. */
+   une seule source, et le défaut couvre une gravité que le flux aurait inventée. L'avant-plan vient
+   de `--on-sev` et non de `--surface`, que cette règle détournait comme couleur de texte : en thème
+   sombre, `--surface` devient foncé et retournerait le texte sur son fond. */
 .badge {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--sev);
-  color: var(--surface);
+  color: var(--on-sev);
   font-weight: bold;
   font-size: 11px;
 }
