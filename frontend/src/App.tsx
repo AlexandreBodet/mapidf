@@ -256,13 +256,14 @@ export default function App() {
     };
   }, [selectedStationId]);
 
-  const clearSelection = () => {
-    setSelected(null);
-    setSelectedJourneyRef(null);
-    setFollow(false);
-  };
+  // Refermer une fiche détruit l'élément focalisé : sans retour explicite, le focus retombe sur
+  // `body` et la tabulation repart du début du document. Le canevas est le seul point de retour
+  // honnête — la fiche s'ouvre par un clic carte, il n'y a pas d'élément déclencheur à qui rendre le
+  // focus — et il est focusable par construction (MapLibre y pose `tabindex="0"`).
+  const focusMap = () => map?.getCanvas().focus();
 
-  const closeStation = () => {
+  /** Vide la station sans toucher au focus : `followTrainFromPanel` enchaîne sur une autre fiche. */
+  const resetStation = () => {
     departuresAbort.current?.abort();
     departuresAbort.current = null;
     setStation(null);
@@ -270,12 +271,47 @@ export default function App() {
     map?.setFilter("stops-selected", ["==", ["get", "id"], "__none__"]);
   };
 
+  const closeStation = () => {
+    resetStation();
+    focusMap();
+  };
+
+  const clearSelection = () => {
+    setSelected(null);
+    setSelectedJourneyRef(null);
+    setFollow(false);
+    focusMap();
+  };
+
   const followTrainFromPanel = (journeyRef: string) => {
-    closeStation();
+    resetStation();
     setSelected(null);
     setSelectedJourneyRef(journeyRef);
     setFollow(true);
   };
+
+  // Écouteur sur `document`, et non un `onKeyDown` sur la fiche : au moment de fermer, le focus est
+  // le plus souvent sur le canevas (la fiche s'ouvre par un clic carte), donc un gestionnaire React
+  // posé sur le panneau ne verrait jamais la touche. Le ref suit le motif de `sheet` ci-dessus :
+  // l'écouteur est posé une fois et ne peut pas lire ces valeurs sans les figer au montage.
+  const onEscape = useRef(() => {});
+  onEscape.current = () => {
+    if (station || selectedStationId) {
+      closeStation();
+    } else if (selected || selectedJourneyRef) {
+      clearSelection();
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onEscape.current();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Trié une fois ici : `App` a besoin de l'ordre pour dériver les lignes perturbées, et le
   // sélecteur pour ses pastilles. Deux tris divergeraient.
