@@ -48,9 +48,11 @@ SERVER_PORT=8200
 MANAGEMENT_SERVER_PORT=9200
 ```
 
-Dans la pile Docker, ces valeurs ne changent que les ports **publiés** sur la machine : le
-conteneur, lui, garde 8100/9100 en dur (`environment` dans le compose), parce que nginx y
-proxifie vers `backend:8100`. Déplacer ses ports d'hôte ne peut donc pas casser `/api`.
+Dans la pile Docker, ces valeurs ne changent que les ports **publiés** sur la machine — et
+depuis SEC-3, l'API (8100) rejoint l'Actuator (9100) : **les deux ne sont publiés que sur
+`127.0.0.1`**. Les variables continuent de choisir le port d'hôte, seule l'interface d'écoute
+change. Le conteneur, lui, garde 8100/9100 en dur (`environment` dans le compose), parce que
+nginx y proxifie vers `backend:8100`. Déplacer ses ports d'hôte ne peut donc pas casser `/api`.
 
 ## Premier démarrage
 À la première exécution (base vide, ou après une migration Flyway), le backend télécharge le
@@ -82,6 +84,18 @@ modes (ex. tram), ajustez `app.network.modes` (et le `gtfs-static-url` si besoin
   et les perturbations visant ses quais.
 - `GET /api/disruptions` — perturbations **en cours** des lignes suivies (les travaux à venir
   sont écartés), avec la pire gravité par ligne et les stations dont un quai est touché.
+
+Les quatre endpoints sont limités à **600 requêtes par minute et par adresse IP**
+(`app.ratelimit.requests-per-minute`) ; au-delà, la réponse est un **429** portant `Retry-After`
+et le corps d'erreur habituel. La loopback n'est pas comptée — **telle que l'application la voit
+après résolution du `X-Forwarded-For`**. Dans la pile Docker, `EnableUserlandProxy` valant `true`,
+une requête de l'hôte vers un port publié arrive dans le conteneur **depuis la passerelle du
+bridge** (`172.x`), pas depuis `127.0.0.1` : elle **est** donc comptée, sous une clé unique
+partagée par tout le trafic d'origine hôte (scrape Prometheus, `curl`,
+`scripts/check-headers.sh`) — sans gravité à 600/min, mais à savoir quand on opère la pile. Le
+`HEALTHCHECK` de `backend/Dockerfile`, lui, reste exempté : il tourne *dans* le conteneur. Un
+client normal consomme ~31 req/min par onglet en pointe (cf. [feuille de route](docs/roadmap.md),
+SEC-3) : il ne l'atteint jamais.
 
 ## Utilisation — échelle de zoom
 La carte se peuple progressivement avec le zoom : les tracés des lignes sont visibles à tout
@@ -124,12 +138,16 @@ Ce que le terminateur doit faire, et que rien ici ne peut faire à sa place :
 3. **Ne pas router `/actuator`.** La pile ne le publie que sur la loopback de l'hôte ; un proxy
    trop généreux annulerait ce garde-fou et exposerait la version de PostgreSQL, l'URL JDBC et
    les internes de la JVM.
-4. **Restreindre le port API** (8100 par défaut) : contrairement à l'Actuator, la pile le publie
-   sur toutes les interfaces. Un accès direct à ce port contourne nginx et tous ses en-têtes de
-   sécurité. Sur une machine exposée, le restreindre à `127.0.0.1` ou au réseau interne de la
-   pile.
+4. **Le port API** (8100 par défaut) — **fermé sur la loopback dans le compose racine depuis
+   SEC-3**, comme l'Actuator. Sur un déploiement qui ne repart pas de ce compose (jar nu, autre
+   orchestrateur), refaire la même restriction : un accès direct à ce port contournerait nginx et
+   tous ses en-têtes de sécurité.
 5. Laisser passer les en-têtes de réponse de nginx sans les réécrire — c'est à ce moment-là que
    HSTS devient actif, sans changement de configuration.
+6. **Déclarer son CIDR à nginx** via `set_real_ip_from` / `real_ip_header X-Forwarded-For` dans
+   `frontend/nginx.conf` — sans ça, la zone `limit_req` (clé sur `$binary_remote_addr`) devient un
+   budget partagé par tous les usagers au lieu d'un quota par IP (réserve détaillée dans
+   `nginx.conf`).
 
 Aucune question de CORS ne se pose : une seule origine sert l'application et l'API.
 

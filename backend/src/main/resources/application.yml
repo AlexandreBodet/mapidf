@@ -1,6 +1,11 @@
 server:
   servlet:
     context-path: /api
+  # RemoteIpValve de Tomcat, et surtout PAS le ForwardedHeaderFilter de Spring (`framework`) :
+  # lui seul a une notion de proxy de confiance. X-Forwarded-For n'est cru que s'il vient d'une
+  # adresse privée (défaut server.tomcat.remoteip.internal-proxies), donc un client public qui
+  # tape le port en direct ne peut pas forger son IP — sans quoi le quota SEC-3 ne bornerait rien.
+  forward-headers-strategy: native
   # 8000 et 9000 sont les ports de la moitié des projets Spring : un dev qui en fait tourner
   # un autre ne peut pas démarrer celui-ci. Surchargeables par le `.env` (cf. README).
   port: ${SERVER_PORT:8100}
@@ -76,3 +81,9 @@ app:
     # Une perturbation vit des heures ou des semaines : la minute n'apporte rien, et c'est un
     # quota distinct de celui du temps réel.
     disruptions-poll-interval: PT5M
+  ratelimit:
+    # Un onglet consomme ~31 req/min en pointe (15 pour /vehicles, 15 pour les passages d'une
+    # fiche ouverte, 1 pour /disruptions) : 600 laisse une vingtaine d'onglets sur une même
+    # adresse. Ce quota arrête une boucle emballée ; il n'arbitre pas entre usagers derrière un
+    # NAT partagé, où des centaines de personnes partagent une IP.
+    requests-per-minute: 600

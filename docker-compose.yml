@@ -22,11 +22,11 @@ services:
       db:
         condition: service_healthy
     restart: on-failure
-    # L'Actuator n'est publié que sur la loopback : health `show-details: always` et /metrics
-    # exposent version de PostgreSQL, URL JDBC et internes JVM. Reste joignable en
-    # http://localhost:9100 depuis la machine, inatteignable depuis le réseau.
-    # Seul le port d'hôte suit le `.env` ; celui du conteneur reste fixe (cf. `environment`).
-    ports: ["${SERVER_PORT:-8100}:8100", "127.0.0.1:${MANAGEMENT_SERVER_PORT:-9100}:9100"]
+    # Les DEUX ports sur la loopback : l'Actuator l'était déjà, l'API le devient. nginx joint le
+    # backend par le réseau du compose (`backend:8100`), il n'a jamais eu besoin d'un port publié
+    # — qui n'était qu'un contournement du rideau nginx offert à tout le réseau local.
+    # Le backend reste joignable depuis la machine (curl, IntelliJ, scripts).
+    ports: ["127.0.0.1:${SERVER_PORT:-8100}:8100", "127.0.0.1:${MANAGEMENT_SERVER_PORT:-9100}:9100"]
   frontend:
     build: ./frontend
     # Pas de `condition: service_healthy` : un `.env` incomplet fait boucler le backend
