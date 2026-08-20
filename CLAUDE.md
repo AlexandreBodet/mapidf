@@ -87,11 +87,19 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   calculé par `readableOn`, cf. plus bas), `Sheet` une seule (`--sheet-height`) — une valeur venue de
   la donnée ou d'une mesure, jamais une règle. Les deux exigent `as CSSProperties` : `tsc` refuse une
   variable CSS sans elle (TS2353).
-  Trois pièges mesurés : **un `<button>` n'hérite pas de la police du document** — un module qui en
-  stylise un doit reposer `font: inherit` (ce qu'apporte `composes: linkButton`) ou `font-family`,
-  **mais seulement si l'attribut remplacé posait une famille** ; s'il ne posait qu'une taille, en
-  ajouter une changerait le rendu, d'où `.close`, `.isolate` et `.handle` qui n'en ont volontairement
-  pas ; **tout masquage passe par l'attribut `hidden`**, jamais par
+  Trois pièges mesurés : **un `<button>` n'hérite ni la police ni la couleur du document** — la
+  feuille de l'UA pose `font` et `color: ButtonText` sur l'élément, ce qui coupe l'héritage des deux.
+  Pour la police, un module qui stylise un bouton doit reposer `font: inherit` (ce qu'apporte
+  `composes: linkButton`) ou `font-family`, **mais seulement si l'attribut remplacé posait une
+  famille** ; s'il ne posait qu'une taille, en ajouter une changerait le rendu, d'où `.isolate` et
+  `.handle` qui n'en ont volontairement pas. Pour la couleur, il n'y a pas d'exception : sans
+  `color`, un bouton reste noir **même en thème sombre** (`ButtonText` ne bascule pas sans
+  `color-scheme`). Mesuré en revue finale d'UX-4, et invisible aux tests : le `✕` de `PanelHeader` et
+  le compteur des pastilles sortaient à **1,23:1** sur la surface sombre — avec cet effet pervers que
+  les compteurs des lignes *masquées* étaient lisibles, `.pill[aria-pressed="false"]` posant leur
+  couleur, et ceux des lignes *affichées* non. D'où `color: var(--text)` sur `.close` et `.pill`, plus
+  `color-scheme: light dark` sur `:root` pour les surfaces que l'UA dessine (ascenseurs) ;
+  **tout masquage passe par l'attribut `hidden`**, jamais par
   `display: none`, et la garde `[hidden] { display: none !important }` d'`index.css` est
   indispensable, la feuille de l'UA étant écrasée par n'importe quelle règle auteur ; et **aucun test
   ne voit une règle CSS** (Vitest n'applique pas les feuilles), donc le rendu ne se vérifie qu'en
