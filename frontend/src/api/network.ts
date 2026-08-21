@@ -1,5 +1,5 @@
 import { API_BASE } from "./config";
-import type { NetworkResponse, VehiclesResponse, DeparturesResponse, DisruptionsResponse } from "./types";
+import type { NetworkResponse, VehiclesResponse, DeparturesResponse, DisruptionsResponse, StationSearchResponse } from "./types";
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { signal });
@@ -30,4 +30,8 @@ export function fetchDepartures(stationId: string, signal?: AbortSignal): Promis
 /** Perturbations en cours (le serveur écarte déjà les travaux à venir). */
 export function fetchDisruptions(): Promise<DisruptionsResponse> {
   return getJson<DisruptionsResponse>("/disruptions");
+}
+
+export function searchStations(q: string, signal?: AbortSignal): Promise<StationSearchResponse> {
+  return getJson<StationSearchResponse>(`/stations/search?q=${encodeURIComponent(q)}`, signal);
 }

@@ -98,3 +98,8 @@ export interface DisruptionsResponse {
   lines: LineDisruptions[];
   stations: StationDisruption[];
 }
+
+/** Résultats d'une recherche de station (UX-5a) ; mêmes champs que ceux de `/network`. */
+export interface StationSearchResponse {
+  results: NetworkStation[];
+}
