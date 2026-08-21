@@ -24,6 +24,7 @@ import { fetchDepartures } from "./api/network";
 import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
 import type { VehicleFeatureProperties } from "./map/VehicleLayer";
+import { decodePermalink, encodePermalink } from "./api/permalink";
 
 // Un clic direct sur une flèche ne fournit que journeyRef (VehicleFeatureProperties, allégée
 // tâche 14 : headsign/nextStop/expectedTime/status n'y sont plus). Le Vehicle complet vient
@@ -34,13 +35,25 @@ export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const map = useMap(container);
   const departuresAbort = useRef<AbortController | null>(null);
+  // Lu une seule fois, à la création du composant : les changements ultérieurs de l'URL
+  // (navigation externe) ne sont pas suivis, seul `replaceState` (plus bas) l'écrit depuis
+  // l'état de l'appli — jamais l'inverse après ce point.
+  const initialPermalink = useRef(decodePermalink(window.location.search)).current;
   const [selected, setSelected] = useState<Selected>(null);
-  const [selectedJourneyRef, setSelectedJourneyRef] = useState<string | null>(null);
-  const [follow, setFollow] = useState(false);
+  const [selectedJourneyRef, setSelectedJourneyRef] = useState<string | null>(initialPermalink.journeyRef);
+  // Même comportement qu'un clic direct sur un train sur la carte (onClick de la couche
+  // `vehicles`, plus bas dans ce fichier, qui pose déjà `setFollow(true)`).
+  const [follow, setFollow] = useState(initialPermalink.journeyRef !== null);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [visibleLines, setVisibleLines] = useState<Set<string> | null>(null);
+  const [visibleLines, setVisibleLines] = useState<Set<string> | null>(
+    initialPermalink.visibleLineIds ? new Set(initialPermalink.visibleLineIds) : null,
+  );
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
+  // Débloque l'effet d'écriture (plus bas) : vrai tout de suite s'il n'y avait pas de station à
+  // restaurer, sinon posé par l'effet de restauration une fois qu'il a fini (id trouvé ou non).
+  const [urlRestored, setUrlRestored] = useState(initialPermalink.stationId === null);
+  const stationRestored = useRef(false);
   // Horodatage du dernier snapshot servi : affiché sous le compteur de trains, il informe de la
   // date de mise à jour de la donnée (Licence Mobilité, art. 5.7 « neutralité et loyauté »).
   const [asOf, setAsOf] = useState<string | null>(null);
@@ -144,6 +157,40 @@ export default function App() {
       }
     }
   };
+
+  // Restauration d'un lien partagé (UX-5b) : la station a besoin de `map` (setFilter, easeTo) et
+  // de `network` (retrouver ses coordonnées pour recentrer la caméra, comme un clic direct). Le
+  // ref empêche de rejouer la restauration si `map`/`network` changent à nouveau plus tard.
+  useEffect(() => {
+    if (stationRestored.current || !map || !network) {
+      return;
+    }
+    stationRestored.current = true;
+    const target = initialPermalink.stationId
+      ? network.stations.find((s) => s.id === initialPermalink.stationId)
+      : undefined;
+    if (target) {
+      void selectStation(map, target.id, [target.lng, target.lat]);
+    }
+    // Débloque l'écriture même si l'id était introuvable : l'URL doit refléter l'état réel
+    // (par défaut), pas rester bloquée sur un id qui ne sera jamais restauré.
+    setUrlRestored(true);
+  }, [map, network]);
+
+  // Écrit l'état de sélection dans l'URL à chaque changement, pour qu'elle reste copiable à tout
+  // moment (UX-5b). `replaceState` seul, jamais `pushState` : le bouton Précédent doit continuer
+  // à quitter l'appli, pas naviguer entre sélections (spec § 2).
+  useEffect(() => {
+    if (!urlRestored) {
+      return;
+    }
+    const query = encodePermalink({
+      stationId: selectedStationId,
+      journeyRef: selectedJourneyRef,
+      visibleLineIds: visibleLines ? [...visibleLines] : null,
+    });
+    window.history.replaceState(null, "", `${window.location.pathname}${query}`);
+  }, [urlRestored, selectedStationId, selectedJourneyRef, visibleLines]);
 
   useEffect(() => {
     if (!map) {
