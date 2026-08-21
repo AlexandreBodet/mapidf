@@ -210,4 +210,41 @@ class StationsControllerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.stationName").value("Alpha"));
     }
+
+    @Test
+    void searchFindsAStationByNameSubstring() throws Exception {
+        mockMvc.perform(get("/stations/search").param("q", "orresp"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.results", hasSize(1)))
+            .andExpect(jsonPath("$.results[0].id").value("STC"))
+            .andExpect(jsonPath("$.results[0].name").value("Correspondance"));
+    }
+
+    @Test
+    void searchIsCaseInsensitive() throws Exception {
+        mockMvc.perform(get("/stations/search").param("q", "ALPHA"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.results[0].name").value("Alpha"));
+    }
+
+    @Test
+    void searchRendersAnEmptyListWhenNothingMatches() throws Exception {
+        mockMvc.perform(get("/stations/search").param("q", "zzz"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.results", hasSize(0)));
+    }
+
+    @Test
+    void searchRendersAnEmptyListForAMissingQuery() throws Exception {
+        mockMvc.perform(get("/stations/search"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.results", hasSize(0)));
+    }
+
+    @Test
+    void searchResponseIsNeverStorable() throws Exception {
+        mockMvc.perform(get("/stations/search").param("q", "alpha"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"));
+    }
 }

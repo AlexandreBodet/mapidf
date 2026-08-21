@@ -7,7 +7,7 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Sans motif de chemin : l'interceptor couvre les quatre endpoints. Que le contexte enfant de
+ * Sans motif de chemin : l'interceptor couvre tous les endpoints publics. Que le contexte enfant de
  * l'Actuator hérite ou non de ce {@code WebMvcConfigurer} importe peu en pratique : le port 9100
  * n'est publié que sur la loopback de la machine, donc inatteignable depuis le réseau — et si un
  * appel venu de l'hôte y était malgré tout compté (passerelle du bridge Docker, cf. README),
