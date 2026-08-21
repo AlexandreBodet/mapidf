@@ -8,6 +8,12 @@ body {
   /* Sans ça, tirer la feuille vers le bas déclenche le rechargement-par-traction de Chrome
      Android au lieu de la replier. */
   overscroll-behavior: none;
+  /* La carte occupe tout le viewport (`.map` en `position: absolute`) : le document ne doit
+     jamais devenir scrollable. Sans ce `hidden`, un panneau flottant dont un descendant dépasse
+     le bas du viewport (mesuré : la liste de résultats de StationSearch une fois ouverte, sans
+     même avoir besoin de défiler elle-même) agrandit `scrollHeight` du document, et un simple
+     geste de molette au-dessus fait défiler la page entière, carte comprise. */
+  overflow: hidden;
 }
 
 /* Posée ici, la famille se diffuse par héritage : l'attribut `style` obligeait chaque bloc à la
