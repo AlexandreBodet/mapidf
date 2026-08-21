@@ -37,9 +37,11 @@ export function useVehicles(
   const selectedRef = useRef(selectedJourneyRef);
   const onSelectedRef = useRef(onSelected);
   const onSnapshotRef = useRef(onSnapshot);
+  const followRef = useRef(follow);
   selectedRef.current = selectedJourneyRef;
   onSelectedRef.current = onSelected;
   onSnapshotRef.current = onSnapshot;
+  followRef.current = follow;
 
   useEffect(() => {
     // La couche n'est créée qu'une fois le réseau connu : c'est lui qui fournit les
@@ -50,6 +52,11 @@ export function useVehicles(
     const colorByLine = new Map(network.lines.map((line) => [line.id, line.color]));
     const layer = new VehicleLayer(map, VEHICLE_POLL_MS, colorByLine);
     layerRef.current = layer;
+    // Permalien : selectedJourneyRef/follow peuvent être déjà posés au premier render, avant que
+    // cette couche n'existe (elle attend `network`) — leurs effets `[map, ...]` ne se rejouant pas
+    // faute de changement de deps, on stampe ici l'état courant sur la couche qui vient de naître.
+    layer.setSelected(selectedRef.current);
+    layer.setFollow(followRef.current);
     let cancelled = false;
     let timer: number;
     const tick = async () => {
