@@ -30,11 +30,12 @@ export function decodePermalink(search: string): PermalinkState {
   const params = new URLSearchParams(search);
   const stationId = params.get("station");
   const linesParam = params.get("lines");
+  const visibleLineIds = linesParam ? linesParam.split(",").filter(Boolean) : [];
   return {
     stationId,
     // Un lien composé à la main peut porter les deux : la station l'emporte, au même titre
     // qu'un clic carte ferme le suivi d'un train (App.tsx, selectStation).
     journeyRef: stationId ? null : params.get("train"),
-    visibleLineIds: linesParam ? linesParam.split(",").filter(Boolean) : null,
+    visibleLineIds: visibleLineIds.length > 0 ? visibleLineIds : null,
   };
 }

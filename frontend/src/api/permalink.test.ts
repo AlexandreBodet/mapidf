@@ -61,4 +61,8 @@ describe("decodePermalink", () => {
     expect(decodePermalink("?lines=")).toEqual({ stationId: null, journeyRef: null, visibleLineIds: null });
     expect(decodePermalink("")).toEqual({ stationId: null, journeyRef: null, visibleLineIds: null });
   });
+
+  it("lines composé uniquement de séparateurs décode en null", () => {
+    expect(decodePermalink("?lines=,,")).toEqual({ stationId: null, journeyRef: null, visibleLineIds: null });
+  });
 });
