@@ -2,6 +2,7 @@ import type { LineDisruptions, NetworkLine } from "../api/types";
 import { severityMeta } from "./severity";
 import { DisruptionRow } from "./DisruptionRow";
 import { LineBadge } from "./LineBadge";
+import { StationSearch } from "./StationSearch";
 import styles from "./LinePicker.module.css";
 
 interface Props {
@@ -17,13 +18,15 @@ interface Props {
   /** null = toutes les lignes visibles. */
   visible: Set<string> | null;
   onToggle: (lineId: string) => void;
+  onSelectStation: (id: string, coords: [number, number]) => void;
 }
 
 export function LinePicker({
-  lines, disrupted, counts, disruptions, disruptionsOpen, visible, onToggle,
+  lines, disrupted, counts, disruptions, disruptionsOpen, visible, onToggle, onSelectStation,
 }: Props) {
   return (
     <>
+      <StationSearch onSelectStation={onSelectStation} />
       {disruptionsOpen && disrupted.length > 0 && (
         <ul className={styles.list}>
           {disrupted.flatMap((line) =>

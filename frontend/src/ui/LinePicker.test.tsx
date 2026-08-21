@@ -18,6 +18,7 @@ const perturbation = (severity: LineDisruptions["severity"], titre: string): Lin
 
 function renderPicker(props: Partial<Parameters<typeof LinePicker>[0]> = {}) {
   const onToggle = vi.fn();
+  const onSelectStation = vi.fn();
   const result = render(
     <LinePicker
       lines={[LIGNE_9, LIGNE_8]}
@@ -27,10 +28,11 @@ function renderPicker(props: Partial<Parameters<typeof LinePicker>[0]> = {}) {
       disruptionsOpen={false}
       visible={null}
       onToggle={onToggle}
+      onSelectStation={onSelectStation}
       {...props}
     />,
   );
-  return { onToggle, ...result };
+  return { onToggle, onSelectStation, ...result };
 }
 
 describe("LinePicker", () => {

@@ -372,6 +372,7 @@ export default function App() {
       disruptionsOpen={disruptionsOpen}
       visible={visibleLines}
       onToggle={toggleLine}
+      onSelectStation={selectStationFromSearch}
     />
   );
   // Une seule fiche existe à la fois : `App` vide la sélection train à l'ouverture d'une station
