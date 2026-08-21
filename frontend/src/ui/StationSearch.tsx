@@ -9,6 +9,9 @@ interface Props {
   onSelectStation: (id: string, coords: [number, number]) => void;
 }
 
+/** Doit rester égal au `max-height` de `.results` dans StationSearch.module.css. */
+const RESULTS_MAX_HEIGHT = 240;
+
 /**
  * Recherche de station : point d'entrée clavier pour atteindre une entité de la carte sans souris
  * (UX-5a, dette héritée d'UX-4 — un canevas MapLibre n'a pas d'enfants focusables). Pattern ARIA
@@ -20,6 +23,13 @@ export function StationSearch({ onSelectStation }: Props) {
   const [results, setResults] = useState<NetworkStation[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const abortRef = useRef<AbortController | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  // Les deux panneaux qui accueillent ce champ (FloatingCard desktop, Sheet mobile) sont ancrés au
+  // bas de l'écran : selon leur contenu (nombre de pastilles, cran de la feuille), la place sous le
+  // champ varie de généreuse à quasi nulle. document.documentElement/body ont `overflow: hidden`
+  // (index.css) pour que la carte ne défile jamais — donc une liste qui déborderait le bas du
+  // viewport serait tronquée, pas seulement scrollée. D'où la mesure, plutôt qu'un sens fixe.
+  const [direction, setDirection] = useState<"down" | "up">("down");
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -50,6 +60,22 @@ export function StationSearch({ onSelectStation }: Props) {
   }, [query]);
 
   const open = results.length > 0;
+
+  // Mesurée à l'ouverture seulement : la position du champ dans son panneau ne bouge pas tant que
+  // la liste reste ouverte (elle est en `position: absolute`, donc hors flux — elle n'influence pas
+  // la hauteur du panneau qui la contient).
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    setDirection(spaceBelow < RESULTS_MAX_HEIGHT && spaceAbove > spaceBelow ? "up" : "down");
+  }, [open]);
 
   const select = (station: NetworkStation) => {
     onSelectStation(station.id, [station.lng, station.lat]);
@@ -82,7 +108,7 @@ export function StationSearch({ onSelectStation }: Props) {
   const activeId = active ? `station-option-${active.id}` : undefined;
 
   return (
-    <div className={styles.search}>
+    <div className={styles.search} ref={wrapperRef}>
       <input
         type="text"
         className={styles.input}
@@ -107,7 +133,13 @@ export function StationSearch({ onSelectStation }: Props) {
       {/* Toujours montée, masquée par `hidden` : convention du projet (index.css porte la garde
           `[hidden] { display: none !important }`), et ça évite un `aria-controls` qui pointerait
           par moments vers un id absent du DOM. */}
-      <ul className={styles.results} role="listbox" id="station-search-listbox" hidden={!open}>
+      <ul
+        className={styles.results}
+        role="listbox"
+        id="station-search-listbox"
+        hidden={!open}
+        data-direction={direction}
+      >
         {results.map((station, index) => (
           <li
             key={station.id}

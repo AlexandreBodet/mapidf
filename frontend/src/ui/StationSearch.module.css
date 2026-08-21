@@ -35,7 +35,6 @@
   z-index: 1;
   left: 0;
   right: 0;
-  margin: 4px 0 0;
   padding: 4px 0;
   list-style: none;
   background: var(--surface);
@@ -44,6 +43,18 @@
   box-shadow: var(--shadow-card);
   max-height: 240px;
   overflow-y: auto;
+}
+
+/* Sens choisi par mesure (StationSearch.tsx) : les deux panneaux qui accueillent ce champ sont
+   ancrés au bas de l'écran, donc la place sous le champ varie selon leur contenu. */
+.results[data-direction="down"] {
+  top: 100%;
+  margin: 4px 0 0;
+}
+
+.results[data-direction="up"] {
+  bottom: 100%;
+  margin: 0 0 4px;
 }
 
 .result {
