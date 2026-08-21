@@ -112,6 +112,20 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   rien, cf. limitation ci-dessous) et un
   **thème sombre au seul `prefers-color-scheme`**, sans interrupteur manuel, qui ne couvre que les
   **panneaux** : la carte reste claire, le style tiers ne basculant pas avec elle (cf. UX-6).
+- **`html, body { overflow: hidden }` (`index.css`) n'est pas cosmétique : sans lui, un panneau
+  flottant suffit à faire défiler toute la page, carte comprise.** Mesuré sur `StationSearch`
+  (UX-5a) : sa liste de résultats est en `position: absolute` dans un panneau qui ne la clippe pas
+  (`FloatingCard`/`Sheet`) ; dès qu'elle dépasse le bas du viewport, `document.documentElement.
+  scrollHeight` grandit en conséquence — un simple geste de molette au-dessus fait alors défiler le
+  document entier, sans que la liste elle-même n'ait besoin de déborder en interne. **Corollaire
+  qui a suivi, et qui a fait re-déboguer une deuxième fois** : poser ce `hidden` empêche aussi de
+  révéler par scroll ce qui dépasse — un panneau ancré en bas de l'écran (`FloatingCard`
+  `bottom-left`, `Sheet`) laisse peu de place sous un champ proche du haut du panneau, et le
+  contenu qui déborde est désormais **tronqué**, pas juste inatteignable au clavier. Pas de sens
+  fixe qui tienne dans les deux mises en page (desktop toujours peu de place en dessous ; mobile,
+  ça dépend du cran de la feuille) : `StationSearch.tsx` mesure l'espace disponible à l'ouverture
+  (`getBoundingClientRect`) et choisit `data-direction="up"|"down"` en conséquence, plutôt qu'un
+  côté figé.
 - **Les couleurs de ligne ne sont pas dessinées pour du blanc.** `LineBadge` calcule son avant-plan
   par `readableOn` (`ui/color.ts`) : mesuré, six des huit teintes réelles du flux échouent le seuil de
   4,5:1 avec du blanc, jusqu'à 1,62:1 sur la ligne 9. Le choix se **calcule** au lieu de suivre un
