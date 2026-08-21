@@ -218,7 +218,7 @@ le reste du réseau circule** (réseau entier à zéro = panne du flux, pas d'un
 avertissement, le compteur d'échecs de poll le dit déjà). Et `/actuator/prometheus` expose toutes
 les mesures pour un collecteur, s'il y en a un jour.
 
-Depuis SEC-3, les quatre endpoints publics sont soumis à un quota de **600 req/min par IP**
+Depuis SEC-3, les cinq endpoints publics sont soumis à un quota de **600 req/min par IP**
 (`app.ratelimit.requests-per-minute`), **littéral dans `application.yml`, pas dans `.env`** — un
 budget de requêtes est un réglage fonctionnel, comme `app.network.modes`, pas un secret ni une
 coordonnée d'infrastructure ; l'inscrire à `.env.example` le rendrait **obligatoire** au démarrage

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NetworkStation } from "../api/types";
 import { expectNoA11yViolations } from "../test/axe";
@@ -119,6 +119,24 @@ describe("StationSearch", () => {
 
     expect(documentEscape).toHaveBeenCalledOnce();
     document.removeEventListener("keydown", documentEscape);
+  });
+
+  it("un échec de recherche après navigation clavier referme la liste sans planter", async () => {
+    // Régression : activeIndex pointait sur un résultat qui n'existait plus une fois `results`
+    // vidé par le .catch(), et la ligne dérivant `activeId` lisait `results[activeIndex].id` sans
+    // garde -> TypeError en plein rendu (pas d'error boundary dans l'appli).
+    vi.mocked(searchStations)
+      .mockResolvedValueOnce({ results: [ALPHA] })
+      .mockRejectedValueOnce(new Error("boom"));
+    renderSearch();
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "a" } });
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+
+    fireEvent.change(input, { target: { value: "al" } });
+
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
   });
 
   it("ne présente aucune violation détectable par axe", async () => {

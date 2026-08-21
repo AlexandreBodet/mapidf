@@ -42,6 +42,7 @@ export function StationSearch({ onSelectStation }: Props) {
         .catch(() => {
           if (!controller.signal.aborted) {
             setResults([]);
+            setActiveIndex(-1);
           }
         });
     }, SEARCH_DEBOUNCE_MS);
@@ -77,7 +78,8 @@ export function StationSearch({ onSelectStation }: Props) {
     }
   };
 
-  const activeId = activeIndex >= 0 ? `station-option-${results[activeIndex].id}` : undefined;
+  const active = activeIndex >= 0 ? results[activeIndex] : undefined;
+  const activeId = active ? `station-option-${active.id}` : undefined;
 
   return (
     <div className={styles.search}>
@@ -94,6 +96,10 @@ export function StationSearch({ onSelectStation }: Props) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
+        onBlur={() => {
+          setResults([]);
+          setActiveIndex(-1);
+        }}
       />
       <p className={styles.srOnly} aria-live="polite">
         {open ? `${results.length} résultat${results.length > 1 ? "s" : ""}` : ""}
@@ -110,6 +116,7 @@ export function StationSearch({ onSelectStation }: Props) {
             aria-selected={index === activeIndex}
             className={styles.result}
             onMouseEnter={() => setActiveIndex(index)}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => select(station)}
           >
             {station.name}
