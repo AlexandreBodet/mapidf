@@ -116,6 +116,35 @@ export default function App() {
     map.setPadding({ top: 0, right: 0, bottom: mapPadding(target, viewportHeight), left: 0 });
   };
 
+  // Cœur de handleStationClick, extrait pour être rejoué depuis la recherche (UX-5a) exactement
+  // comme depuis un clic carte : mêmes filtres, même vol de caméra, même fetch des passages.
+  const selectStation = async (map: MlMap, id: string, coords: [number, number] | undefined) => {
+    // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
+    setSelected(null);
+    setSelectedJourneyRef(null);
+    setFollow(false);
+    map.setFilter("stops-selected", ["==", ["get", "id"], id]);
+    // Avant l'easeTo : il doit s'animer vers le centre définitif, padding compris.
+    openSheet(map);
+    if (coords) {
+      map.easeTo({ center: coords });
+    }
+    setSelectedStationId(id);
+    departuresAbort.current?.abort();
+    const controller = new AbortController();
+    departuresAbort.current = controller;
+    try {
+      const fresh = await fetchDepartures(id, controller.signal);
+      if (!controller.signal.aborted) {
+        setStation(fresh);
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        setStation(null);
+      }
+    }
+  };
+
   useEffect(() => {
     if (!map) {
       return;
@@ -136,36 +165,14 @@ export default function App() {
       openSheet(map);
     };
     map.on("click", "vehicles", onClick);
-    const handleStationClick = async (e: MapLayerMouseEvent) => {
+    const handleStationClick = (e: MapLayerMouseEvent) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
-      const coords = (e.features?.[0]?.geometry as Point | undefined)?.coordinates;
+      const coords = (e.features?.[0]?.geometry as Point | undefined)?.coordinates as
+        [number, number] | undefined;
       if (!id) {
         return;
       }
-      // Sélection exclusive : ouvrir une station ferme le suivi d'un train.
-      setSelected(null);
-      setSelectedJourneyRef(null);
-      setFollow(false);
-      map.setFilter("stops-selected", ["==", ["get", "id"], id]);
-      // Avant l'easeTo : il doit s'animer vers le centre définitif, padding compris.
-      openSheet(map);
-      if (coords) {
-        map.easeTo({ center: coords as [number, number] });
-      }
-      setSelectedStationId(id);
-      departuresAbort.current?.abort();
-      const controller = new AbortController();
-      departuresAbort.current = controller;
-      try {
-        const fresh = await fetchDepartures(id, controller.signal);
-        if (!controller.signal.aborted) {
-          setStation(fresh);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setStation(null);
-        }
-      }
+      void selectStation(map, id, coords);
     };
     // MapLibre ignore la promesse rendue par un handler `async`. On l'écarte donc ici, dans un
     // enrobage **synchrone et unique** : `on` et `off` doivent recevoir la MÊME référence, sinon
@@ -261,6 +268,21 @@ export default function App() {
   // honnête — la fiche s'ouvre par un clic carte, il n'y a pas d'élément déclencheur à qui rendre le
   // focus — et il est focusable par construction (MapLibre y pose `tabindex="0"`).
   const focusMap = () => map?.getCanvas().focus();
+
+  // Pont entre la recherche (UX-5a) et la sélection existante. Sur mobile, le champ de recherche
+  // est démonté dès qu'une station est sélectionnée (Sheet à contenu unique, App.tsx:407) : sans
+  // retour explicite le focus retomberait sur `body`, même défaut que closeStation corrige à la
+  // fermeture. En desktop LinePicker et sa recherche survivent à la sélection (FloatingCard
+  // séparée) : le focus reste sur le champ, pour pouvoir enchaîner une deuxième recherche.
+  const selectStationFromSearch = (id: string, coords: [number, number]) => {
+    if (!map) {
+      return;
+    }
+    void selectStation(map, id, coords);
+    if (isNarrow) {
+      focusMap();
+    }
+  };
 
   /** Vide la station sans toucher au focus : `followTrainFromPanel` enchaîne sur une autre fiche. */
   const resetStation = () => {
