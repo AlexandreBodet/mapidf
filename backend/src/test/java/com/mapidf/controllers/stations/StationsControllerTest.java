@@ -7,6 +7,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import com.mapidf.configurations.properties.PrimProperties;
+import com.mapidf.controllers.network.NetworkResponse;
 import com.mapidf.disruptions.DisruptionPoller;
 import com.mapidf.network.LineRegistry;
 import com.mapidf.network.NetworkSnapshot;
@@ -69,5 +70,23 @@ class StationsControllerTest {
 
         assertThat(second).isNotNull();
         assertThat(second.stationName()).isEqualTo("Nouvelle");
+    }
+
+    @Test
+    void searchFindsAStationByASubstringOfItsName() {
+        LineRegistry registry = new LineRegistry();
+        registry.publish(NetworkSnapshot.of(List.of(),
+            List.of(new Station("ST1", "Châtelet", 48.85, 2.34, List.of("1"), List.of("9")))));
+        ObjectMapper json = new ObjectMapper();
+        StationsController controller = new StationsController(registry,
+            new RealtimePoller(PRIM, json, registry),
+            new DisruptionPoller(PRIM, json, registry),
+            new StationDepartureService(), FROZEN, new SimpleMeterRegistry());
+
+        StationSearchResponse response = controller.search("chatelet").getBody();
+
+        assertThat(response).isNotNull();
+        assertThat(response.results()).extracting(NetworkResponse.StationDto::name)
+            .containsExactly("Châtelet");
     }
 }

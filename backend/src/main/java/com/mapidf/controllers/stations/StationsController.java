@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.mapidf.controllers.disruptions.DisruptionsResponse;
+import com.mapidf.controllers.network.NetworkResponse;
 import com.mapidf.controllers.support.ResponseCache;
 import com.mapidf.disruptions.Disruption;
 import com.mapidf.disruptions.DisruptionPoller;
@@ -15,6 +16,7 @@ import com.mapidf.disruptions.DisruptionSnapshot;
 import com.mapidf.network.LineRegistry;
 import com.mapidf.network.NetworkSnapshot;
 import com.mapidf.network.Station;
+import com.mapidf.network.StationSearch;
 import com.mapidf.network.TrackedLine;
 import com.mapidf.position.PositionEngine;
 import com.mapidf.rt.RealtimePoller;
@@ -26,12 +28,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class StationsController {
 
     private static final int PASSAGES_PER_DIRECTION = 3;
+    private static final int SEARCH_RESULTS_LIMIT = 8;
 
     private final LineRegistry registry;
     private final RealtimePoller poller;
@@ -70,6 +74,18 @@ public class StationsController {
             .contentType(MediaType.APPLICATION_JSON)
             .cacheControl(CacheControl.noStore())
             .body(body);
+    }
+
+    @GetMapping("/stations/search")
+    public ResponseEntity<StationSearchResponse> search(@RequestParam(defaultValue = "") String q) {
+        List<Station> matches =
+            StationSearch.search(registry.current().stations(), q, SEARCH_RESULTS_LIMIT);
+        List<NetworkResponse.StationDto> items = matches.stream()
+            .map(s -> new NetworkResponse.StationDto(s.id(), s.name(), s.lat(), s.lng(), s.lineIds()))
+            .toList();
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .body(new StationSearchResponse(items));
     }
 
     private DeparturesResponse build(Station station, RtSnapshot rt, DisruptionSnapshot disruptions,
