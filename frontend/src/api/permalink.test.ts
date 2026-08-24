@@ -30,6 +30,10 @@ describe("encodePermalink", () => {
     expect(encodePermalink({ stationId: "ST1", journeyRef: "SIRI:1", visibleLineIds: null }))
       .toBe("?station=ST1");
   });
+
+  it("un tableau de lignes vide n'émet pas de paramètre lines", () => {
+    expect(encodePermalink({ stationId: null, journeyRef: null, visibleLineIds: [] })).toBe("");
+  });
 });
 
 describe("decodePermalink", () => {

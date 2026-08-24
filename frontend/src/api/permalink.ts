@@ -19,7 +19,7 @@ export function encodePermalink(state: PermalinkState): string {
   } else if (state.journeyRef) {
     params.set("train", state.journeyRef);
   }
-  if (state.visibleLineIds) {
+  if (state.visibleLineIds && state.visibleLineIds.length > 0) {
     params.set("lines", state.visibleLineIds.join(","));
   }
   const query = params.toString();

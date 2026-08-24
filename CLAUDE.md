@@ -126,6 +126,18 @@ démarrer ou arrêter — demande, ou vérifie, avant. Certains devs les gèrent
   ça dépend du cran de la feuille) : `StationSearch.tsx` mesure l'espace disponible à l'ouverture
   (`getBoundingClientRect`) et choisit `data-direction="up"|"down"` en conséquence, plutôt qu'un
   côté figé.
+- **Restaurer un état par seeding initial de `useState` (au lieu d'un `setState()` après montage,
+  comme le fait un clic) saute tous les effets de bord qu'un clic déclenche normalement, et ne peut
+  pas supposer les préconditions qu'un clic garantit implicitement** (couche déjà créée, style déjà
+  chargé). Trois occurrences mesurées sur UX-5b (permalien) : dans `useVehicles.ts`, la couche
+  véhicules est créée par un effet gaté sur `[map, network]`, mais les effets qui lui poussent
+  `selectedJourneyRef`/`follow` ont pour déps `[map, ...]` sans `network` — seedés par `useState`
+  au lieu d'un clic, ces valeurs ne changent jamais entre la création de la couche et leur propre
+  effet, qui ne se rejoue donc pas ; dans `App.tsx`, le `setFilter` de restauration de station peut
+  taper un style MapLibre pas encore analysé (un clic n'arrive jamais avant que le style existe) ;
+  et `openSheet` n'était jamais appelé pour un train restauré (un clic direct l'appelle toujours).
+  Prévoir ce risque en amont pour tout chantier qui restaure un état depuis l'URL ou un stockage
+  (UX-5c, géolocalisation, dans le même sillage).
 - **Les couleurs de ligne ne sont pas dessinées pour du blanc.** `LineBadge` calcule son avant-plan
   par `readableOn` (`ui/color.ts`) : mesuré, six des huit teintes réelles du flux échouent le seuil de
   4,5:1 avec du blanc, jusqu'à 1,62:1 sur la ligne 9. Le choix se **calcule** au lieu de suivre un

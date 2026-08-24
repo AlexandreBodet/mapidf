@@ -25,6 +25,7 @@ import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
 import type { VehicleFeatureProperties } from "./map/VehicleLayer";
 import { decodePermalink, encodePermalink } from "./api/permalink";
+import { whenStyleReady } from "./map/mapReady";
 
 // Un clic direct sur une flèche ne fournit que journeyRef (VehicleFeatureProperties, allégée
 // tâche 14 : headsign/nextStop/expectedTime/status n'y sont plus). Le Vehicle complet vient
@@ -38,7 +39,7 @@ export default function App() {
   // Lu une seule fois, à la création du composant : les changements ultérieurs de l'URL
   // (navigation externe) ne sont pas suivis, seul `replaceState` (plus bas) l'écrit depuis
   // l'état de l'appli — jamais l'inverse après ce point.
-  const initialPermalink = useRef(decodePermalink(window.location.search)).current;
+  const [initialPermalink] = useState(() => decodePermalink(window.location.search));
   const [selected, setSelected] = useState<Selected>(null);
   const [selectedJourneyRef, setSelectedJourneyRef] = useState<string | null>(initialPermalink.journeyRef);
   // Même comportement qu'un clic direct sur un train sur la carte (onClick de la couche
@@ -165,17 +166,45 @@ export default function App() {
     if (stationRestored.current || !map || !network) {
       return;
     }
-    stationRestored.current = true;
     const target = initialPermalink.stationId
       ? network.stations.find((s) => s.id === initialPermalink.stationId)
       : undefined;
     if (target) {
-      void selectStation(map, target.id, [target.lng, target.lat]);
+      // `selectStation` est async : un throw synchrone dans son premier `map.setFilter` (style pas
+      // encore analysé) devient une promesse rejetée, invisible à un try/catch ici — on attend donc
+      // que la couche que ce filtre cible existe déjà (posée par useNetwork via le même
+      // whenStyleReady), plutôt que d'essayer d'attraper un rejet qu'on ne peut pas voir.
+      return whenStyleReady(map, () => {
+        if (!map.getLayer("stops-selected")) {
+          throw new Error("Style is not done loading.");
+        }
+        stationRestored.current = true;
+        void selectStation(map, target.id, [target.lng, target.lat]);
+        // Débloque l'écriture seulement une fois la restauration réellement lancée : sinon l'URL se
+        // viderait de `?station=...` avant que la restauration n'ait eu la moindre chance d'aboutir.
+        setUrlRestored(true);
+      });
     }
-    // Débloque l'écriture même si l'id était introuvable : l'URL doit refléter l'état réel
-    // (par défaut), pas rester bloquée sur un id qui ne sera jamais restauré.
+    // Rien à restaurer : aucune opération carte, aucune raison d'attendre le style. Appel direct
+    // volontaire : la sortir de ce `if` la rendrait inconditionnelle et romprait la branche
+    // `target`, qui doit au contraire ATTENDRE la restauration réelle avant de débloquer l'écriture.
+    stationRestored.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cf. commentaire ci-dessus
     setUrlRestored(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialPermalink.stationId est figé au montage et selectStation est stable (cf. plus haut) ; les lister re-déclencherait cet effet sans jamais changer son résultat
   }, [map, network]);
+
+  // Un clic direct sur un train ouvre la feuille (openSheet) ; la restauration par URL doit faire
+  // pareil pour ne pas laisser un lien de train partagé se rouvrir replié sous 720 px.
+  const trainRestored = useRef(false);
+  useEffect(() => {
+    if (trainRestored.current || !map || !initialPermalink.journeyRef) {
+      return;
+    }
+    trainRestored.current = true;
+    openSheet(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialPermalink.journeyRef est figé au montage ; le lister re-déclencherait cet effet sans jamais changer son résultat (le ref bloque déjà toute deuxième exécution)
+  }, [map]);
 
   // Écrit l'état de sélection dans l'URL à chaque changement, pour qu'elle reste copiable à tout
   // moment (UX-5b). `replaceState` seul, jamais `pushState` : le bouton Précédent doit continuer
@@ -189,7 +218,7 @@ export default function App() {
       journeyRef: selectedJourneyRef,
       visibleLineIds: visibleLines ? [...visibleLines] : null,
     });
-    window.history.replaceState(null, "", `${window.location.pathname}${query}`);
+    window.history.replaceState(null, "", `${window.location.pathname}${query}${window.location.hash}`);
   }, [urlRestored, selectedStationId, selectedJourneyRef, visibleLines]);
 
   useEffect(() => {
@@ -240,6 +269,7 @@ export default function App() {
       map.off("mouseenter", "vehicles", enter);
       map.off("mouseleave", "vehicles", leave);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectStation est stable en pratique (ne ferme que sur des refs et des setters) ; l'ajouter re-poserait les écouteurs à chaque render sans changer leur comportement
   }, [map]);
 
   useEffect(() => {

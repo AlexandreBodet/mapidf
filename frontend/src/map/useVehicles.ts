@@ -33,7 +33,8 @@ export function useVehicles(
   // headsign/nextStop/expectedTime/status ne sont plus posés sur les features GeoJSON
   // (allègement de la boucle de rendu, tâche 14).
   const vehiclesByRef = useRef<Map<string, Vehicle>>(new Map());
-  // Refs pour que la boucle de poll lise toujours la dernière valeur sans se ré-abonner.
+  // selectedRef/onSelectedRef/onSnapshotRef : lus par la boucle de poll sans s'y abonner.
+  // followRef : lu seulement à la création de la couche, pour la stamper sans dépendre d'elle.
   const selectedRef = useRef(selectedJourneyRef);
   const onSelectedRef = useRef(onSelected);
   const onSnapshotRef = useRef(onSnapshot);
