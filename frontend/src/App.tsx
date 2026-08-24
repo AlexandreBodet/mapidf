@@ -25,6 +25,7 @@ import { VEHICLE_POLL_MS } from "./api/config";
 import type { DeparturesResponse, Vehicle } from "./api/types";
 import type { VehicleFeatureProperties } from "./map/VehicleLayer";
 import { decodePermalink, encodePermalink } from "./api/permalink";
+import { revealMore, revealedCountFor } from "./ui/passageReveal";
 import { whenStyleReady } from "./map/mapReady";
 
 // Un clic direct sur une flèche ne fournit que journeyRef (VehicleFeatureProperties, allégée
@@ -47,6 +48,18 @@ export default function App() {
   const [follow, setFollow] = useState(initialPermalink.journeyRef !== null);
   const [station, setStation] = useState<DeparturesResponse | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  // Combien de passages sont dépliés par direction dans StopPanel (UX-5e) — tenu ici, pas dans
+  // StopPanel, pour que highlightedJourneyRefs (plus bas) sache exactement quels trains sont
+  // effectivement listés, y compris après un clic sur "Voir plus".
+  const [revealedPassages, setRevealedPassages] = useState<Record<string, number>>({});
+  // Remise à zéro sur changement de station, en phase de rendu plutôt que dans un effet (pattern
+  // React « ajuster un état quand une prop change », cf. react.dev/learn/you-might-not-need-an-effect) :
+  // pas de rendu intermédiaire avec l'ancien dépliage affiché sur la nouvelle station.
+  const [revealedForStation, setRevealedForStation] = useState(selectedStationId);
+  if (revealedForStation !== selectedStationId) {
+    setRevealedForStation(selectedStationId);
+    setRevealedPassages({});
+  }
   const [visibleLines, setVisibleLines] = useState<Set<string> | null>(
     initialPermalink.visibleLineIds ? new Set(initialPermalink.visibleLineIds) : null,
   );
@@ -79,9 +92,15 @@ export default function App() {
   const highlightedJourneyRefs = useMemo(
     () =>
       new Set(
-        station?.lines.flatMap((l) => l.directions).flatMap((d) => d.passages.map((p) => p.journeyRef)) ?? [],
+        station?.lines.flatMap((l) =>
+          l.directions.flatMap((d) =>
+            d.passages
+              .slice(0, revealedCountFor(revealedPassages, l.lineId, d.destination))
+              .map((p) => p.journeyRef),
+          ),
+        ) ?? [],
       ),
-    [station],
+    [station, revealedPassages],
   );
   const disruptions = useDisruptions();
   const { network, status } = useNetwork(map, visibleLines, disruptions.stationSeverity, disruptionsOpen);
@@ -463,6 +482,10 @@ export default function App() {
     ? (
       <StopPanel
         data={station}
+        revealed={revealedPassages}
+        onReveal={(lineId, destination) =>
+          setRevealedPassages((prev) => revealMore(prev, lineId, destination))
+        }
         onSelectTrain={followTrainFromPanel}
         // Isolement inconditionnel : même intention qu'un clic dans LinePicker, quel que
         // soit visibleLines courant. La station reste affichée par construction : elle est

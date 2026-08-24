@@ -78,6 +78,15 @@
   text-align: left;
 }
 
+/* Couleur muette plutôt que `--accent` : ce n'est pas un horaire, il ne doit pas se confondre
+   avec les passages qui précèdent dans la même rangée. */
+.more {
+  composes: linkButton from "./shared.module.css";
+  padding: 2px 4px;
+  color: var(--text-muted);
+  text-align: left;
+}
+
 /* Un passage supprimé affichait une heure indiscernable d'un train qui vient — le pire cas au
    regard de l'art. 5.7 (ne pas induire en erreur sur le contenu). */
 .eta[data-cancelled="true"] {

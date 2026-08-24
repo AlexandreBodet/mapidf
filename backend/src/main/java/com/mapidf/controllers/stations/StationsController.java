@@ -34,7 +34,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class StationsController {
 
-    private static final int PASSAGES_PER_DIRECTION = 3;
+    // Plafond anti-abus, pas une limite d'UX : le front (StopPanel) affiche 3 passages par défaut
+    // et en révèle plus sur clic, sans nouvel appel réseau — c'est cette liste qu'il tronque.
+    private static final int PASSAGES_PER_DIRECTION = 20;
     private static final int SEARCH_RESULTS_LIMIT = 8;
 
     private final LineRegistry registry;
